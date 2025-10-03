@@ -43,6 +43,7 @@ from openai import OpenAI
 import json
 from anthropic import Anthropic
 from claude_agent_sdk import query, ClaudeAgentOptions
+import anyio
 
 
 def build_benchmark(make_command):
@@ -180,21 +181,6 @@ def ai_annotations(file, remark_files=None):
     Returns:
         String containing the optimized code with compiler hints
     """
-    # Initialize the agent with context management
-    agent = Agent(
-        client=Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY")),
-        model="claude-sonnet-4-5-20250929",
-        system_prompt=(
-            "You are a performance engineer, with the goal of reducing execution time "
-            "in a file. The compiler you are using is clang 18. You are ONLY permitted "
-            "to add any compiler hints to enable and configure loop autovectorization. "
-            "This at least includes #pragma clang loop vectorize(enable), interleave(enable), "
-            "vectorize_width(X), interleave_count(X), where X is in the set of any natural "
-            "numbers, and any combination of those compiler hints. You are NOT permitted to "
-            "do anything else. Only return the text of the modified file. Do not return "
-            "anything else."
-        )
-    )
     
     # Read target file
     with open(file) as f:
@@ -208,14 +194,46 @@ def ai_annotations(file, remark_files=None):
         for path in remark_files:
             with open(path) as rf:
                 prompt += f"<<REMARK FILE: {os.path.basename(path)}>>\n{rf.read()}\n\n"
-    
-    # Run the agent (single shot with automatic context management)
-    response = agent.run(prompt)
+                
+    options = ClaudeAgentOptions(
+        model="claude-sonnet-4-5-20250929",
+        system_prompt=(
+            "You are a performance engineer, with the goal of reducing execution time "
+            "in a file. The compiler you are using is clang 18. You are ONLY permitted "
+            "to add any compiler hints to enable and configure loop autovectorization. "
+            "This at least includes #pragma clang loop vectorize(enable), interleave(enable), "
+            "vectorize_width(X), interleave_count(X), where X is in the set of any natural "
+            "numbers, and any combination of those compiler hints. You are NOT permitted to "
+            "do anything else. Only return the text of the modified file. Do not return "
+            "anything else."
+        ),
+        max_turns=1  # Single-shot interaction
+    )
 
-    with open(file, "w") as output:
-        output.write(response.output_text)
+    # Run the query and collect response
+    async def run_query():
+        response_text = ""
+        async for message in query(prompt=prompt, options=options):
+            # Extract text from assistant messages
+            if hasattr(message, 'content'):
+                for block in message.content:
+                    if hasattr(block, 'text'):
+                        response_text += block.text
+        return response_text
     
-    return response.output_text
+    # Execute the async query
+    response_text = anyio.run(run_query)
+    
+    with open(file, "w") as output:
+        output.write(response_text)
+
+    # Log the response
+    with open("claudeapicalls.log", "a") as log:
+        log.write(f"File: {file}\n")
+        log.write(f"Response:\n{response_text}\n")
+        log.write("-" * 80 + "\n\n")
+    
+    return response_text
 
 
 main()
