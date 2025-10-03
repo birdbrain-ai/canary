@@ -196,7 +196,7 @@ def ai_annotations(file, remark_files=None):
                 prompt += f"<<REMARK FILE: {os.path.basename(path)}>>\n{rf.read()}\n\n"
                 
     options = ClaudeAgentOptions(
-        model="claude-sonnet-4-5-20250929",
+        model="claude-sonnet-4-5",
         system_prompt=(
             "You are a performance engineer, with the goal of reducing execution time "
             "in a file. The compiler you are using is clang 18. You are ONLY permitted "
