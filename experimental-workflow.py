@@ -147,7 +147,7 @@ def main(make_command, run_command, bench_folder_name, n_iters=1):
             # "{target_prefix}*.opt.yaml", where target_prefix is the basename
             # without the extension. 
 
-            target_prefix = os.path.splitext(os.path.basename(target_file))
+            target_prefix = os.path.splitext(os.path.basename(target_file))[0]
             pat = f"{target_prefix}*.opt.yaml"
             corresponding_yaml_files = []
             for yaml_file in yaml_files_from_prev_iter:
