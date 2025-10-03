@@ -2,7 +2,6 @@
 Quick experimental workflow. Still a work in progress.
 
 What I need to do:
-1. Use Claude Agent SDK, and see if I can time stuff 
 2. Test
 3. Do I need to pass older files in the proceeding prompts? 
 4. Make this configurable with other LLMs' APIs
@@ -43,7 +42,7 @@ import fnmatch
 from openai import OpenAI
 import json
 from anthropic import Anthropic
-from claude_agent_sdk import Agent
+from claude_agent_sdk import query, ClaudeAgentOptions
 
 
 def build_benchmark(make_command):
@@ -217,45 +216,6 @@ def ai_annotations(file, remark_files=None):
         output.write(response.output_text)
     
     return response.output_text
-
-
-# def ai_annotations(file, remark_files=None):
-#     client = OpenAI(
-#         api_key=os.environ.get("OPENAI_API_KEY"),
-#     )
-
-#     inputs = []
-
-#     # Construct target file as input
-#     with open(file) as f:
-#         inputs.append({
-#             "role": "user",
-#             "content": f"<<TARGET FILE (WRITE CHANGES HERE ONLY):\
-#                 {os.path.basename(file)}>>\n{f.read()}"
-#             })
-
-#     # Construct remark files as inputs
-#     remark_files = remark_files or []
-#     for path in remark_files:
-#         with open(path, "r") as rf:
-#             inputs.append({
-#                 "role": "user",
-#                 "content": f"<<REMARK FILE: {os.path.basename(path)}>>\
-#                 \n{rf.read()}"
-#             })
-
-#     response = client.responses.create(
-#         model="gpt-5",
-#         instructions="You are a performance engineer, with the goal of reducing execution time in a file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else. Only return the text of the modified file. Do not return anything else.",
-#         input=inputs,
-#     )
-
-#     with open("openaiapicalls.log", "a") as log:
-#         log.write(json.dumps(response.to_dict(), indent=2))
-#         log.write("\n\n")
-
-#     with open(file, "w") as output:
-#         output.write(response.output_text)
 
 
 main()
