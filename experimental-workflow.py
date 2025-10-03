@@ -42,6 +42,8 @@ import subprocess
 import re
 from openai import OpenAI
 import json
+from anthropic import Anthropic
+from claude_agent_sdk import Agent
 
 
 def build_benchmark(make_command):
@@ -86,7 +88,7 @@ def find_target_files():
     return find_files_with_ext([".h", ".c", ".cpp", ".hxx", ".hpp"])
 
 
-def main(make_command, run_command, bench_folder_name, n_iters=1):
+def main(make_command=None, run_command=None, bench_folder_name=None, n_iters=1):
     '''
     Runs experimental workflow.
 
@@ -169,42 +171,88 @@ def main(make_command, run_command, bench_folder_name, n_iters=1):
 
 
 def ai_annotations(file, remark_files=None):
-    client = OpenAI(
-        api_key=os.environ.get("OPENAI_API_KEY"),
+    """
+    Analyze a code file for loop optimization opportunities using Claude Agent SDK.
+    
+    Args:
+        file: Path to the target file to optimize
+        remark_files: Optional list of remark file paths for context
+    
+    Returns:
+        String containing the optimized code with compiler hints
+    """
+    # Initialize the agent with context management
+    agent = Agent(
+        client=Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY")),
+        model="claude-sonnet-4-5-20250929",
+        system_prompt=(
+            "You are a performance engineer, with the goal of reducing execution time "
+            "in a file. The compiler you are using is clang 18. You are ONLY permitted "
+            "to add any compiler hints to enable and configure loop autovectorization. "
+            "This at least includes #pragma clang loop vectorize(enable), interleave(enable), "
+            "vectorize_width(X), interleave_count(X), where X is in the set of any natural "
+            "numbers, and any combination of those compiler hints. You are NOT permitted to "
+            "do anything else. Only return the text of the modified file. Do not return "
+            "anything else."
+        )
     )
-
-    inputs = []
-
-    # Construct target file as input
+    
+    # Read target file
     with open(file) as f:
-        inputs.append({
-            "role": "user",
-            "content": f"<<TARGET FILE (WRITE CHANGES HERE ONLY):\
-                {os.path.basename(file)}>>\n{f.read()}"
-            })
+        target_content = f.read()
+    
+    # Build the prompt with clear structure
+    prompt = f"<<TARGET FILE (WRITE CHANGES HERE ONLY):\n{os.path.basename(file)}>>\n{target_content}\n\n"
+    
+    # Add remark files if provided
+    if remark_files:
+        for path in remark_files:
+            with open(path) as rf:
+                prompt += f"<<REMARK FILE: {os.path.basename(path)}>>\n{rf.read()}\n\n"
+    
+    # Run the agent (single shot with automatic context management)
+    response = agent.run(prompt)
+    
+    return response.output_text
 
-    # Construct remark files as inputs
-    remark_files = remark_files or []
-    for path in remark_files:
-        with open(path, "r") as rf:
-            inputs.append({
-                "role": "user",
-                "content": f"<<REMARK FILE: {os.path.basename(path)}>>\
-                \n{rf.read()}"
-            })
 
-    response = client.responses.create(
-        model="gpt-5",
-        instructions="You are a performance engineer, with the goal of reducing execution time in a file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else. Only return the text of the modified file. Do not return anything else.",
-        input=inputs,
-    )
+# def ai_annotations(file, remark_files=None):
+#     client = OpenAI(
+#         api_key=os.environ.get("OPENAI_API_KEY"),
+#     )
 
-    with open("openaiapicalls.log", "a") as log:
-        log.write(json.dumps(response.to_dict(), indent=2))
-        log.write("\n\n")
+#     inputs = []
 
-    with open(file, "w") as output:
-        output.write(response.output_text)
+#     # Construct target file as input
+#     with open(file) as f:
+#         inputs.append({
+#             "role": "user",
+#             "content": f"<<TARGET FILE (WRITE CHANGES HERE ONLY):\
+#                 {os.path.basename(file)}>>\n{f.read()}"
+#             })
+
+#     # Construct remark files as inputs
+#     remark_files = remark_files or []
+#     for path in remark_files:
+#         with open(path, "r") as rf:
+#             inputs.append({
+#                 "role": "user",
+#                 "content": f"<<REMARK FILE: {os.path.basename(path)}>>\
+#                 \n{rf.read()}"
+#             })
+
+#     response = client.responses.create(
+#         model="gpt-5",
+#         instructions="You are a performance engineer, with the goal of reducing execution time in a file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else. Only return the text of the modified file. Do not return anything else.",
+#         input=inputs,
+#     )
+
+#     with open("openaiapicalls.log", "a") as log:
+#         log.write(json.dumps(response.to_dict(), indent=2))
+#         log.write("\n\n")
+
+#     with open(file, "w") as output:
+#         output.write(response.output_text)
 
 
 main()
