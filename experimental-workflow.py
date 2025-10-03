@@ -44,6 +44,7 @@ import subprocess
 import re
 from openai import OpenAI
 import json
+import fnmatch
 
 
 def build_benchmark(make_command):
@@ -204,5 +205,8 @@ def ai_annotations(file, remark_files=None):
     with open("openaiapicalls.log", "a") as log:
         log.write(json.dumps(response.to_dict(), indent=2))
         log.write("\n\n")
+
+    with open(file, "w") as f:
+        f.write(response.output_text)
 
 main()
