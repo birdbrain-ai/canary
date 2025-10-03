@@ -214,4 +214,4 @@ parser.add_argument("bench_name")
 parser.add_argument("num_iters")
 args = parser.parse_args()
 
-main(args.make_command, args.run_command, args.bench_name, args.num_iters)
+main(args.make_command, args.run_command, args.bench_name, int(args.num_iters))
