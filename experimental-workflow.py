@@ -2,6 +2,10 @@
 Quick experimental workflow. Still a work in progress.
 
 What I need to do:
+<<<<<<< HEAD
+=======
+1. Use Claude Agent SDK, and see if I can time stuff 
+>>>>>>> 685bb81 (Collect target file and remarks, pass it to OpenAI API call, docs)
 2. Test
 3. Do I need to pass older files in the proceeding prompts? 
 4. Make this configurable with other LLMs' APIs
@@ -38,12 +42,9 @@ import shutil
 import sys
 import os
 import subprocess
-import fnmatch
+import re
 from openai import OpenAI
 import json
-from anthropic import Anthropic
-from claude_agent_sdk import query, ClaudeAgentOptions
-import anyio
 
 
 def build_benchmark(make_command):
@@ -88,7 +89,7 @@ def find_target_files():
     return find_files_with_ext([".h", ".c", ".cpp", ".hxx", ".hpp"])
 
 
-def main(make_command=None, run_command=None, bench_folder_name=None, n_iters=1):
+def main(make_command, run_command, bench_folder_name, n_iters=1):
     '''
     Runs experimental workflow.
 
@@ -147,12 +148,12 @@ def main(make_command=None, run_command=None, bench_folder_name=None, n_iters=1)
             # "{target_prefix}*.opt.yaml", where target_prefix is the basename
             # without the extension. 
 
-            target_prefix = os.path.splitext(os.path.basename(target_file))[0]
+            target_prefix = os.path.splitext(os.path.basename(target_file))
             pat = f"{target_prefix}*.opt.yaml"
             corresponding_yaml_files = []
             for yaml_file in yaml_files_from_prev_iter:
                 yaml_basename = os.path.basename(yaml_file)
-                if fnmatch.fnmatch(yaml_basename, pat):
+                if (re.search(pat, yaml_basename) is not None):
                     corresponding_yaml_files.append(yaml_file)
             target_and_yaml_files.append([target_file,
                                           corresponding_yaml_files])
@@ -170,137 +171,39 @@ def main(make_command=None, run_command=None, bench_folder_name=None, n_iters=1)
         yaml_files_from_prev_iter = find_opt_yaml_files()
 
 
-# def ai_annotations(file, remark_files=None):
-#     """
-#     Analyze a code file for loop optimization opportunities using Claude Agent SDK.
-    
-#     Args:
-#         file: Path to the target file to optimize
-#         remark_files: Optional list of remark file paths for context
-    
-#     Returns:
-#         String containing the optimized code with compiler hints
-#     """
-    
-#     # Read target file
-#     with open(file) as f:
-#         target_content = f.read()
-    
-#     # Build the prompt with clear structure
-#     prompt = f"<<TARGET FILE (WRITE CHANGES HERE ONLY):\n{os.path.basename(file)}>>\n{target_content}\n\n"
-    
-#     # Add remark files if provided
-#     if remark_files:
-#         for path in remark_files:
-#             with open(path) as rf:
-#                 prompt += f"<<REMARK FILE: {os.path.basename(path)}>>\n{rf.read()}\n\n"
-                
-#     options = ClaudeAgentOptions(
-#         model="claude-sonnet-4-5",
-#         system_prompt=(
-#             "You are a performance engineer, with the goal of reducing execution time "
-#             "in a file. The compiler you are using is clang 18. You are ONLY permitted "
-#             "to add any compiler hints to enable and configure loop autovectorization. "
-#             "This at least includes #pragma clang loop vectorize(enable), interleave(enable), "
-#             "vectorize_width(X), interleave_count(X), where X is in the set of any natural "
-#             "numbers, and any combination of those compiler hints. You are NOT permitted to "
-#             "do anything else. Only return the text of the modified file. Do not return "
-#             "anything else."
-#         ),
-#         max_turns=1  # Single-shot interaction
-#     )
-
-#     # Run the query and collect response
-#     async def run_query():
-#         response_text = ""
-#         async for message in query(prompt=prompt, options=options):
-#             # Extract text from assistant messages
-#             if hasattr(message, 'content'):
-#                 for block in message.content:
-#                     if hasattr(block, 'text'):
-#                         response_text += block.text
-#         return response_text
-    
-#     # Execute the async query
-#     response_text = anyio.run(run_query)
-    
-#     with open(file, "w") as output:
-#         output.write(response_text)
-
-#     # Log the response
-#     with open("claudeapicalls.log", "a") as log:
-#         log.write(f"File: {file}\n")
-#         log.write(f"Response:\n{response_text}\n")
-#         log.write("-" * 80 + "\n\n")
-    
-#     return response_text
-
-
 def ai_annotations(file, remark_files=None):
-    """
-    Use Claude Agent SDK to add ONLY Clang 18 loop vectorization pragmas to `file`.
-    Edits are applied in place via the SDK's Write tool. Returns a short status string.
-    """
-    file = os.path.abspath(file)
-    cwd = os.path.dirname(file)
-    basename = os.path.basename(file)
-
-    # Fold any remarks into a small appendix for context
-    remarks = []
-    if remark_files:
-        for p in remark_files:
-            try:
-                with open(p, "r", encoding="utf-8") as f:
-                    remarks.append(f"\n--- {os.path.basename(p)} ---\n{f.read()}")
-            except Exception:
-                pass
-    remarks_text = "".join(remarks)
-
-    # Strict system contract
-    system_prompt = (
-        "You are a performance engineer.\n"
-        "Goal: reduce execution time by inserting or adjusting Clang 18 loop vectorization pragmas ONLY.\n"
-        "Allowed pragmas: #pragma clang loop vectorize(enable), interleave(enable), "
-        "vectorize_width(X), interleave_count(X).\n"
-        "Do NOT change logic, identifiers, comments (except pragma lines), or formatting "
-        "beyond adding/modifying those pragma lines. Keep minimal edits.\n"
-        "You may use Read/Grep to inspect and Write to apply changes.\n"
-        "When done, reply with exactly: DONE. If no changes are needed, reply: NO-CHANGES."
+    client = OpenAI(
+        api_key=os.environ.get("OPENAI_API_KEY"),
     )
 
-    # Allow read/write tools; auto-accept file edits; set working dir
-    options = ClaudeAgentOptions(
-        system_prompt=system_prompt,
-        allowed_tools=["Read", "Grep", "Write"],
-        permission_mode="acceptEdits",  # auto-apply edits to disk
-        cwd=cwd,
-        # model can usually be omitted; if needed, use a valid one (e.g., "claude-3.5-sonnet")
+    inputs = []
+
+    # Construct target file as input
+    with open(file) as f:
+        inputs.append({
+            "role": "user",
+            "content": f"<<TARGET FILE (WRITE CHANGES HERE ONLY):\
+                {os.path.basename(file)}>>\n{f.read()}"
+            })
+
+    # Construct remark files as inputs
+    remark_files = remark_files or []
+    for path in remark_files:
+        with open(path, "r") as rf:
+            inputs.append({
+                "role": "user",
+                "content": f"<<REMARK FILE: {os.path.basename(path)}>>\
+                \n{rf.read()}"
+            })
+
+    response = client.responses.create(
+        model="gpt-5",
+        instructions="You are a performance engineer, with the goal of reducing execution time in a file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else. Only return the text of the modified file. Do not return anything else.",
+        input=inputs,
     )
 
-    user_prompt = (
-        f"Open and analyze {basename}. Insert ONLY the allowed pragmas where beneficial.\n"
-        f"Apply edits directly to {basename} using Write.\n"
-        f"Reply with DONE when finished, or NO-CHANGES if nothing to do.\n\n"
-        f"Additional remarks (optional):\n{remarks_text}"
-    )
-
-    async def _run():
-        final_texts = []
-        async for message in query(prompt=user_prompt, options=options):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        final_texts.append(block.text.strip())
-        out = " ".join(t for t in final_texts if t)
-        return "DONE" if "DONE" in out else ("NO-CHANGES" if "NO-CHANGES" in out else out or "DONE")
-
-    status = anyio.run(_run)
-
-    # Minimal logging
-    with open(os.path.join(cwd, "claude_agent.log"), "a", encoding="utf-8") as log:
-        log.write(f"[ai_annotations] {basename}: {status}\n")
-
-    return status
-
+    with open("openaiapicalls.log", "a") as log:
+        log.write(json.dumps(response.to_dict(), indent=2))
+        log.write("\n\n")
 
 main()
