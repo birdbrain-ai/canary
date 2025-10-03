@@ -153,8 +153,9 @@ def main(make_command, run_command, bench_folder_name, n_iters=1):
             corresponding_yaml_files = []
             for yaml_file in yaml_files_from_prev_iter:
                 yaml_basename = os.path.basename(yaml_file)
-                if (re.search(pat, yaml_basename) is not None):
+                if (fnmatch.fnmatch(yaml_basename, pat)):
                     corresponding_yaml_files.append(yaml_file)
+                    
             target_and_yaml_files.append([target_file,
                                           corresponding_yaml_files])
 
