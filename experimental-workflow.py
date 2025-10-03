@@ -45,6 +45,7 @@ import re
 from openai import OpenAI
 import json
 import fnmatch
+import argparse
 
 
 def build_benchmark(make_command):
@@ -89,7 +90,7 @@ def find_target_files():
     return find_files_with_ext([".h", ".c", ".cpp", ".hxx", ".hpp"])
 
 
-def main(make_command, run_command, bench_folder_name, n_iters=1):
+def main(make_command, run_command, bench_folder_name, n_iters):
     '''
     Runs experimental workflow.
 
@@ -104,11 +105,6 @@ def main(make_command, run_command, bench_folder_name, n_iters=1):
        can copy to other directories.
      n_iters: number of passes for AI remarks.
     '''
-
-    make_command = "clang++ -O3 -fsave-optimization-record c_prog.cpp"
-    run_command = "./a.out"
-    bench_folder_name = "my_bench"
-    n_iters = 1
 
     # Copy the base directory
     print("### Copying Benchmark to Base ###")
@@ -210,4 +206,12 @@ def ai_annotations(file, remark_files=None):
     with open(file, "w") as f:
         f.write(response.output_text)
 
-main()
+
+parser = argparse.ArgumentParser()
+parser.add_argument("make_command")
+parser.add_argument("run_command")
+parser.add_argument("bench_name")
+parser.add_argument("num_iters")
+args = parser.parse_args()
+
+main(args.make_command, args.run_command, args.bench_name, args.num_iters)
