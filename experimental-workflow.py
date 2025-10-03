@@ -39,7 +39,7 @@ import shutil
 import sys
 import os
 import subprocess
-import re
+import fnmatch
 from openai import OpenAI
 import json
 from anthropic import Anthropic
@@ -147,12 +147,12 @@ def main(make_command=None, run_command=None, bench_folder_name=None, n_iters=1)
             # "{target_prefix}*.opt.yaml", where target_prefix is the basename
             # without the extension. 
 
-            target_prefix = os.path.splitext(os.path.basename(target_file))
+            target_prefix = os.path.splitext(os.path.basename(target_file))[0]
             pat = f"{target_prefix}*.opt.yaml"
             corresponding_yaml_files = []
             for yaml_file in yaml_files_from_prev_iter:
                 yaml_basename = os.path.basename(yaml_file)
-                if (re.search(pat, yaml_basename) is not None):
+                if fnmatch.fnmatch(yaml_basename, pat):
                     corresponding_yaml_files.append(yaml_file)
             target_and_yaml_files.append([target_file,
                                           corresponding_yaml_files])
@@ -212,6 +212,9 @@ def ai_annotations(file, remark_files=None):
     
     # Run the agent (single shot with automatic context management)
     response = agent.run(prompt)
+
+    with open(file, "w") as output:
+        output.write(response.output_text)
     
     return response.output_text
 
