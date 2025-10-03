@@ -2,10 +2,9 @@
 Quick experimental workflow. Still a work in progress.
 
 What I need to do:
-<<<<<<< HEAD
 =======
+0. Fix some bugs related to pattern matching, and make ai_annotations write
 1. Use Claude Agent SDK, and see if I can time stuff 
->>>>>>> 685bb81 (Collect target file and remarks, pass it to OpenAI API call, docs)
 2. Test
 3. Do I need to pass older files in the proceeding prompts? 
 4. Make this configurable with other LLMs' APIs
