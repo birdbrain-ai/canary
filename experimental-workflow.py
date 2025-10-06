@@ -155,7 +155,14 @@ def main(make_command, run_command, bench_folder_name, n_iters):
             target_and_yaml_files.append([target_file,
                                           corresponding_yaml_files])
 
+        # Print all the files that are going to be annotated so the user can
+        # review it
+        print("### Listing Target Files so you can inspect it ###")
+        for target_file in target_files:
+            print(target_file)
+
         for file, yaml_files in target_and_yaml_files:
+            print(f"### Annotating {file} ###")
             ai_annotations(file, yaml_files)
 
         # Build the benchmark
