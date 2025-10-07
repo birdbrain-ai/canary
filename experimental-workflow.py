@@ -1,23 +1,7 @@
 '''
-Quick experimental workflow. Still a work in progress.
-
-What I need to do:
-=======
-0. Fix some bugs related to pattern matching, and make ai_annotations write
-1. Use Claude Agent SDK, and see if I can time stuff 
-2. Test
-3. Do I need to pass older files in the proceeding prompts? 
-4. Make this configurable with other LLMs' APIs
-
-What it currently does:
-0. Only works for 1 iteration right now. It kinda works for n iterations. 
-1. Makes a benchmark, ingesting a 'make_command' from the user
-2. Runs a benchmark, ingesting a 'run_command' from the user
-3. Run the AI-generated files after writing them to a directory.
-a. Copy all the AI-generated files to a different folder, with
-the exact same structure as the old benchmark
-b. Make that version of the benchmark
-c. Run that version of the benchmark
+TODO:
+1. Review and test the current experimental workflow
+2. Enforce more strict permissions / rules for the experimental workflow
 
 What does the directory structure look like at the beginning?:
 Root
@@ -41,11 +25,10 @@ import shutil
 import sys
 import os
 import subprocess
-import re
-from openai import OpenAI
-import json
 import fnmatch
 import argparse
+from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+import asyncio
 
 
 def build_benchmark(make_command):
@@ -90,7 +73,7 @@ def find_target_files():
     return find_files_with_ext([".h", ".c", ".cpp", ".hxx", ".hpp"])
 
 
-def main(make_command, run_command, bench_folder_name, n_iters):
+async def main(make_command, run_command, bench_folder_name, n_iters):
     '''
     Runs experimental workflow.
 
@@ -118,14 +101,14 @@ def main(make_command, run_command, bench_folder_name, n_iters):
     # Run the project in the new folder
     print("### Running Base Benchmark ###")
     run_benchmark(run_command)
-
+    
     # Assumption: run_command automatically generates .opt.yaml files
     # with the -fsave-optimization-record compiler option
     print("### Finding *.opt.yaml files ###")
     yaml_files_from_prev_iter = find_opt_yaml_files()
 
     for i in range(n_iters):
-        print(f"### STARTING {i}TH ITERATION ###")
+        print(f"### Starting {i}th Iteration ###")
 
         os.chdir("..")
         print("### Copying Benchmark ###")
@@ -137,6 +120,12 @@ def main(make_command, run_command, bench_folder_name, n_iters):
 
         # Gather all target files and remark files. 
         target_files = find_target_files()
+
+        # Map target_files to sessions
+        sessions = {}
+        for target_file in target_files:
+            sessions[target_file] = None
+        
         target_and_yaml_files = []
         for target_file in target_files:
             # For every target file, scan through all the past remark files
@@ -151,19 +140,25 @@ def main(make_command, run_command, bench_folder_name, n_iters):
                 yaml_basename = os.path.basename(yaml_file)
                 if (fnmatch.fnmatch(yaml_basename, pat)):
                     corresponding_yaml_files.append(yaml_file)
-                    
             target_and_yaml_files.append([target_file,
                                           corresponding_yaml_files])
-
+            
         # Print all the files that are going to be annotated so the user can
         # review it
         print("### Listing Target Files so you can inspect it ###")
         for target_file in target_files:
             print(target_file)
 
+        options = ClaudeAgentOptions(
+            max_turns=50,
+            allowed_tools=["Read", "Edit", "Write", "Grep"],
+            system_prompt="You are a performance engineer, with the goal of reducing execution time in a specified file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else."
+        )
+        client = ClaudeSDKClient(options)
+
         for file, yaml_files in target_and_yaml_files:
             print(f"### Annotating {file} ###")
-            ai_annotations(file, yaml_files)
+            await ai_annotations(file, yaml_files, sessions, client)
 
         # Build the benchmark
         build_benchmark(make_command)
@@ -175,43 +170,31 @@ def main(make_command, run_command, bench_folder_name, n_iters):
         yaml_files_from_prev_iter = find_opt_yaml_files()
 
 
-def ai_annotations(file, remark_files=None):
-    client = OpenAI(
-        api_key=os.environ.get("OPENAI_API_KEY"),
-    )
+async def ai_annotations(file, remark_files, sessions, client):
+    await client.connect()
 
-    inputs = []
-
-    # Construct target file as input
-    with open(file) as f:
-        inputs.append({
-            "role": "user",
-            "content": f"<<TARGET FILE (WRITE CHANGES HERE ONLY):\
-                {os.path.basename(file)}>>\n{f.read()}"
-            })
-
-    # Construct remark files as inputs
-    remark_files = remark_files or []
-    for path in remark_files:
-        with open(path, "r") as rf:
-            inputs.append({
-                "role": "user",
-                "content": f"<<REMARK FILE: {os.path.basename(path)}>>\
-                \n{rf.read()}"
-            })
-
-    response = client.responses.create(
-        model="gpt-5",
-        instructions="You are a performance engineer, with the goal of reducing execution time in a file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else. Only return the text of the modified file. Do not return anything else.",
-        input=inputs,
-    )
-
-    with open("openaiapicalls.log", "a") as log:
-        log.write(json.dumps(response.to_dict(), indent=2))
-        log.write("\n\n")
-
-    with open(file, "w") as f:
-        f.write(response.output_text)
+    # Either original session
+    if sessions[file] is None:
+        await client.query(f"Please add compiler hints to the file at this \
+        path {file}, and use information from remark files at these paths: \
+        {remark_files}")
+        async for message in client.receive_response():
+            if hasattr(message, 'subtype') and message.subtype == 'init':
+                sessions[file] = message.data.get('session_id')
+            print(message)
+    # Or resume session
+    else:
+        await client.query({
+            "prompt": f"Please add compiler hints to the file at this \
+            path {file}, and use information from remark files at these paths:\
+            {remark_files}. Use information from previous attempts at changing\
+            a similar file too.",
+            "options": {
+                "resume": sessions[file]
+            }
+        })
+        async for message in client.receive_response():
+            print(message)
 
 
 parser = argparse.ArgumentParser()
@@ -221,4 +204,7 @@ parser.add_argument("bench_name")
 parser.add_argument("num_iters")
 args = parser.parse_args()
 
-main(args.make_command, args.run_command, args.bench_name, int(args.num_iters))
+asyncio.run(main(args.make_command,
+                 args.run_command,
+                 args.bench_name,
+                 int(args.num_iters)))
