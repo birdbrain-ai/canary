@@ -31,15 +31,8 @@ from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 import asyncio
 
 
-def build_benchmark(make_command):
+def run_cmd(make_command):
     subprocess.run(make_command,
-                   shell=True,
-                   stdout=sys.stdout,
-                   stderr=subprocess.STDOUT)
-
-
-def run_benchmark(run_command):
-    subprocess.run(run_command,
                    shell=True,
                    stdout=sys.stdout,
                    stderr=subprocess.STDOUT)
@@ -96,11 +89,11 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
     # Make the project in the new folder
     print("### Building Base Benchmark ###")
     os.chdir(f"{bench_folder_name}_base")
-    build_benchmark(make_command)
+    run_cmd(make_command)
 
     # Run the project in the new folder
     print("### Running Base Benchmark ###")
-    run_benchmark(run_command)
+    run_cmd(run_command)
     
     # Assumption: run_command automatically generates .opt.yaml files
     # with the -fsave-optimization-record compiler option
@@ -161,10 +154,10 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
             await ai_annotations(file, yaml_files, sessions, client)
 
         # Build the benchmark
-        build_benchmark(make_command)
+        run_cmd(make_command)
 
         # Run the modified benchmark and time it
-        run_benchmark(run_command)
+        run_cmd(run_command)
 
         # Update yaml files from prev iter
         yaml_files_from_prev_iter = find_opt_yaml_files()
