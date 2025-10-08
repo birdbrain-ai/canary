@@ -1,7 +1,8 @@
 '''
 TODO:
+0. Check if my session management actually works - why am I not getting
+the correct session_id?
 1. Review and test the current experimental workflow
-
 a. Test on my_bench for multiple shots.
 b. Make logs easier to read
 c. Test on blackscholes for multiple shots.
@@ -120,7 +121,7 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
     yaml_files_from_prev_iter = find_opt_yaml_files()
 
     sessions = {}
-    
+
     for i in range(n_iters):
         print(f"### Starting {i}th Iteration ###")
 
@@ -196,23 +197,20 @@ async def ai_annotations(file, remark_files, sessions, client):
         await client.query(f"Please add compiler hints to the file at this \
         path {file}, and use information from remark files at these paths: \
         {remark_files}")
-        async for message in client.receive_response():
-            if hasattr(message, 'subtype') and message.subtype == 'init':
-                sessions[rel_file] = message.data.get('session_id')
-            print(message)
     # Or resume session
     else:
-        await client.query({
-            "prompt": f"Please add compiler hints to the file at this \
+        print(sessions[rel_file])
+        await client.query(
+            prompt=f"Please add compiler hints to the file at this \
             path {file}, and use information from remark files at these paths:\
             {remark_files}. Use information from previous attempts at changing\
             a similar file too.",
-            "options": {
-                "resume": sessions[rel_file]
-            }
-        })
-        async for message in client.receive_response():
-            print(message)
+            session_id=sessions[rel_file]
+        )
+    async for message in client.receive_response():
+        if hasattr(message, 'subtype') and message.subtype == 'init':
+            sessions[rel_file] = message.data.get('session_id')
+        print(message)
 
 
 parser = argparse.ArgumentParser()
