@@ -1,19 +1,9 @@
 '''
 TODO:
-0. Check if my session management actually works - why am I not getting
-the correct session_id?
+0. Use DeepSeek for cost saving! 
 1. Review and test the current experimental workflow
-a. Test on my_bench for multiple shots.
-b. Make logs easier to read
 c. Test on blackscholes for multiple shots.
-
-Note: Measure a few things:
-1) Does it work? Use logs to verify that.
-2) How long does it take?
-
-2. Make this configurable with other cheaper LLMs like DeepSeek
-
-3. Enforce more strict permissions / rules for the experimental workflow
+2. Enforce more strict permissions / rules for the experimental workflow
 
 What does the directory structure look like at the beginning?:
 Root
@@ -39,9 +29,9 @@ import os
 import subprocess
 import fnmatch
 import argparse
-from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
+from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, \
+    TextBlock
 import asyncio
-import json
 
 
 def get_rel_file(abs_file):
