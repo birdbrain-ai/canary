@@ -39,8 +39,9 @@ import os
 import subprocess
 import fnmatch
 import argparse
-from claude_agent_sdk import query, ClaudeAgentOptions
+from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
 import asyncio
+import json
 
 
 def get_rel_file(abs_file):
@@ -200,40 +201,48 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
 
 
 async def ai_annotations(file, remark_files, sessions, claude_options):
-    # await client.connect()
-    
     rel_file = get_rel_file(file)
 
-    # Either original session
-    if sessions[rel_file] is None:
-        async for message in query(
-                prompt=f"Please add compiler hints to the file at this \
-                path {file}, and use information from remark files at these paths: \
-                {remark_files}",
-                options=claude_options
-        ):
-            if hasattr(message, 'subtype') and message.subtype == 'init':
-                sessions[rel_file] = message.data.get('session_id')
-            print(message)
+    with open("ai-annotations.log", "a") as f:
+        # Either original session
+        if sessions[rel_file] is None:
+            async for message in query(
+                    prompt=f"Please add compiler hints to the file at this \
+                    path {file}, and use information from remark files at these paths: \
+                    {remark_files}",
+                    options=claude_options
+            ):
+                if hasattr(message, 'subtype') and message.subtype == 'init':
+                    sessions[rel_file] = message.data.get('session_id')
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            print(f"Claude: {block.text}")
+                f.write(str(message))
 
-    # Or resume session
-    else:
-        # print(sessions[rel_file])
-        async for message in query(
-            prompt=f"Please add compiler hints to the file at this \
-            path {file}, and use information from remark files at these paths:\
-            {remark_files}. Use information from previous attempts at changing\
-            a similar file too.",
-            options=ClaudeAgentOptions(
-                            max_turns=50,
-                            allowed_tools=["Read", "Edit", "Write", "Grep"],
-                            system_prompt="You are a performance engineer, with the goal of reducing execution time in a specified file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else.",
-                            resume=sessions[rel_file]
-            )
-        ):
-            if hasattr(message, 'subtype') and message.subtype == 'init':
-                sessions[rel_file] = message.data.get('session_id')
-            print(message)
+        # Or resume session
+        else:
+            async for message in query(
+                prompt=f"Please add compiler hints to the file at this \
+                path {file}, and use information from remark files at these paths:\
+                {remark_files}. Use information from previous attempts at changing\
+                a similar file too.",
+                options=ClaudeAgentOptions(
+                                max_turns=50,
+                                allowed_tools=["Read", "Edit", "Write", "Grep"],
+                                system_prompt="You are a performance engineer, with the goal of reducing execution time in a specified file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else.",
+                                resume=sessions[rel_file]
+                )
+            ):
+                if hasattr(message, 'subtype') and message.subtype == 'init':
+                    sessions[rel_file] = message.data.get('session_id')
+
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock):
+                            print(f"Claude: {block.text}")
+
+                f.write(str(message))
 
 
 parser = argparse.ArgumentParser()
