@@ -33,7 +33,6 @@ from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, \
     TextBlock
 import asyncio
 
-MODEL="deepseek-chat"
 
 def get_rel_file(abs_file):
     rel_file = os.path.relpath(abs_file, os.getcwd())
@@ -166,7 +165,6 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
             max_turns=50,
             allowed_tools=["Read", "Edit", "Write", "Grep"],
             system_prompt="You are a performance engineer, with the goal of reducing execution time in a specified file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else.",
-            model=MODEL
         )
         # client = ClaudeSDKClient(options)
 
@@ -224,7 +222,6 @@ async def ai_annotations(file, remark_files, sessions, claude_options):
                                 allowed_tools=["Read", "Edit", "Write", "Grep"],
                                 system_prompt="You are a performance engineer, with the goal of reducing execution time in a specified file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else.",
                                 resume=sessions[rel_file],
-                                model=MODEL
                 ),
             ):
                 if hasattr(message, 'subtype') and message.subtype == 'init':
