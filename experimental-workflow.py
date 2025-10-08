@@ -1,7 +1,18 @@
 '''
 TODO:
 1. Review and test the current experimental workflow
-2. Enforce more strict permissions / rules for the experimental workflow
+
+a. Test on my_bench for multiple shots.
+b. Make logs easier to read
+c. Test on blackscholes for multiple shots.
+
+Note: Measure a few things:
+1) Does it work? Use logs to verify that.
+2) How long does it take?
+
+2. Make this configurable with other cheaper LLMs like DeepSeek
+
+3. Enforce more strict permissions / rules for the experimental workflow
 
 What does the directory structure look like at the beginning?:
 Root
@@ -29,6 +40,14 @@ import fnmatch
 import argparse
 from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
 import asyncio
+
+
+def get_rel_file(abs_file):
+    rel_file = os.path.relpath(abs_file, os.getcwd())
+    # print("RELATIVE FILE in the function: " + rel_file)
+    # parts = rel_file.split(os.sep)
+    # rel_file = os.sep.join(parts[1:])
+    return rel_file
 
 
 def run_cmd(make_command):
@@ -75,8 +94,8 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
        (like $bench_folder_name$), this is the command you would
        run to build the benchmark.
        This should have the '-fsave-optimization-record' compiler option.
-     run_command: this is the command to run your benchmark. it should also
-       write trial times to a file. 
+     run_command: this is the command to run your benchmark. It should also
+       write trial times to a file.
      bench_folder_name: the base benchmark, with all the files that we
        can copy to other directories.
      n_iters: number of passes for AI remarks.
@@ -94,12 +113,14 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
     # Run the project in the new folder
     print("### Running Base Benchmark ###")
     run_cmd(run_command)
-    
+
     # Assumption: run_command automatically generates .opt.yaml files
     # with the -fsave-optimization-record compiler option
     print("### Finding *.opt.yaml files ###")
     yaml_files_from_prev_iter = find_opt_yaml_files()
 
+    sessions = {}
+    
     for i in range(n_iters):
         print(f"### Starting {i}th Iteration ###")
 
@@ -109,22 +130,24 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
 
         os.chdir(f"{bench_folder_name}_AI_{i}")
 
-        print("### Annotating codes with AI-generated user directives ###") 
+        print("### Annotating codes with AI-generated user directives ###")
 
-        # Gather all target files and remark files. 
+        # Gather all target files and remark files.
         target_files = find_target_files()
 
         # Map target_files to sessions
-        sessions = {}
-        for target_file in target_files:
-            sessions[target_file] = None
-        
+        if i == 0:
+            for target_file in target_files:
+                print(target_file)
+                print("RELATIVE FILE: " + get_rel_file(target_file))
+                sessions[get_rel_file(target_file)] = None
+
         target_and_yaml_files = []
         for target_file in target_files:
             # For every target file, scan through all the past remark files
             # and see if there are any remark files that match the pattern
             # "{target_prefix}*.opt.yaml", where target_prefix is the basename
-            # without the extension. 
+            # without the extension.
 
             target_prefix = os.path.splitext(os.path.basename(target_file))[0]
             pat = f"{target_prefix}*.opt.yaml"
@@ -135,7 +158,7 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
                     corresponding_yaml_files.append(yaml_file)
             target_and_yaml_files.append([target_file,
                                           corresponding_yaml_files])
-            
+
         # Print all the files that are going to be annotated so the user can
         # review it
         print("### Listing Target Files so you can inspect it ###")
@@ -166,14 +189,16 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
 async def ai_annotations(file, remark_files, sessions, client):
     await client.connect()
 
+    rel_file = get_rel_file(file)
+
     # Either original session
-    if sessions[file] is None:
+    if sessions[rel_file] is None:
         await client.query(f"Please add compiler hints to the file at this \
         path {file}, and use information from remark files at these paths: \
         {remark_files}")
         async for message in client.receive_response():
             if hasattr(message, 'subtype') and message.subtype == 'init':
-                sessions[file] = message.data.get('session_id')
+                sessions[rel_file] = message.data.get('session_id')
             print(message)
     # Or resume session
     else:
@@ -183,7 +208,7 @@ async def ai_annotations(file, remark_files, sessions, client):
             {remark_files}. Use information from previous attempts at changing\
             a similar file too.",
             "options": {
-                "resume": sessions[file]
+                "resume": sessions[rel_file]
             }
         })
         async for message in client.receive_response():
