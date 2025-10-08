@@ -46,8 +46,8 @@ import asyncio
 def get_rel_file(abs_file):
     rel_file = os.path.relpath(abs_file, os.getcwd())
     # print("RELATIVE FILE in the function: " + rel_file)
-    # parts = rel_file.split(os.sep)
-    # rel_file = os.sep.join(parts[1:])
+    parts = rel_file.split(os.sep)
+    rel_file = os.sep.join(parts[1:])
     return rel_file
 
 
@@ -122,10 +122,11 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
 
     sessions = {}
 
+    os.chdir("..")
+
     for i in range(n_iters):
         print(f"### Starting {i}th Iteration ###")
 
-        os.chdir("..")
         print("### Copying Benchmark ###")
         shutil.copytree(bench_folder_name, f"{bench_folder_name}_AI_{i}")
 
@@ -137,12 +138,15 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
         target_files = find_target_files()
 
         # Map target_files to sessions
+        os.chdir("..")
+
         if i == 0:
             for target_file in target_files:
                 print(target_file)
                 print("RELATIVE FILE: " + get_rel_file(target_file))
                 sessions[get_rel_file(target_file)] = None
 
+        os.chdir(f"{bench_folder_name}_AI_{i}")        
         target_and_yaml_files = []
         for target_file in target_files:
             # For every target file, scan through all the past remark files
@@ -173,10 +177,16 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
         )
         # client = ClaudeSDKClient(options)
 
+        os.chdir("..")
+
+        # Must be in the orchestration working directory otherwise, context management
+        # doesn't work properly
         for file, yaml_files in target_and_yaml_files:
             print(f"### Annotating {file} ###")
             await ai_annotations(file, yaml_files, sessions, options)
 
+        os.chdir(f"{bench_folder_name}_AI_{i}")
+        
         # Build the benchmark
         run_cmd(make_command)
 
@@ -186,10 +196,12 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
         # Update yaml files from prev iter
         yaml_files_from_prev_iter = find_opt_yaml_files()
 
+        os.chdir("..")
+
 
 async def ai_annotations(file, remark_files, sessions, claude_options):
     # await client.connect()
-
+    
     rel_file = get_rel_file(file)
 
     # Either original session
@@ -213,7 +225,10 @@ async def ai_annotations(file, remark_files, sessions, claude_options):
             {remark_files}. Use information from previous attempts at changing\
             a similar file too.",
             options=ClaudeAgentOptions(
-                resume=sessions[rel_file]
+                            max_turns=50,
+                            allowed_tools=["Read", "Edit", "Write", "Grep"],
+                            system_prompt="You are a performance engineer, with the goal of reducing execution time in a specified file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else.",
+                            resume=sessions[rel_file]
             )
         ):
             if hasattr(message, 'subtype') and message.subtype == 'init':
