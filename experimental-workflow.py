@@ -39,7 +39,7 @@ import os
 import subprocess
 import fnmatch
 import argparse
-from claude_agent_sdk import ClaudeSDKClient, ClaudeAgentOptions
+from claude_agent_sdk import query, ClaudeAgentOptions
 import asyncio
 
 
@@ -169,13 +169,13 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
         options = ClaudeAgentOptions(
             max_turns=50,
             allowed_tools=["Read", "Edit", "Write", "Grep"],
-            system_prompt="You are a performance engineer, with the goal of reducing execution time in a specified file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else."
+            system_prompt="You are a performance engineer, with the goal of reducing execution time in a specified file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else.",
         )
-        client = ClaudeSDKClient(options)
+        # client = ClaudeSDKClient(options)
 
         for file, yaml_files in target_and_yaml_files:
             print(f"### Annotating {file} ###")
-            await ai_annotations(file, yaml_files, sessions, client)
+            await ai_annotations(file, yaml_files, sessions, options)
 
         # Build the benchmark
         run_cmd(make_command)
@@ -187,30 +187,38 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
         yaml_files_from_prev_iter = find_opt_yaml_files()
 
 
-async def ai_annotations(file, remark_files, sessions, client):
-    await client.connect()
+async def ai_annotations(file, remark_files, sessions, claude_options):
+    # await client.connect()
 
     rel_file = get_rel_file(file)
 
     # Either original session
     if sessions[rel_file] is None:
-        await client.query(f"Please add compiler hints to the file at this \
-        path {file}, and use information from remark files at these paths: \
-        {remark_files}")
+        async for message in query(
+                prompt=f"Please add compiler hints to the file at this \
+                path {file}, and use information from remark files at these paths: \
+                {remark_files}",
+                options=claude_options
+        ):
+            if hasattr(message, 'subtype') and message.subtype == 'init':
+                sessions[rel_file] = message.data.get('session_id')
+            print(message)
+
     # Or resume session
     else:
-        print(sessions[rel_file])
-        await client.query(
+        # print(sessions[rel_file])
+        async for message in query(
             prompt=f"Please add compiler hints to the file at this \
             path {file}, and use information from remark files at these paths:\
             {remark_files}. Use information from previous attempts at changing\
             a similar file too.",
-            session_id=sessions[rel_file]
-        )
-    async for message in client.receive_response():
-        if hasattr(message, 'subtype') and message.subtype == 'init':
-            sessions[rel_file] = message.data.get('session_id')
-        print(message)
+            options=ClaudeAgentOptions(
+                resume=sessions[rel_file]
+            )
+        ):
+            if hasattr(message, 'subtype') and message.subtype == 'init':
+                sessions[rel_file] = message.data.get('session_id')
+            print(message)
 
 
 parser = argparse.ArgumentParser()
