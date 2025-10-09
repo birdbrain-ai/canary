@@ -1,9 +1,8 @@
 '''
 TODO:
-0. Use DeepSeek for cost saving! 
-1. Review and test the current experimental workflow
-c. Test on blackscholes for multiple shots.
-2. Enforce more strict permissions / rules for the experimental workflow
+1. Enforce more strict permissions / rules for the experimental workflow
+2. Change prompt so that it gives more freedom to LLM to search through
+remark files
 
 What does the directory structure look like at the beginning?:
 Root
@@ -164,7 +163,7 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
         options = ClaudeAgentOptions(
             max_turns=50,
             allowed_tools=["Read", "Edit", "Write", "Grep"],
-            system_prompt="You are a performance engineer, with the goal of reducing execution time in a specified file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else.",
+            system_prompt="You are a performance engineer, with the goal of reducing execution time in a specified file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else. You are ONLY permitted to read/edit the target file and use Grep on the specified remark files.",
         )
         # client = ClaudeSDKClient(options)
 
@@ -196,10 +195,44 @@ async def ai_annotations(file, remark_files, sessions, claude_options):
     with open("ai-annotations.log", "a") as f:
         # Either original session
         if sessions[rel_file] is None:
+            if remark_files:
+                focused_prompt = f"""Please add compiler hints to the file at {file}.
+
+You are ONLY permitted to:
+- Read and edit the target file: {file}
+- Use Grep tool on these specific remark files:
+{chr(10).join(remark_files)}
+
+Search for these patterns in the remark files:
+- "vectorize"
+- "loop"
+- "pragma"
+- "optimization"
+- "hint"
+- "remark"
+
+Then, based on the grep results, add appropriate compiler hints like:
+#pragma clang loop vectorize(enable)
+#pragma clang loop interleave(enable)
+#pragma clang loop vectorize_width(X)
+#pragma clang loop interleave_count(X)
+
+Focus only on adding vectorization pragmas to loops that would benefit from them."""
+            else:
+                focused_prompt = f"""Please add compiler hints to the file at {file}.
+
+You are ONLY permitted to read and edit this target file. There are no optimization remark files available.
+
+Analyze the code and add appropriate vectorization pragmas to loops that would benefit from vectorization:
+#pragma clang loop vectorize(enable)
+#pragma clang loop interleave(enable)
+#pragma clang loop vectorize_width(X)
+#pragma clang loop interleave_count(X)
+
+Focus on loops that process arrays or perform mathematical operations."""
+
             async for message in query(
-                    prompt=f"Please add compiler hints to the file at this \
-                    path {file}, and use information from remark files at these paths: \
-                    {remark_files}",
+                    prompt=focused_prompt,
                     options=claude_options
             ):
                 if hasattr(message, 'subtype') and message.subtype == 'init':
@@ -212,15 +245,36 @@ async def ai_annotations(file, remark_files, sessions, claude_options):
 
         # Or resume session
         else:
+            if remark_files:
+                resume_prompt = f"""Please add compiler hints to the file at {file}.
+
+You are ONLY permitted to:
+- Read and edit the target file: {file}
+- Use Grep tool on these specific remark files:
+{chr(10).join(remark_files)}
+
+Search for: "vectorize", "loop", "pragma", "optimization", "hint", "remark"
+
+Use information from previous optimization attempts and add appropriate vectorization pragmas."""
+            else:
+                resume_prompt = f"""Please add compiler hints to the file at {file}.
+
+You are ONLY permitted to read and edit this target file. There are no optimization remark files available.
+
+Use information from previous optimization attempts and add appropriate vectorization pragmas to loops that would benefit from vectorization:
+#pragma clang loop vectorize(enable)
+#pragma clang loop interleave(enable)
+#pragma clang loop vectorize_width(X)
+#pragma clang loop interleave_count(X)
+
+Focus on loops that process arrays or perform mathematical operations."""
+
             async for message in query(
-                prompt=f"Please add compiler hints to the file at this \
-                path {file}, and use information from remark files at these paths:\
-                {remark_files}. Use information from previous attempts at changing\
-                a similar file too.",
+                prompt=resume_prompt,
                 options=ClaudeAgentOptions(
                                 max_turns=50,
                                 allowed_tools=["Read", "Edit", "Write", "Grep"],
-                                system_prompt="You are a performance engineer, with the goal of reducing execution time in a specified file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else.",
+                                system_prompt="You are a performance engineer, with the goal of reducing execution time in a specified file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else. You are ONLY permitted to read/edit the target file and use Grep on the specified remark files.",
                                 resume=sessions[rel_file],
                 ),
             ):
