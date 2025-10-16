@@ -48,6 +48,66 @@ def run_cmd(make_command):
                    stderr=subprocess.STDOUT)
 
 
+def run_cmd_with_capture(make_command, output_file=None):
+    """
+    Run command and capture all output for diagnostics
+    Returns the captured output as string
+    """
+    result = subprocess.run(
+        make_command,
+        shell=True,
+        capture_output=True,
+        text=True
+    )
+
+    # Combine stdout and stderr
+    full_output = result.stdout + result.stderr
+
+    # Write to file if specified
+    if output_file:
+        with open(output_file, 'w') as f:
+            f.write(full_output)
+
+    # Also print to console for user visibility
+    print(full_output)
+
+    return full_output
+
+
+def analyze_build_diagnostics(build_output):
+    """
+    Extract pragma-related warnings and errors from build output
+    Returns structured diagnostics
+    """
+    diagnostics = {
+        'errors': [],
+        'warnings': [],
+        'pragma_issues': []
+    }
+
+    lines = build_output.split('\n')
+
+    for line in lines:
+        line_lower = line.lower()
+
+        # Check for pragma-related issues
+        if 'pragma' in line_lower:
+            if 'error' in line_lower or 'unknown' in line_lower:
+                diagnostics['pragma_issues'].append(line.strip())
+            elif 'warning' in line_lower:
+                diagnostics['pragma_issues'].append(line.strip())
+
+        # General error detection
+        elif 'error:' in line_lower:
+            diagnostics['errors'].append(line.strip())
+
+        # General warning detection
+        elif 'warning:' in line_lower:
+            diagnostics['warnings'].append(line.strip())
+
+    return diagnostics
+
+
 def find_files_with_ext(file_exts):
     '''
     Given a list of file extensions (strings), return
@@ -143,6 +203,7 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
     yaml_files_from_prev_iter = find_opt_yaml_files()
 
     sessions = {}
+    build_diagnostics = {}  # Store diagnostics per iteration
 
     os.chdir("..")
 
@@ -205,12 +266,30 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
         # doesn't work properly
         for file, yaml_files in target_and_yaml_files:
             print(f"### Annotating {file} ###")
-            await ai_annotations(file, yaml_files, sessions, options)
+            # Pass previous iteration's diagnostics (if any)
+            prev_diagnostics = build_diagnostics.get(i-1, {})
+            await ai_annotations(file, yaml_files, prev_diagnostics, sessions, options)
 
         os.chdir(f"{bench_folder_name}_AI_{i}")
-        
-        # Build the benchmark
-        run_cmd(make_command)
+
+        # Build the benchmark with diagnostics capture
+        print("### Building Benchmark with Diagnostics Capture ###")
+        build_output = run_cmd_with_capture(make_command, f"build_diagnostics_AI_{i}.log")
+
+        # Analyze build diagnostics
+        diagnostics = analyze_build_diagnostics(build_output)
+        build_diagnostics[i] = diagnostics
+
+        # Print diagnostic summary
+        print(f"### Build Diagnostics Summary for AI_{i} ###")
+        print(f"  Errors: {len(diagnostics['errors'])}")
+        print(f"  Warnings: {len(diagnostics['warnings'])}")
+        print(f"  Pragma Issues: {len(diagnostics['pragma_issues'])}")
+
+        if diagnostics['pragma_issues']:
+            print("  Pragma Issues Found:")
+            for issue in diagnostics['pragma_issues']:
+                print(f"    - {issue}")
 
         # Run the modified benchmark and time it
         run_cmd(run_command)
@@ -221,7 +300,7 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
         os.chdir("..")
 
 
-async def ai_annotations(file, remark_files, sessions, claude_options):
+async def ai_annotations(file, remark_files, prev_diagnostics, sessions, claude_options):
     rel_file = get_rel_file(file)
 
     # Filter remark files to only include those with vector-related passes
@@ -233,6 +312,27 @@ async def ai_annotations(file, remark_files, sessions, claude_options):
         # Either original session
         if sessions[rel_file] is None:
             if filtered_remark_files:
+                # Add compiler feedback to prompt if available
+                compiler_feedback = ""
+                if prev_diagnostics:
+                    if prev_diagnostics.get('pragma_issues'):
+                        compiler_feedback = f"""
+
+COMPILER FEEDBACK FROM PREVIOUS BUILD:
+The compiler reported these pragma-related issues:
+{chr(10).join(f"- {issue}" for issue in prev_diagnostics['pragma_issues'])}
+
+Please review these issues and ensure your pragma placements are semantically correct."""
+                    elif prev_diagnostics.get('errors') or prev_diagnostics.get('warnings'):
+                        compiler_feedback = f"""
+
+COMPILER FEEDBACK FROM PREVIOUS BUILD:
+The compiler reported:
+- {len(prev_diagnostics.get('errors', []))} errors
+- {len(prev_diagnostics.get('warnings', []))} warnings
+
+Please ensure your pragma placements don't cause compilation issues."""
+
                 focused_prompt = f"""Please add compiler hints to the file at {file}.
 
 You are ONLY permitted to:
@@ -254,8 +354,29 @@ Then, based on the grep results, add appropriate compiler hints like:
 #pragma clang loop vectorize_width(X)
 #pragma clang loop interleave_count(X)
 
-Focus only on adding vectorization pragmas to loops that would benefit from them."""
+Focus only on adding vectorization pragmas to loops that would benefit from them.{compiler_feedback}"""
             else:
+                # Add compiler feedback to prompt if available
+                compiler_feedback = ""
+                if prev_diagnostics:
+                    if prev_diagnostics.get('pragma_issues'):
+                        compiler_feedback = f"""
+
+COMPILER FEEDBACK FROM PREVIOUS BUILD:
+The compiler reported these pragma-related issues:
+{chr(10).join(f"- {issue}" for issue in prev_diagnostics['pragma_issues'])}
+
+Please review these issues and ensure your pragma placements are semantically correct."""
+                    elif prev_diagnostics.get('errors') or prev_diagnostics.get('warnings'):
+                        compiler_feedback = f"""
+
+COMPILER FEEDBACK FROM PREVIOUS BUILD:
+The compiler reported:
+- {len(prev_diagnostics.get('errors', []))} errors
+- {len(prev_diagnostics.get('warnings', []))} warnings
+
+Please ensure your pragma placements don't cause compilation issues."""
+
                 focused_prompt = f"""Please add compiler hints to the file at {file}.
 
 You are ONLY permitted to read and edit this target file. There are no optimization remark files available.
@@ -266,7 +387,7 @@ Analyze the code and add appropriate vectorization pragmas to loops that would b
 #pragma clang loop vectorize_width(X)
 #pragma clang loop interleave_count(X)
 
-Focus on loops that process arrays or perform mathematical operations."""
+Focus on loops that process arrays or perform mathematical operations.{compiler_feedback}"""
 
             async for message in query(
                     prompt=focused_prompt,
@@ -283,6 +404,27 @@ Focus on loops that process arrays or perform mathematical operations."""
         # Or resume session
         else:
             if filtered_remark_files:
+                # Add compiler feedback to prompt if available
+                compiler_feedback = ""
+                if prev_diagnostics:
+                    if prev_diagnostics.get('pragma_issues'):
+                        compiler_feedback = f"""
+
+COMPILER FEEDBACK FROM PREVIOUS BUILD:
+The compiler reported these pragma-related issues:
+{chr(10).join(f"- {issue}" for issue in prev_diagnostics['pragma_issues'])}
+
+Please review these issues and ensure your pragma placements are semantically correct."""
+                    elif prev_diagnostics.get('errors') or prev_diagnostics.get('warnings'):
+                        compiler_feedback = f"""
+
+COMPILER FEEDBACK FROM PREVIOUS BUILD:
+The compiler reported:
+- {len(prev_diagnostics.get('errors', []))} errors
+- {len(prev_diagnostics.get('warnings', []))} warnings
+
+Please ensure your pragma placements don't cause compilation issues."""
+
                 resume_prompt = f"""Please add compiler hints to the file at {file}.
 
 You are ONLY permitted to:
@@ -292,8 +434,29 @@ You are ONLY permitted to:
 
 Search for: "vectorize", "loop", "pragma", "optimization", "hint", "remark"
 
-Use information from previous optimization attempts and add appropriate vectorization pragmas."""
+Use information from previous optimization attempts and add appropriate vectorization pragmas.{compiler_feedback}"""
             else:
+                # Add compiler feedback to prompt if available
+                compiler_feedback = ""
+                if prev_diagnostics:
+                    if prev_diagnostics.get('pragma_issues'):
+                        compiler_feedback = f"""
+
+COMPILER FEEDBACK FROM PREVIOUS BUILD:
+The compiler reported these pragma-related issues:
+{chr(10).join(f"- {issue}" for issue in prev_diagnostics['pragma_issues'])}
+
+Please review these issues and ensure your pragma placements are semantically correct."""
+                    elif prev_diagnostics.get('errors') or prev_diagnostics.get('warnings'):
+                        compiler_feedback = f"""
+
+COMPILER FEEDBACK FROM PREVIOUS BUILD:
+The compiler reported:
+- {len(prev_diagnostics.get('errors', []))} errors
+- {len(prev_diagnostics.get('warnings', []))} warnings
+
+Please ensure your pragma placements don't cause compilation issues."""
+
                 resume_prompt = f"""Please add compiler hints to the file at {file}.
 
 You are ONLY permitted to read and edit this target file. There are no optimization remark files available.
@@ -304,7 +467,7 @@ Use information from previous optimization attempts and add appropriate vectoriz
 #pragma clang loop vectorize_width(X)
 #pragma clang loop interleave_count(X)
 
-Focus on loops that process arrays or perform mathematical operations."""
+Focus on loops that process arrays or perform mathematical operations.{compiler_feedback}"""
 
             async for message in query(
                 prompt=resume_prompt,
