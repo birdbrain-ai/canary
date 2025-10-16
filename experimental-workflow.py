@@ -72,6 +72,38 @@ def find_opt_yaml_files():
     return find_files_with_ext([".yaml"])
 
 
+def filter_vector_remarks(remark_files):
+    """
+    Filter remark files to only include those with Pass field containing 'vector'
+    Uses YQ to filter YAML documents where .Pass contains "vector"
+    """
+    filtered_files = []
+
+    for remark_file in remark_files:
+        try:
+            # Use YQ to check if the file contains any documents with Pass field containing 'vector'
+            result = subprocess.run(
+                ['yq', 'eval', 'select(.Pass | contains("vector"))', remark_file],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+
+            # If YQ found any matching documents (non-empty output), include the file
+            if result.stdout.strip():
+                filtered_files.append(remark_file)
+                print(f"Including remark file with vector passes: {remark_file}")
+            else:
+                print(f"Excluding remark file (no vector passes): {remark_file}")
+
+        except Exception as e:
+            print(f"Error filtering remark file {remark_file}: {e}")
+            # If there's an error processing the file, include it to be safe
+            filtered_files.append(remark_file)
+
+    return filtered_files
+
+
 def find_target_files():
     return find_files_with_ext([".h", ".c", ".cpp", ".hxx", ".hpp"])
 
@@ -192,16 +224,21 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
 async def ai_annotations(file, remark_files, sessions, claude_options):
     rel_file = get_rel_file(file)
 
+    # Filter remark files to only include those with vector-related passes
+    filtered_remark_files = filter_vector_remarks(remark_files)
+
+    print(f"Original remark files: {len(remark_files)}, Filtered remark files: {len(filtered_remark_files)}")
+
     with open("ai-annotations.log", "a") as f:
         # Either original session
         if sessions[rel_file] is None:
-            if remark_files:
+            if filtered_remark_files:
                 focused_prompt = f"""Please add compiler hints to the file at {file}.
 
 You are ONLY permitted to:
 - Read and edit the target file: {file}
 - Use Grep tool on these specific remark files:
-{chr(10).join(remark_files)}
+{chr(10).join(filtered_remark_files)}
 
 Search for these patterns in the remark files:
 - "vectorize"
@@ -245,13 +282,13 @@ Focus on loops that process arrays or perform mathematical operations."""
 
         # Or resume session
         else:
-            if remark_files:
+            if filtered_remark_files:
                 resume_prompt = f"""Please add compiler hints to the file at {file}.
 
 You are ONLY permitted to:
 - Read and edit the target file: {file}
 - Use Grep tool on these specific remark files:
-{chr(10).join(remark_files)}
+{chr(10).join(filtered_remark_files)}
 
 Search for: "vectorize", "loop", "pragma", "optimization", "hint", "remark"
 
