@@ -1,26 +1,45 @@
 from langgraph.graph import StateGraph, END
 from langchain_ollama import OllamaLLM
 from langchain_community.document_loaders import TextLoader
-from typing import TypedDict, List
+from typing import TypedDict, List, Dict
 import subprocess
 import os
 import shutil
 import argparse
+import fnmatch
 from pathlib import Path
 
 class VectorizationState(TypedDict):
-    original_filepath: str
-    original_code: str
+    # Directory-level fields
+    original_benchmark_dir: str          # Original benchmark directory (untouched)
+    benchmark_base_dir: str              # benchmark_base copy (for baseline)
+    current_iteration_dir: str           # benchmark_AI_i directory
+
+    # Build/run commands
+    make_command: str                    # Command to build benchmark
+    run_command: str                     # Optional: command to run benchmark
+
+    # File tracking
+    target_files: List[str]              # All .cpp/.hpp files found in benchmark
+    current_file_index: int              # Index of file being processed
+    current_file: str                    # Path to file being processed
+    current_file_code: str               # Code of current file
+
+    # Iteration tracking
     current_iteration: int
     max_iterations: int
-    remark_files: List[str]
-    iteration_files: List[str]
-    current_iteration_file: str
-    current_code: str
+
+    # Remark files (per-directory)
+    remark_files_baseline: List[str]     # Remark files from baseline compilation
+    remark_files_current: List[str]      # Remark files from current iteration
+
+    # Per-file context (for separate sessions)
+    file_analysis_history: Dict[str, List[str]]  # file_path -> [analyses]
+    file_summarized_context: Dict[str, str]      # file_path -> summary
+
+    # Status
     compiler_errors: List[str]
     success: bool
-    analysis_history: List[str]
-    summarized_context: str
 
 llm = OllamaLLM(model="gpt-oss:latest", base_url="http://localhost:11434")
 
@@ -43,134 +62,277 @@ def get_object_filename(cpp_file: str) -> str:
     """Get object filename for a cpp file (e.g., 'test.cpp' -> 'test.o')"""
     return str(Path(cpp_file).with_suffix('.o'))
 
-# Node: Load original file
-def load_original(state: VectorizationState):
-    """Read the original C++ file and create backup"""
-    filepath = state['original_filepath']
+def find_files_with_ext(directory: str, file_exts: List[str]) -> List[str]:
+    """
+    Recursively find all files with given extensions in directory.
 
-    loader = TextLoader(filepath, encoding='utf-8')
-    document = loader.load()
-    code = document[0].page_content
+    Args:
+        directory: Root directory to search
+        file_exts: List of extensions to match (e.g., ['.cpp', '.h'])
 
-    # Create backup
-    backup_path = filepath + '.backup'
-    shutil.copy2(filepath, backup_path)
+    Returns:
+        List of absolute file paths
+    """
+    files_with_ext = []
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            _, file_extension = os.path.splitext(file)
+            if file_extension in file_exts:
+                files_with_ext.append(os.path.join(root, file))
+    return files_with_ext
+
+def find_target_files(directory: str) -> List[str]:
+    """
+    Find all C/C++ source and header files in directory.
+
+    Args:
+        directory: Root directory to search
+
+    Returns:
+        List of absolute paths to .h, .c, .cpp, .hxx, .hpp files
+    """
+    return find_files_with_ext(directory, [".h", ".c", ".cpp", ".hxx", ".hpp"])
+
+def match_remark_files(target_file: str, remark_files: List[str]) -> List[str]:
+    """
+    Find remark files corresponding to a target source file.
+
+    Matches pattern: kernel.cpp -> kernel*.opt.yaml
+    This handles cases like kernel.opt.yaml, kernel.opt.yaml.1, etc.
+
+    Args:
+        target_file: Path to source file
+        remark_files: List of all available remark files
+
+    Returns:
+        List of matching remark file paths
+    """
+    target_prefix = os.path.splitext(os.path.basename(target_file))[0]
+    pattern = f"{target_prefix}*.opt.yaml"
+
+    matching = []
+    for remark_file in remark_files:
+        yaml_basename = os.path.basename(remark_file)
+        if fnmatch.fnmatch(yaml_basename, pattern):
+            matching.append(remark_file)
+    return matching
+
+def filter_vectorize_remarks(yaml_file_path: str) -> str:
+    """
+    Filter YAML optimization remarks to only include loop-vectorize entries.
+    This dramatically reduces the content sent to the LLM.
+
+    Args:
+        yaml_file_path: Path to .opt.yaml file
+
+    Returns:
+        Filtered YAML content as string, or empty string if filtering fails
+    """
+    try:
+        result = subprocess.run(
+            ["yq", "select(.Pass == \"loop-vectorize\")", yaml_file_path],
+            capture_output=True,
+            text=True,
+#             timeout=10
+        )
+
+        if result.returncode == 0:
+            return result.stdout
+        else:
+            # If yq fails, return empty (don't fail the entire process)
+            print(f"⚠ Warning: yq filter failed for {yaml_file_path}")
+            return ""
+    except Exception as e:
+        print(f"⚠ Warning: Could not filter remarks for {yaml_file_path}: {e}")
+        return ""
+
+# Node: Setup baseline
+def setup_baseline(state: VectorizationState):
+    """Copy benchmark to baseline directory and find target files"""
+    original_dir = state['original_benchmark_dir']
+    base_dir = state['benchmark_base_dir']
 
     print(f"\n{'='*60}")
-    print(f"ITERATIVE VECTORIZATION PRAGMA TOOL")
-    print(f"Target: {filepath}")
+    print(f"ITERATIVE VECTORIZATION PRAGMA TOOL (Multi-File)")
+    print(f"Benchmark: {original_dir}")
     print(f"Iterations: {state['max_iterations']}")
     print('='*60)
-    print(f"\n✓ Loaded original file: {filepath}")
-    print(f"✓ Created backup: {backup_path}")
+
+    # Copy original benchmark to baseline
+    print(f"\n=== Setting Up Baseline ===")
+    print(f"Copying {original_dir} → {base_dir}")
+    shutil.copytree(original_dir, base_dir)
+    print(f"✓ Created baseline directory")
+
+    # Find all target files in baseline
+    target_files = find_target_files(base_dir)
+    print(f"✓ Found {len(target_files)} target files")
 
     return {
-        "original_code": code,
-        "current_code": code
+        "target_files": target_files
     }
 
-# Node: Compile original for baseline
-def compile_for_baseline(state: VectorizationState):
-    """Compile original file to generate baseline optimization remarks"""
-    filepath = state['original_filepath']
-    remark_file = get_remark_filename(filepath)
-    object_file = get_object_filename(filepath)
+# Node: Compile benchmark (baseline or iteration)
+def compile_benchmark(state: VectorizationState):
+    """Compile benchmark to generate optimization remarks"""
+    base_dir = state['benchmark_base_dir']
+    make_command = state['make_command']
+    current_dir = os.getcwd()
 
-    print(f"\n=== Generating Baseline Optimization Remarks ===")
+    print(f"\n=== Compiling Baseline Benchmark ===")
+    print(f"Command: {make_command}")
 
+    # Change to baseline directory
+    os.chdir(base_dir)
+
+    # Run make command
     result = subprocess.run(
-        ["clang++", "-std=c++17", "-fsave-optimization-record",
-         "-c", filepath, "-o", object_file],
+        make_command,
+        shell=True,
         capture_output=True,
         text=True,
-        timeout=60
+#        timeout=300
     )
 
+    # Change back
+    os.chdir(current_dir)
+
     if result.returncode != 0:
-        print(f"⚠ Warning: Baseline compilation had issues (this is OK)")
-        print(f"  Compiler output: {result.stderr[:200]}")
+        print(f"⚠ Warning: Baseline compilation had issues")
+        print(f"  Output: {result.stderr[:300]}")
     else:
         print(f"✓ Baseline compiled successfully")
 
-    if os.path.exists(remark_file):
-        print(f"✓ Generated baseline remarks: {remark_file}")
-        return {
-            "remark_files": [remark_file]
-        }
-    else:
-        print(f"⚠ No remark file generated (compiler may not support -fsave-optimization-record)")
-        return {
-            "remark_files": []
-        }
+    # Find all generated .opt.yaml files
+    remark_files = find_files_with_ext(base_dir, [".yaml"])
+    print(f"✓ Found {len(remark_files)} remark files")
 
-# Node: Initialize iteration
-def initialize_iteration(state: VectorizationState):
-    """Set up new iteration - copy file from previous iteration"""
+    return {
+        "remark_files_baseline": remark_files
+    }
+
+# Node: Run baseline benchmark
+def run_baseline_benchmark(state: VectorizationState):
+    """Execute the baseline benchmark if run_command is provided"""
+    run_command = state['run_command']
+
+    if not run_command:
+        print("⊘ No run command provided, skipping baseline execution")
+        return {}
+
+    base_dir = state['benchmark_base_dir']
+    current_dir = os.getcwd()
+
+    print(f"\n=== Running Baseline Benchmark ===")
+    print(f"Directory: {base_dir}")
+    print(f"Command: {run_command}")
+
+    # Change to baseline directory
+    os.chdir(base_dir)
+
+    # Run benchmark command
+    result = subprocess.run(
+        run_command,
+        shell=True,
+        capture_output=False,  # Let output go to stdout/stderr
+        text=True,
+        # timeout=600  # 10 minute timeout
+    )
+
+    # Change back
+    os.chdir(current_dir)
+
+    if result.returncode != 0:
+        print(f"⚠ Warning: Baseline benchmark exited with code {result.returncode}")
+    else:
+        print(f"✓ Baseline benchmark completed")
+
+    return {}
+
+# Node: Initialize benchmark iteration
+def initialize_benchmark_iteration(state: VectorizationState):
+    """Set up new iteration - copy entire benchmark from original"""
     iteration = state['current_iteration']
-    original_filepath = state['original_filepath']
+    original_dir = state['original_benchmark_dir']
+    bench_name = os.path.basename(original_dir.rstrip('/'))
+    parent_dir = os.path.dirname(os.path.abspath(original_dir))
 
-    # Determine source file
-    if iteration == 0:
-        source_file = original_filepath
-        print(f"\n{'='*60}")
-        print(f"ITERATION {iteration}")
-        print('='*60)
-        print(f"Copying from original: {source_file}")
-    else:
-        source_file = get_iteration_filename(original_filepath, iteration - 1)
-        print(f"\n{'='*60}")
-        print(f"ITERATION {iteration}")
-        print('='*60)
-        print(f"Copying from previous iteration: {source_file}")
+    # Generate iteration directory name
+    iteration_dir = os.path.join(parent_dir, f"{bench_name}_AI_{iteration}")
 
-    # Generate target filename
-    target_file = get_iteration_filename(original_filepath, iteration)
+    print(f"\n{'='*60}")
+    print(f"ITERATION {iteration}")
+    print('='*60)
+    print(f"Copying benchmark: {original_dir} → {iteration_dir}")
 
-    # Copy file
-    shutil.copy2(source_file, target_file)
-    print(f"✓ Created: {target_file}")
+    # Copy entire benchmark directory
+    shutil.copytree(original_dir, iteration_dir)
+    print(f"✓ Created iteration directory")
 
-    # Load code from target file
-    loader = TextLoader(target_file, encoding='utf-8')
+    # Find target files in iteration directory
+    target_files = find_target_files(iteration_dir)
+    print(f"✓ Found {len(target_files)} target files in iteration")
+
+    return {
+        "current_iteration_dir": iteration_dir,
+        "target_files": target_files,
+        "current_file_index": 0  # Reset file index for this iteration
+    }
+
+# Node: Initialize file processing
+def initialize_file_processing(state: VectorizationState):
+    """Select next file to process and load its code"""
+    target_files = state['target_files']
+    file_index = state['current_file_index']
+    current_file = target_files[file_index]
+
+    print(f"\n=== Processing File {file_index + 1}/{len(target_files)} ===")
+    print(f"File: {current_file}")
+
+    # Load file code
+    loader = TextLoader(current_file, encoding='utf-8')
     document = loader.load()
     code = document[0].page_content
 
-    # Update iteration files list
-    iteration_files = state['iteration_files'].copy()
-    iteration_files.append(target_file)
+    print(f"✓ Loaded file ({len(code)} characters)")
 
     return {
-        "current_iteration_file": target_file,
-        "current_code": code,
-        "iteration_files": iteration_files
+        "current_file": current_file,
+        "current_file_code": code
     }
 
-# Node: Summarize context
+# Node: Summarize context (per-file)
 def summarize_context(state: VectorizationState):
-    """Compress previous iteration analyses into concise summary"""
+    """Compress previous iteration analyses for current file"""
 
     iteration = state['current_iteration']
+    current_file = state['current_file']
+    file_analysis_history = state['file_analysis_history']
+    file_summarized_context = state['file_summarized_context'].copy()
 
     # No summarization needed for first iteration
     if iteration == 0:
         print(f"✓ No previous context to summarize (iteration 0)")
-        return {"summarized_context": ""}
+        file_summarized_context[current_file] = ""
+        return {"file_summarized_context": file_summarized_context}
 
-    # Get all previous analyses
-    analyses = state['analysis_history']
+    # Get previous analyses for THIS file
+    analyses = file_analysis_history.get(current_file, [])
 
     if not analyses:
-        print(f"✓ No previous analyses to summarize")
-        return {"summarized_context": ""}
+        print(f"✓ No previous analyses for this file")
+        file_summarized_context[current_file] = ""
+        return {"file_summarized_context": file_summarized_context}
 
-    print(f"\n=== Summarizing Context from {len(analyses)} Previous Iterations ===")
+    print(f"\n=== Summarizing Context for {os.path.basename(current_file)} ===")
+    print(f"From {len(analyses)} previous iterations")
 
     # Build summarization prompt
     analyses_text = ""
     for i, analysis in enumerate(analyses):
         analyses_text += f"\n--- Iteration {i} Analysis ---\n{analysis}\n"
 
-    prompt = f"""Summarize the key vectorization insights from these previous analyses.
+    prompt = f"""Summarize the key vectorization insights from these previous analyses for this file.
 
 Previous iteration analyses:
 {analyses_text}
@@ -189,45 +351,57 @@ Output ONLY the summary, no preamble."""
     print(f"✓ Compressed {len(analyses_text)} chars to {len(summary)} chars")
     print(f"Summary preview: {summary[:200]}...")
 
-    return {"summarized_context": summary}
+    # Store summary for this file
+    file_summarized_context[current_file] = summary
 
-# Node: Analyze loops
+    return {"file_summarized_context": file_summarized_context}
+
+# Node: Analyze loops (per-file)
 def analyze_loops(state: VectorizationState):
-    """Analyze code and all remark files to identify vectorization opportunities"""
+    """Analyze code and matching remark files for current file"""
 
-    remark_files = state['remark_files']
-    current_code = state['current_code']
+    current_file = state['current_file']
+    current_code = state['current_file_code']
     iteration = state['current_iteration']
-    summarized_context = state['summarized_context']
+    remark_files_baseline = state['remark_files_baseline']
+    remark_files_current = state.get('remark_files_current', [])
+    file_summarized_context = state['file_summarized_context']
+    file_analysis_history = state['file_analysis_history'].copy()
 
-    # Build remark analysis section (just list files, content is in summarized_context)
+    # Match remark files for this specific file
+    matching_baseline = match_remark_files(current_file, remark_files_baseline)
+    matching_current = match_remark_files(current_file, remark_files_current)
+    all_matching = matching_baseline + matching_current
+
+    # Build remark analysis section
     remark_analysis = ""
-    if remark_files:
-        remark_analysis = f"\n\nOPTIMIZATION REMARKS AVAILABLE ({len(remark_files)} files):\n"
-        for remark_file in remark_files:
-            remark_analysis += f"- {remark_file}\n"
+    if all_matching:
+        remark_analysis = f"\n\nOPTIMIZATION REMARKS FOR THIS FILE ({len(all_matching)} files):\n"
 
-        # Include latest remark file content (not all)
-        if remark_files:
-            latest_remark = remark_files[-1]
-            if os.path.exists(latest_remark):
-                try:
-                    with open(latest_remark, 'r') as f:
-                        content = f.read()
-                        remark_analysis += f"\nLatest remark file ({latest_remark}):\n```yaml\n{content[:2000]}\n```\n"
-                except Exception as e:
-                    remark_analysis += f"  (Could not read file: {e})\n"
+        # Include filtered content from ALL matching remark files
+        # Since we're filtering for loop-vectorize only, they're much smaller now
+        for remark_file in all_matching:
+            remark_analysis += f"\n--- Remark file: {os.path.basename(remark_file)} ---\n"
+
+            # Use yq to filter for loop-vectorize remarks only
+            filtered_content = filter_vectorize_remarks(remark_file)
+
+            if filtered_content:
+                remark_analysis += f"```yaml\n{filtered_content}```\n"
+            else:
+                remark_analysis += "(No loop-vectorize remarks found)\n"
     else:
-        remark_analysis = "\n\nNo optimization remarks available yet."
+        remark_analysis = "\n\nNo optimization remarks available for this file yet."
 
-    # Build iteration context with summarized history
+    # Build iteration context with file-specific summary
+    summarized_context = file_summarized_context.get(current_file, "")
     iteration_context = ""
     if iteration > 0 and summarized_context:
         iteration_context = f"""
 ITERATION CONTEXT:
 This is iteration {iteration} of {state['max_iterations']}.
 
-Summary of previous iterations' findings:
+Summary of previous iterations' findings for this file:
 {summarized_context}
 
 Build upon these previous optimizations and look for additional opportunities.
@@ -236,12 +410,12 @@ Build upon these previous optimizations and look for additional opportunities.
         iteration_context = f"""
 ITERATION CONTEXT:
 This is iteration {iteration} of {state['max_iterations']}.
-The code has been previously optimized in iteration {iteration - 1}.
-You should build upon previous optimizations and look for additional opportunities.
+Look for vectorization opportunities in this file.
 """
 
     prompt = f"""You are analyzing C++ code for vectorization opportunities.
 
+FILE: {os.path.basename(current_file)}
 CURRENT CODE (Iteration {iteration}):
 ```cpp
 {current_code}
@@ -269,25 +443,30 @@ Provide a concise analysis of which FOR LOOPS to add pragmas to and why.
 """
 
     analysis = llm.invoke(prompt)
-    print(f"\n=== Loop Analysis (Iteration {iteration}) ===")
+    print(f"\n=== Loop Analysis ===")
     print(analysis)
     print("=" * 60)
 
-    # Store analysis in history
-    analysis_history = state['analysis_history'].copy()
-    analysis_history.append(analysis)
+    # Store analysis in per-file history
+    if current_file not in file_analysis_history:
+        file_analysis_history[current_file] = []
+    file_analysis_history[current_file].append(analysis)
 
     return {
-        "analysis_history": analysis_history
+        "file_analysis_history": file_analysis_history
     }
 
 # Node: Add pragmas
 def add_pragmas(state: VectorizationState):
     """Add or refine vectorization pragmas based on analysis"""
 
-    current_code = state['current_code']
+    current_file = state['current_file']
+    current_code = state['current_file_code']
     iteration = state['current_iteration']
-    summarized_context = state['summarized_context']
+    file_summarized_context = state['file_summarized_context']
+
+    # Get context for this specific file
+    summarized_context = file_summarized_context.get(current_file, "")
 
     # Build context from summary (not full remark files)
     context_section = ""
@@ -394,24 +573,42 @@ Output WITHOUT any markdown formatting or explanations.
         transformed = transformed[:-3]
     transformed = transformed.strip()
 
-    print(f"\n✓ Pragmas added/refined for iteration {iteration}")
+    print(f"\n✓ Pragmas added/refined for {os.path.basename(current_file)} in iteration {iteration}")
 
     return {
-        "current_code": transformed
+        "current_file_code": transformed
     }
 
-# Node: Write iteration file
-def write_iteration_file(state: VectorizationState):
-    """Write the modified code to the iteration file"""
-    filepath = state['current_iteration_file']
-    code = state['current_code']
+# Node: Write file
+def write_file(state: VectorizationState):
+    """Write the modified code back to the current file"""
+    filepath = state['current_file']
+    code = state['current_file_code']
 
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(code)
 
-    print(f"✓ Wrote iteration file: {filepath}")
+    print(f"✓ Wrote modified file: {os.path.basename(filepath)}")
 
-    return state
+    # Increment file index for next file
+    return {
+        "current_file_index": state['current_file_index'] + 1
+    }
+
+# Decision: Should continue processing files?
+def should_continue_files(state: VectorizationState) -> str:
+    """Decide whether to process more files or compile the benchmark"""
+
+    current_index = state['current_file_index']
+    total_files = len(state['target_files'])
+
+    if current_index < total_files:
+        remaining = total_files - current_index
+        print(f"\n→ {remaining} file(s) remaining in this iteration")
+        return "continue_files"
+    else:
+        print(f"\n✓ All {total_files} files processed in iteration {state['current_iteration']}")
+        return "compile_iteration"
 
 # Node: Compile and verify
 def compile_code(state: VectorizationState):
@@ -428,7 +625,7 @@ def compile_code(state: VectorizationState):
          "-c", filepath, "-o", object_file],
         capture_output=True,
         text=True,
-        timeout=60
+        # timeout=60
     )
 
     errors = []
@@ -456,6 +653,101 @@ def compile_code(state: VectorizationState):
         return {
             "compiler_errors": errors
         }
+
+# Node: Compile entire iteration benchmark
+def compile_iteration_benchmark(state: VectorizationState):
+    """Compile the AI-modified benchmark to generate new optimization remarks"""
+
+    current_dir = os.getcwd()
+    iteration_dir = state['current_iteration_dir']
+    make_command = state['make_command']
+    iteration = state['current_iteration']
+
+    print(f"\n{'='*60}")
+    print(f"COMPILING BENCHMARK AI_{iteration}")
+    print(f"{'='*60}")
+    print(f"Directory: {iteration_dir}")
+    print(f"Command: {make_command}")
+
+    # Change to iteration directory
+    os.chdir(iteration_dir)
+
+    # Run make command
+    result = subprocess.run(
+        make_command,
+        shell=True,
+        capture_output=True,
+        text=True,
+#         timeout=300  # 5 minute timeout for build
+    )
+
+    # Return to original directory
+    os.chdir(current_dir)
+
+    # Check compilation result
+    errors = []
+    if result.returncode != 0:
+        errors = [line for line in result.stderr.split("\n") if line.strip()]
+        print(f"✗ Benchmark compilation failed")
+        print(f"Exit code: {result.returncode}")
+        if errors:
+            print("First few errors:")
+            for err in errors[:10]:
+                print(f"  {err}")
+    else:
+        print(f"✓ Benchmark compiled successfully!")
+
+    # Find all new remark files in iteration directory
+    remark_files = find_files_with_ext(iteration_dir, [".yaml"])
+    print(f"✓ Found {len(remark_files)} remark files")
+
+    return {
+        "remark_files_current": remark_files,
+        "compiler_errors": errors
+    }
+
+# Node: Run iteration benchmark
+def run_iteration_benchmark(state: VectorizationState):
+    """Execute the AI-modified benchmark if run_command is provided"""
+    run_command = state['run_command']
+
+    if not run_command:
+        print("⊘ No run command provided, skipping benchmark execution")
+        return {}
+
+    iteration_dir = state['current_iteration_dir']
+    iteration = state['current_iteration']
+    current_dir = os.getcwd()
+
+    print(f"\n{'='*60}")
+    print(f"RUNNING BENCHMARK AI_{iteration}")
+    print(f"{'='*60}")
+    print(f"Directory: {iteration_dir}")
+    print(f"Command: {run_command}")
+
+    # Change to iteration directory
+    os.chdir(iteration_dir)
+
+    # Run benchmark command
+    result = subprocess.run(
+        run_command,
+        shell=True,
+        capture_output=False,  # Let output go to stdout/stderr
+        text=True,
+#        timeout=600  # 10 minute timeout
+    )
+
+    # Return to original directory
+    os.chdir(current_dir)
+
+    if result.returncode != 0:
+        print(f"⚠ Warning: Benchmark AI_{iteration} exited with code {result.returncode}")
+    else:
+        print(f"✓ Benchmark AI_{iteration} completed")
+
+    print(f"{'='*60}")
+
+    return {}
 
 # Decision: Should continue iteration?
 def should_continue_iteration(state: VectorizationState):
@@ -488,25 +780,22 @@ def finalize(state: VectorizationState):
     print(f"\n{'='*60}")
     print(f"VECTORIZATION COMPLETE")
     print('='*60)
-    print(f"✓ Original file: {state['original_filepath']}")
-    print(f"✓ Backup: {state['original_filepath']}.backup")
+    print(f"✓ Original benchmark: {state['original_benchmark_dir']}")
+    print(f"✓ Baseline directory: {state['benchmark_base_dir']}")
     print(f"✓ Iterations completed: {state['current_iteration'] + 1}")
-    print(f"\nGenerated files:")
-    for i, file in enumerate(state['iteration_files']):
-        print(f"  Iteration {i}: {file}")
-        remark_file = get_remark_filename(file)
-        if os.path.exists(remark_file):
-            print(f"              {remark_file}")
+    print(f"✓ Files processed: {len(state['target_files'])}")
 
-    # Clean up object files
-    original_obj = get_object_filename(state['original_filepath'])
-    if os.path.exists(original_obj):
-        os.remove(original_obj)
-
-    for file in state['iteration_files']:
-        obj_file = get_object_filename(file)
-        if os.path.exists(obj_file):
-            os.remove(obj_file)
+    # List generated iteration directories
+    print(f"\nGenerated iteration directories:")
+    benchmark_name = os.path.basename(state['original_benchmark_dir'])
+    parent_dir = os.path.dirname(state['original_benchmark_dir'])
+    for i in range(state['current_iteration'] + 1):
+        iter_dir = os.path.join(parent_dir, f"{benchmark_name}_AI_{i}")
+        if os.path.exists(iter_dir):
+            print(f"  AI_{i}: {iter_dir}")
+            # Count remark files
+            remark_files = find_files_with_ext(iter_dir, [".yaml"])
+            print(f"        ({len(remark_files)} optimization remark files)")
 
     print('='*60)
 
@@ -517,55 +806,85 @@ def handle_failure(state: VectorizationState):
     """Handle compilation failure"""
     print(f"\n{'='*60}")
     print(f"✗ COMPILATION FAILED at iteration {state['current_iteration']}")
-    print(f"✓ Original file unchanged: {state['original_filepath']}")
-    print(f"✓ Backup available: {state['original_filepath']}.backup")
-    print(f"✓ Partial results available in iteration files")
+    print(f"✓ Original benchmark unchanged: {state['original_benchmark_dir']}")
+    print(f"✓ Baseline available: {state['benchmark_base_dir']}")
+    print(f"✓ Partial results available in iteration directories")
+
+    # Show which iteration failed
+    if state['current_iteration_dir']:
+        print(f"✗ Failed directory: {state['current_iteration_dir']}")
+
+    if state['compiler_errors']:
+        print(f"\nFirst few compiler errors:")
+        for err in state['compiler_errors'][:5]:
+            print(f"  {err}")
+
     print('='*60)
-
-    # Clean up object files
-    original_obj = get_object_filename(state['original_filepath'])
-    if os.path.exists(original_obj):
-        os.remove(original_obj)
-
-    for file in state['iteration_files']:
-        obj_file = get_object_filename(file)
-        if os.path.exists(obj_file):
-            os.remove(obj_file)
 
     return {"success": False}
 
 # Build the workflow graph
 def create_vectorization_workflow():
+    """Create the multi-file, multi-iteration vectorization workflow"""
     workflow = StateGraph(VectorizationState)
 
-    # Add nodes
-    workflow.add_node("load_original", load_original)
-    workflow.add_node("compile_baseline", compile_for_baseline)
-    workflow.add_node("initialize_iteration", initialize_iteration)
+    # Add all nodes
+    workflow.add_node("setup_baseline", setup_baseline)
+    workflow.add_node("compile_benchmark", compile_benchmark)
+    workflow.add_node("run_baseline_benchmark", run_baseline_benchmark)
+    workflow.add_node("initialize_benchmark_iteration", initialize_benchmark_iteration)
+    workflow.add_node("initialize_file_processing", initialize_file_processing)
     workflow.add_node("summarize_context", summarize_context)
     workflow.add_node("analyze_loops", analyze_loops)
     workflow.add_node("add_pragmas", add_pragmas)
-    workflow.add_node("write_iteration_file", write_iteration_file)
-    workflow.add_node("compile", compile_code)
+    workflow.add_node("write_file", write_file)
+    workflow.add_node("compile_iteration_benchmark", compile_iteration_benchmark)
+    workflow.add_node("run_iteration_benchmark", run_iteration_benchmark)
     workflow.add_node("increment_iteration", increment_iteration)
     workflow.add_node("finalize", finalize)
     workflow.add_node("handle_failure", handle_failure)
 
     # Set entry point
-    workflow.set_entry_point("load_original")
+    workflow.set_entry_point("setup_baseline")
 
-    # Build workflow
-    workflow.add_edge("load_original", "compile_baseline")
-    workflow.add_edge("compile_baseline", "initialize_iteration")
-    workflow.add_edge("initialize_iteration", "summarize_context")
+    # Phase 1: Setup and baseline compilation
+    workflow.add_edge("setup_baseline", "compile_benchmark")
+    workflow.add_edge("compile_benchmark", "run_baseline_benchmark")
+    workflow.add_edge("run_baseline_benchmark", "initialize_benchmark_iteration")
+
+    # Phase 2: Per-iteration loop starts here
+    workflow.add_edge("initialize_benchmark_iteration", "initialize_file_processing")
+
+    # Phase 3: Per-file loop (inner loop)
+    workflow.add_edge("initialize_file_processing", "summarize_context")
     workflow.add_edge("summarize_context", "analyze_loops")
     workflow.add_edge("analyze_loops", "add_pragmas")
-    workflow.add_edge("add_pragmas", "write_iteration_file")
-    workflow.add_edge("write_iteration_file", "compile")
+    workflow.add_edge("add_pragmas", "write_file")
 
-    # Conditional: should continue iteration?
+    # Decision: More files to process?
     workflow.add_conditional_edges(
-        "compile",
+        "write_file",
+        should_continue_files,
+        {
+            "continue_files": "initialize_file_processing",  # Loop back to next file
+            "compile_iteration": "compile_iteration_benchmark"  # All files done, compile
+        }
+    )
+
+    # Phase 4: After all files processed, compile and run the iteration
+    workflow.add_edge("compile_iteration_benchmark", "run_iteration_benchmark")
+    workflow.add_edge("run_iteration_benchmark", "decide_next_iteration")
+
+    # Add a dummy node for the iteration decision routing
+    def decide_next_iteration(state: VectorizationState):
+        """Dummy node to route iteration decision"""
+        return state
+
+    workflow.add_node("decide_next_iteration", decide_next_iteration)
+
+    # Decision: Continue to next iteration?
+    workflow.add_conditional_edges(
+        "decide_next_iteration",
         should_continue_iteration,
         {
             "continue": "increment_iteration",
@@ -574,8 +893,8 @@ def create_vectorization_workflow():
         }
     )
 
-    # Loop back: increment then initialize next iteration
-    workflow.add_edge("increment_iteration", "initialize_iteration")
+    # Loop back: increment iteration then start new iteration
+    workflow.add_edge("increment_iteration", "initialize_benchmark_iteration")
 
     # End nodes
     workflow.add_edge("finalize", END)
@@ -583,7 +902,90 @@ def create_vectorization_workflow():
 
     return workflow.compile()
 
-# Main function
+# Main function for directory-based benchmarks
+def vectorize_benchmark(benchmark_dir: str, make_command: str,
+                       max_iterations: int = 3, run_command: str = ""):
+    """
+    Add vectorization pragmas to all C/C++ files in a benchmark directory
+    with iterative refinement based on compiler optimization remarks.
+
+    Args:
+        benchmark_dir: Path to the benchmark directory to optimize
+        make_command: Shell command to build the benchmark (e.g., "make")
+        max_iterations: Number of iterative refinement passes (default: 3)
+        run_command: Optional command to run the benchmark (not used yet)
+
+    Returns:
+        Final state dict with results
+    """
+
+    if not os.path.exists(benchmark_dir):
+        print(f"✗ Error: Benchmark directory not found: {benchmark_dir}")
+        return None
+
+    if not os.path.isdir(benchmark_dir):
+        print(f"✗ Error: Path is not a directory: {benchmark_dir}")
+        return None
+
+    # Get absolute path and derive names
+    abs_benchmark_dir = os.path.abspath(benchmark_dir)
+    benchmark_name = os.path.basename(abs_benchmark_dir)
+    parent_dir = os.path.dirname(abs_benchmark_dir)
+    base_dir = os.path.join(parent_dir, f"{benchmark_name}_base")
+
+    print(f"{'='*60}")
+    print(f"VECTORIZATION WORKFLOW")
+    print(f"{'='*60}")
+    print(f"Benchmark: {benchmark_name}")
+    print(f"Original: {abs_benchmark_dir}")
+    print(f"Baseline: {base_dir}")
+    print(f"Make command: {make_command}")
+    print(f"Max iterations: {max_iterations}")
+    print(f"{'='*60}\n")
+
+    # Create workflow
+    app = create_vectorization_workflow()
+
+    # Initialize state
+    initial_state = {
+        # Directory-level fields
+        "original_benchmark_dir": abs_benchmark_dir,
+        "benchmark_base_dir": base_dir,
+        "current_iteration_dir": "",
+
+        # Build/run commands
+        "make_command": make_command,
+        "run_command": run_command,
+
+        # File tracking
+        "target_files": [],
+        "current_file_index": 0,
+        "current_file": "",
+        "current_file_code": "",
+
+        # Iteration tracking
+        "current_iteration": 0,
+        "max_iterations": max_iterations,
+
+        # Remark files
+        "remark_files_baseline": [],
+        "remark_files_current": [],
+
+        # Per-file context
+        "file_analysis_history": {},
+        "file_summarized_context": {},
+
+        # Status
+        "compiler_errors": [],
+        "success": False
+    }
+
+    # Run workflow with increased recursion limit for multi-iteration/multi-file processing
+    # Each iteration processes all files through multiple nodes, so we need a high limit
+    result = app.invoke(initial_state, config={"recursion_limit": 100})
+    return result
+
+# Legacy function (kept for backwards compatibility)
 def vectorize_file(filepath: str, max_iterations: int = 3):
     """Add vectorization pragmas to a C++ file with iterative refinement"""
 
@@ -608,19 +1010,42 @@ def vectorize_file(filepath: str, max_iterations: int = 3):
         "summarized_context": ""
     }
 
-    result = app.invoke(initial_state)
+    result = app.invoke(initial_state, config={"recursion_limit": 100})
     return result
 
 # CLI entry point
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Add vectorization pragmas to C++ code using iterative AI analysis"
+        description="Add vectorization pragmas to C/C++ code using iterative AI analysis",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Benchmark directory mode (recommended):
+  python vectorizer.py my_benchmark --make-command "make" --iterations 3
+
+  # Legacy single-file mode:
+  python vectorizer.py my_file.cpp --iterations 3
+        """
     )
 
     parser.add_argument(
-        "file",
+        "path",
         type=str,
-        help="Path to the C++ file to optimize"
+        help="Path to C++ file (legacy mode) or benchmark directory (recommended)"
+    )
+
+    parser.add_argument(
+        "--make-command", "-m",
+        type=str,
+        default=None,
+        help="Build command for benchmark (e.g., 'make'). Required for directory mode."
+    )
+
+    parser.add_argument(
+        "--run-command", "-r",
+        type=str,
+        default="",
+        help="Optional command to run benchmark (not used yet)"
     )
 
     parser.add_argument(
@@ -632,7 +1057,28 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    result = vectorize_file(args.file, args.iterations)
+    # Determine mode based on path type
+    if os.path.isdir(args.path):
+        # Directory mode (benchmark)
+        if not args.make_command:
+            print("✗ Error: --make-command is required for benchmark directory mode")
+            print("Example: python vectorizer.py my_benchmark --make-command 'make'")
+            exit(1)
+
+        result = vectorize_benchmark(
+            args.path,
+            args.make_command,
+            max_iterations=args.iterations,
+            run_command=args.run_command
+        )
+    elif os.path.isfile(args.path):
+        # Legacy file mode
+        print("⚠ Running in legacy single-file mode")
+        print("⚠ Consider using benchmark directory mode for better results\n")
+        result = vectorize_file(args.path, args.iterations)
+    else:
+        print(f"✗ Error: Path not found: {args.path}")
+        exit(1)
 
     # Exit with appropriate code
     if result and result.get('success'):
