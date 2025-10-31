@@ -7,7 +7,17 @@ import os
 import shutil
 import argparse
 import fnmatch
+import re
 from pathlib import Path
+
+class FunctionInfo(TypedDict):
+    """Metadata about an extracted function"""
+    name: str              # Function name (e.g., "vecAdd")
+    signature: str         # Full signature line
+    body: str              # Function body only
+    full_text: str         # Complete function (signature + body)
+    start_line: int        # Starting line number in file (0-indexed)
+    end_line: int          # Ending line number in file (0-indexed)
 
 class VectorizationState(TypedDict):
     # Directory-level fields
@@ -25,6 +35,14 @@ class VectorizationState(TypedDict):
     current_file: str                    # Path to file being processed
     current_file_code: str               # Code of current file
 
+    # Function tracking (NEW - for function-level processing)
+    functions_in_file: List[FunctionInfo]  # All functions extracted from current file
+    current_function_index: int            # Index of function being processed
+    current_function: FunctionInfo         # Currently processing function
+    modified_file_content: str             # File content being built up with modified functions
+    summarized_file_context: str           # Summarized file context (structs/globals) - created ONCE per file
+    transformed_function: str              # Temporary field for transformed function from LLM
+
     # Iteration tracking
     current_iteration: int
     max_iterations: int
@@ -33,15 +51,15 @@ class VectorizationState(TypedDict):
     remark_files_baseline: List[str]     # Remark files from baseline compilation
     remark_files_current: List[str]      # Remark files from current iteration
 
-    # Per-file context (for separate sessions)
-    file_analysis_history: Dict[str, List[str]]  # file_path -> [analyses]
-    file_summarized_context: Dict[str, str]      # file_path -> summary
+    # Per-function context (CHANGED - now nested: file -> function -> context)
+    function_analysis_history: Dict[str, Dict[str, List[str]]]  # file_path -> function_name -> [analyses]
+    function_summarized_context: Dict[str, Dict[str, str]]      # file_path -> function_name -> summary
 
     # Status
     compiler_errors: List[str]
     success: bool
 
-llm = OllamaLLM(model="gpt-oss:latest", base_url="http://localhost:11434")
+llm = OllamaLLM(model="codellama:34b", base_url="http://localhost:11434")
 
 def get_base_filename(filepath: str) -> str:
     """Get base filename without extension (e.g., 'test.cpp' -> 'test')"""
@@ -145,6 +163,177 @@ def filter_vectorize_remarks(yaml_file_path: str) -> str:
     except Exception as e:
         print(f"⚠ Warning: Could not filter remarks for {yaml_file_path}: {e}")
         return ""
+
+def demangle_function_name(mangled: str) -> str:
+    """
+    Demangle a C++ function name using c++filt.
+
+    Args:
+        mangled: Mangled function name (e.g., _Z6vecAddPKfS0_Pfm)
+
+    Returns:
+        Demangled function name (e.g., vecAdd(float const*, float const*, float*, unsigned long))
+        or original if demangling fails
+    """
+    try:
+        result = subprocess.run(
+            ["c++filt", mangled],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            demangled = result.stdout.strip()
+            # Extract just the function name (before opening paren)
+            if '(' in demangled:
+                return demangled.split('(')[0]
+            return demangled
+        return mangled
+    except Exception:
+        return mangled
+
+def extract_file_context(file_content: str) -> str:
+    """
+    Extract relevant context from file (structs, classes, globals, typedefs, enums).
+    These provide context for understanding what functions operate on.
+
+    Args:
+        file_content: Complete file content
+
+    Returns:
+        String containing extracted context declarations
+    """
+    lines = file_content.splitlines()
+    context_lines = []
+
+    in_multiline_comment = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Handle multi-line comments
+        if '/*' in stripped:
+            in_multiline_comment = True
+        if '*/' in stripped:
+            in_multiline_comment = False
+            continue
+        if in_multiline_comment:
+            continue
+
+        # Skip single-line comments and empty lines
+        if stripped.startswith('//') or not stripped:
+            continue
+
+        # Capture context: struct, class, typedef, enum, global variables
+        if any(stripped.startswith(keyword) for keyword in ['struct', 'class', 'typedef', 'enum', 'using']):
+            context_lines.append(line)
+        # Capture global variable declarations (simple heuristic: type name = or type name;)
+        elif ';' in stripped and not stripped.startswith('for') and not stripped.startswith('if') and not stripped.startswith('while'):
+            # Rough heuristic for global vars
+            if ' ' in stripped and not '{' in stripped and not stripped.startswith('return'):
+                context_lines.append(line)
+
+    return '\n'.join(context_lines)
+
+def extract_functions(file_content: str) -> List[FunctionInfo]:
+    """
+    Extract all function definitions from C/C++ file using regex.
+
+    Args:
+        file_content: Complete file content
+
+    Returns:
+        List of FunctionInfo objects containing metadata for each function
+    """
+    functions = []
+    lines = file_content.splitlines()
+
+    # Regex pattern for C/C++ function signatures
+    # Matches: [static/inline/etc] return_type function_name(params) [const] [{]
+    # More permissive to handle various C/C++ styles
+    func_sig_pattern = re.compile(
+        r'^(?:static\s+|inline\s+|extern\s+|__attribute__\(\([^)]+\)\)\s+)*'  # Optional modifiers
+        r'[\w\s:<>*&,]+\s+'  # Return type (can include templates, pointers, etc.)
+        r'(\w+)\s*'  # Function name (captured)
+        r'\([^)]*\)'  # Parameters
+        r'(?:\s*const)?'  # Optional const
+        r'(?:\s*\{|\s*$)',  # Either opening brace or end of line
+        re.MULTILINE
+    )
+
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+
+        # Skip empty lines, preprocessor directives, and comments
+        if not line or line.startswith('#') or line.startswith('//'):
+            i += 1
+            continue
+
+        # Try to match function signature
+        match = func_sig_pattern.match(line)
+        if match:
+            func_name = match.group(1)
+
+            # Skip common non-function keywords that might match pattern
+            if func_name in ['if', 'for', 'while', 'switch', 'return', 'sizeof']:
+                i += 1
+                continue
+
+            start_line = i
+            signature = lines[i]
+
+            # Look for opening brace (might be on same line or next few lines)
+            brace_line_idx = i
+            found_brace = False
+
+            # Check current line first
+            if '{' in lines[i]:
+                found_brace = True
+            else:
+                # Look ahead up to 3 lines for opening brace
+                for j in range(i + 1, min(i + 4, len(lines))):
+                    if '{' in lines[j]:
+                        brace_line_idx = j
+                        found_brace = True
+                        break
+                    # Stop if we hit something that's not whitespace or comment
+                    stripped = lines[j].strip()
+                    if stripped and not stripped.startswith('//') and stripped != '{':
+                        break
+
+            if not found_brace:
+                # No opening brace found, not a function definition
+                i += 1
+                continue
+
+            # Count braces starting from the brace line
+            brace_count = lines[brace_line_idx].count('{') - lines[brace_line_idx].count('}')
+            body_lines = []
+            i = brace_line_idx + 1
+
+            while i < len(lines) and brace_count > 0:
+                current_line = lines[i]
+                body_lines.append(current_line)
+                brace_count += current_line.count('{') - current_line.count('}')
+                i += 1
+
+            end_line = i - 1
+            body = '\n'.join(body_lines[:-1]) if body_lines else ""  # Exclude closing brace line
+            full_text = '\n'.join(lines[start_line:end_line+1])
+
+            functions.append({
+                'name': func_name,
+                'signature': signature.strip(),
+                'body': body,
+                'full_text': full_text,
+                'start_line': start_line,
+                'end_line': end_line
+            })
+        else:
+            i += 1
+
+    return functions
 
 # Node: Setup baseline
 def setup_baseline(state: VectorizationState):
@@ -281,7 +470,7 @@ def initialize_benchmark_iteration(state: VectorizationState):
 
 # Node: Initialize file processing
 def initialize_file_processing(state: VectorizationState):
-    """Select next file to process and load its code"""
+    """Select next file to process, load its code, and extract functions"""
     target_files = state['target_files']
     file_index = state['current_file_index']
     current_file = target_files[file_index]
@@ -296,185 +485,274 @@ def initialize_file_processing(state: VectorizationState):
 
     print(f"✓ Loaded file ({len(code)} characters)")
 
+    # Extract all functions from file
+    functions = extract_functions(code)
+    print(f"✓ Extracted {len(functions)} functions")
+
+    # CRITICAL: Reverse function order to process from bottom to top
+    # This prevents line number shifts when replacing earlier functions
+    functions_reversed = list(reversed(functions))
+    print(f"✓ Functions will be processed in reverse order (bottom-to-top)")
+
     return {
         "current_file": current_file,
-        "current_file_code": code
+        "current_file_code": code,
+        "functions_in_file": functions_reversed,
+        "current_function_index": 0,
+        "modified_file_content": code  # Start with original content
     }
 
-# Node: Summarize context (per-file)
+# Node: Summarize file context (structs/globals)
+def summarize_file_context(state: VectorizationState):
+    """
+    Summarize file-level context (structs, globals, types) ONCE per file.
+    This summary is reused for all functions in the file.
+    """
+    file_content = state['current_file_code']
+
+    print(f"\n=== Summarizing File Context ===")
+
+    # Extract raw context
+    raw_context = extract_file_context(file_content)
+
+    # If context is empty or small, no need to summarize
+    if len(raw_context) < 500:
+        print(f"✓ Context is small ({len(raw_context)} chars), using as-is")
+        return {"summarized_file_context": raw_context}
+
+    # Summarize using LLM
+    prompt = f"""Summarize the following C++ declarations (structs, classes, globals, typedefs, enums).
+Focus on: data structure names, key fields, purpose, and how they might be used in loops.
+
+Context:
+```cpp
+{raw_context}
+```
+
+Provide a concise summary (max 300 words) that gives context for understanding
+what data structures and globals are available for vectorization analysis."""
+
+    print(f"Summarizing {len(raw_context)} characters of context...")
+    summary = llm.invoke(prompt)
+
+    print(f"✓ Context summarized ({len(summary)} characters)")
+
+    return {"summarized_file_context": summary}
+
+# Node: Initialize function processing
+def initialize_function_processing(state: VectorizationState):
+    """Select next function to process"""
+    functions = state['functions_in_file']
+    func_idx = state['current_function_index']
+    current_func = functions[func_idx]
+
+    print(f"\n=== Processing Function {func_idx + 1}/{len(functions)} ===")
+    print(f"Function: {current_func['name']} (lines {current_func['start_line']}-{current_func['end_line']})")
+
+    return {
+        "current_function": current_func
+    }
+
+# Node: Summarize context (per-function)
 def summarize_context(state: VectorizationState):
-    """Compress previous iteration analyses for current file"""
+    """Compress previous iteration analyses for current FUNCTION"""
 
     iteration = state['current_iteration']
     current_file = state['current_file']
-    file_analysis_history = state['file_analysis_history']
-    file_summarized_context = state['file_summarized_context'].copy()
+    current_func = state['current_function']
+    func_name = current_func['name']
+
+    function_analysis_history = state['function_analysis_history']
+    function_summarized_context = state['function_summarized_context'].copy()
 
     # No summarization needed for first iteration
     if iteration == 0:
         print(f"✓ No previous context to summarize (iteration 0)")
-        file_summarized_context[current_file] = ""
-        return {"file_summarized_context": file_summarized_context}
+        return {}
 
-    # Get previous analyses for THIS file
-    analyses = file_analysis_history.get(current_file, [])
+    # Get previous analyses for THIS FUNCTION
+    if current_file not in function_analysis_history:
+        print(f"✓ No previous analyses for this function")
+        return {}
 
-    if not analyses:
-        print(f"✓ No previous analyses for this file")
-        file_summarized_context[current_file] = ""
-        return {"file_summarized_context": file_summarized_context}
+    func_analyses = function_analysis_history[current_file].get(func_name, [])
 
-    print(f"\n=== Summarizing Context for {os.path.basename(current_file)} ===")
-    print(f"From {len(analyses)} previous iterations")
+    if not func_analyses:
+        print(f"✓ No previous analyses for function '{func_name}'")
+        return {}
+
+    print(f"Summarizing context for function '{func_name}' from {len(func_analyses)} previous iteration(s)")
 
     # Build summarization prompt
     analyses_text = ""
-    for i, analysis in enumerate(analyses):
+    for i, analysis in enumerate(func_analyses):
         analyses_text += f"\n--- Iteration {i} Analysis ---\n{analysis}\n"
 
-    prompt = f"""Summarize the key vectorization insights from these previous analyses for this file.
+    prompt = f"""Summarize the key vectorization insights from these previous analyses for function '{func_name}'.
 
 Previous iteration analyses:
 {analyses_text}
 
 Create a CONCISE summary (max 300 words) covering:
-1. Which loops were identified as vectorization candidates
+1. Which loops in this function were identified as vectorization candidates
 2. What pragmas were recommended and why
 3. Any recurring issues or patterns observed
-4. Any compilation issues encountered
+4. What should be tried next
 
-Focus on actionable insights for the next iteration.
+Focus on actionable insights for the next iteration of THIS FUNCTION.
 Output ONLY the summary, no preamble."""
 
     summary = llm.invoke(prompt)
 
     print(f"✓ Compressed {len(analyses_text)} chars to {len(summary)} chars")
-    print(f"Summary preview: {summary[:200]}...")
 
-    # Store summary for this file
-    file_summarized_context[current_file] = summary
+    # Store summary for this function
+    if current_file not in function_summarized_context:
+        function_summarized_context[current_file] = {}
+    function_summarized_context[current_file][func_name] = summary
 
-    return {"file_summarized_context": file_summarized_context}
+    return {"function_summarized_context": function_summarized_context}
 
-# Node: Analyze loops (per-file)
+# Node: Analyze loops (per-function)
 def analyze_loops(state: VectorizationState):
-    """Analyze code and matching remark files for current file"""
+    """Analyze function and matching remark files for current function"""
 
     current_file = state['current_file']
-    current_code = state['current_file_code']
+    current_func = state['current_function']
+    func_name = current_func['name']
+    func_body = current_func['full_text']
     iteration = state['current_iteration']
     remark_files_baseline = state['remark_files_baseline']
     remark_files_current = state.get('remark_files_current', [])
-    file_summarized_context = state['file_summarized_context']
-    file_analysis_history = state['file_analysis_history'].copy()
+    summarized_file_context = state.get('summarized_file_context', '')
+    function_summarized_context = state['function_summarized_context']
+    function_analysis_history = state['function_analysis_history'].copy()
 
     # Match remark files for this specific file
     matching_baseline = match_remark_files(current_file, remark_files_baseline)
     matching_current = match_remark_files(current_file, remark_files_current)
     all_matching = matching_baseline + matching_current
 
-    # Build remark analysis section
+    # Build remark analysis section - filter by function name
     remark_analysis = ""
     if all_matching:
-        remark_analysis = f"\n\nOPTIMIZATION REMARKS FOR THIS FILE ({len(all_matching)} files):\n"
+        remark_analysis = f"\n\nOPTIMIZATION REMARKS FOR THIS FUNCTION:\n"
 
-        # Include filtered content from ALL matching remark files
-        # Since we're filtering for loop-vectorize only, they're much smaller now
+        # Filter remarks by function name using demangling
         for remark_file in all_matching:
-            remark_analysis += f"\n--- Remark file: {os.path.basename(remark_file)} ---\n"
-
-            # Use yq to filter for loop-vectorize remarks only
             filtered_content = filter_vectorize_remarks(remark_file)
 
             if filtered_content:
-                remark_analysis += f"```yaml\n{filtered_content}```\n"
-            else:
-                remark_analysis += "(No loop-vectorize remarks found)\n"
-    else:
-        remark_analysis = "\n\nNo optimization remarks available for this file yet."
+                # Further filter by demangled function name
+                relevant_remarks = []
+                for line in filtered_content.splitlines():
+                    if 'Function:' in line:
+                        # Extract mangled name and demangle
+                        mangled = line.split('Function:')[1].strip()
+                        demangled = demangle_function_name(mangled)
+                        # Check if this remark is for our function
+                        if func_name in demangled:
+                            relevant_remarks.append(line)
+                        else:
+                            relevant_remarks = []  # Reset if not our function
+                    elif relevant_remarks:  # We're in a relevant block
+                        relevant_remarks.append(line)
 
-    # Build iteration context with file-specific summary
-    summarized_context = file_summarized_context.get(current_file, "")
+                if relevant_remarks:
+                    remark_analysis += f"\n--- From {os.path.basename(remark_file)} ---\n"
+                    remark_analysis += "```yaml\n" + '\n'.join(relevant_remarks) + "\n```\n"
+
+    if not remark_analysis or remark_analysis == "\n\nOPTIMIZATION REMARKS FOR THIS FUNCTION:\n":
+        remark_analysis = "\n\nNo optimization remarks available for this function yet."
+
+    # Get function-specific history summary
+    func_history = function_summarized_context.get(current_file, {}).get(func_name, "")
     iteration_context = ""
-    if iteration > 0 and summarized_context:
+    if iteration > 0 and func_history:
         iteration_context = f"""
-ITERATION CONTEXT:
-This is iteration {iteration} of {state['max_iterations']}.
-
-Summary of previous iterations' findings for this file:
-{summarized_context}
-
-Build upon these previous optimizations and look for additional opportunities.
+PREVIOUS ITERATIONS SUMMARY FOR THIS FUNCTION:
+{func_history}
 """
     elif iteration > 0:
         iteration_context = f"""
 ITERATION CONTEXT:
-This is iteration {iteration} of {state['max_iterations']}.
-Look for vectorization opportunities in this file.
+This is iteration {iteration} of {state['max_iterations']} for function '{func_name}'.
 """
 
-    prompt = f"""You are analyzing C++ code for vectorization opportunities.
+    prompt = f"""You are analyzing a C++ function for vectorization opportunities.
 
-FILE: {os.path.basename(current_file)}
-CURRENT CODE (Iteration {iteration}):
+FUNCTION TO ANALYZE:
 ```cpp
-{current_code}
+{func_body}
 ```
 
-{remark_analysis}
+PROGRAM CONTEXT (structs/globals used by this function):
+{summarized_file_context}
 
 {iteration_context}
 
-TASK:
-Analyze the code and optimization remarks to identify FOR LOOPS that:
-1. Could benefit from vectorization but aren't vectorized yet
-2. Failed to vectorize (check remarks for "LV" or "loop-vectorize" messages)
-3. Have vectorization issues that could be fixed with pragmas
+{remark_analysis}
 
-Focus ONLY on FOR LOOPS with these characteristics:
+TASK:
+Analyze the FOR LOOPS in this function to identify vectorization opportunities:
+1. Loops that could benefit from vectorization but aren't vectorized yet
+2. Loops that failed to vectorize (check remarks for failures)
+3. Loops with vectorization issues that could be fixed with pragmas
+
+Focus ONLY on FOR LOOPS with:
 - Simple iteration patterns (i++, i+=1, etc.)
 - Array/vector operations in the loop body
-- No complex control flow (minimal breaks, continues, early returns)
-- The compiler identified as vectorization candidates but failed
+- No complex control flow
 
-IMPORTANT: Only analyze FOR LOOPS. Do NOT suggest pragmas for while loops or do-while loops.
+IMPORTANT: Only analyze FOR LOOPS. Do NOT suggest pragmas for while/do-while loops.
 
-Provide a concise analysis of which FOR LOOPS to add pragmas to and why.
+Provide a concise analysis of which FOR LOOPS in THIS FUNCTION need pragmas and why.
 """
 
     analysis = llm.invoke(prompt)
     print(f"\n=== Loop Analysis ===")
-    print(analysis)
+    print(analysis[:500] + "..." if len(analysis) > 500 else analysis)
     print("=" * 60)
 
-    # Store analysis in per-file history
-    if current_file not in file_analysis_history:
-        file_analysis_history[current_file] = []
-    file_analysis_history[current_file].append(analysis)
+    # Store analysis in per-function history
+    if current_file not in function_analysis_history:
+        function_analysis_history[current_file] = {}
+    if func_name not in function_analysis_history[current_file]:
+        function_analysis_history[current_file][func_name] = []
+    function_analysis_history[current_file][func_name].append(analysis)
 
     return {
-        "file_analysis_history": file_analysis_history
+        "function_analysis_history": function_analysis_history
     }
 
-# Node: Add pragmas
+# Node: Add pragmas (per-function)
 def add_pragmas(state: VectorizationState):
-    """Add or refine vectorization pragmas based on analysis"""
+    """Add or refine vectorization pragmas for current function"""
 
     current_file = state['current_file']
-    current_code = state['current_file_code']
+    current_func = state['current_function']
+    func_name = current_func['name']
+    func_body = current_func['full_text']
     iteration = state['current_iteration']
-    file_summarized_context = state['file_summarized_context']
+    summarized_file_context = state.get('summarized_file_context', '')
+    function_summarized_context = state['function_summarized_context']
 
-    # Get context for this specific file
-    summarized_context = file_summarized_context.get(current_file, "")
+    # Get function-specific history summary
+    func_history = function_summarized_context.get(current_file, {}).get(func_name, "")
 
-    # Build context from summary (not full remark files)
+    # Build context sections
     context_section = ""
-    if iteration > 0 and summarized_context:
+    if summarized_file_context:
         context_section = f"""
+PROGRAM CONTEXT (structs/globals):
+{summarized_file_context}
+"""
 
-PREVIOUS ITERATIONS SUMMARY:
-{summarized_context}
+    history_section = ""
+    if iteration > 0 and func_history:
+        history_section = f"""
+PREVIOUS ITERATIONS SUMMARY FOR THIS FUNCTION:
+{func_history}
 """
 
     # Build iteration guidance
@@ -490,7 +768,7 @@ This is the first iteration. Add `#pragma clang loop vectorize(enable)` pragmas 
     else:
         iteration_guidance = f"""
 GUIDANCE:
-This is iteration {iteration}. The code already has pragmas from previous iterations.
+This is iteration {iteration}. The function may already have pragmas from previous iterations.
 Based on the optimization remarks:
 - Add NEW pragmas before FOR LOOPS where vectorization still failed
 - You may add additional pragma directives like:
@@ -500,90 +778,143 @@ Based on the optimization remarks:
 - Build upon previous optimizations
 """
 
-    prompt = f"""Add or refine vectorization pragmas in this C++ code.
+    prompt = f"""You are a code transformation tool. Your ONLY job is to add vectorization pragmas to C/C++ code.
 
-CURRENT CODE (Iteration {iteration}):
-```cpp
-{current_code}
+FUNCTION TO MODIFY:
+```c
+{func_body}
 ```
 
 {context_section}
 
+{history_section}
+
 {iteration_guidance}
 
-CRITICAL RULES FOR PRAGMA PLACEMENT:
-1. ONLY add pragmas before FOR LOOPS (for, while loops are NOT supported)
-2. Pragmas MUST be placed on the line IMMEDIATELY BEFORE the "for" keyword
-3. Pragmas MUST be OUTSIDE the loop, NEVER inside the loop body
-
-CORRECT PLACEMENT EXAMPLES:
-✓ CORRECT:
-    #pragma clang loop vectorize(enable)
-    for (int i = 0; i < n; i++) {{
-        arr[i] = 0;
-    }}
-
-✓ CORRECT (multiple pragmas):
-    #pragma clang loop vectorize(enable)
-    #pragma clang loop interleave(enable)
-    for (size_t i = 0; i < size; i++) {{
-        data[i] *= factor;
-    }}
-
-✗ WRONG (pragma after opening brace):
-    for (int i = 0; i < n; i++) {{
-        #pragma clang loop vectorize(enable)  // WRONG - inside loop body!
-        arr[i] = 0;
-    }}
-
-✗ WRONG (pragma after for keyword):
-    for (int i = 0; i < n; i++)
-    #pragma clang loop vectorize(enable)  // WRONG - after the for statement!
-    {{
-        arr[i] = 0;
-    }}
+CRITICAL RULES:
+1. Add #pragma clang loop vectorize(enable) IMMEDIATELY BEFORE for loops with:
+   - Simple iteration patterns (i++, i--)
+   - Array/vector operations
+   - No complex control flow
+2. Pragmas go on the line DIRECTLY BEFORE "for" keyword
+3. NEVER modify function logic, variable names, or control flow
+4. NEVER change function implementations
+5. ONLY add pragma lines - nothing else
 
 ALLOWED PRAGMAS:
 - #pragma clang loop vectorize(enable)
-- #pragma clang loop vectorize(disable)
 - #pragma clang loop interleave(enable)
-- #pragma clang loop interleave(disable)
-- #pragma clang loop vectorize_width(N) where N is a power of 2 (e.g., 2, 4, 8, 16)
-- #pragma clang loop interleave_count(N) where N is a positive integer
+- #pragma clang loop vectorize_width(N)
 
-OTHER RULES:
-- For nested loops, prefer pragmas on innermost loops where computation happens
-- DO NOT modify any other code - preserve exact formatting, comments, logic
-- DO NOT add explanations or comments about the pragmas
-- DO NOT add pragmas to while loops or do-while loops, ONLY for loops
+OUTPUT FORMAT REQUIREMENTS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️  CRITICAL: You MUST output ONLY valid C/C++ code.
+⚠️  DO NOT include ANY explanations, reasoning, or commentary.
+⚠️  DO NOT use markdown code fences.
+⚠️  DO NOT write "Here's the modified function" or similar text.
+⚠️  Your ENTIRE output must be syntactically valid C/C++ code.
+⚠️  Start with the function signature, end with closing brace.
+⚠️  If you cannot add pragmas safely, output the ORIGINAL function unchanged.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Generate ONLY the complete C++ code with pragmas added/refined.
-Output WITHOUT any markdown formatting or explanations.
-"""
+OUTPUT (C code only, no other text):"""
 
     transformed = llm.invoke(prompt)
 
-    # Clean up markdown
+    # Clean up markdown and whitespace
     transformed = transformed.strip()
-    if transformed.startswith("```cpp"):
-        transformed = transformed[6:]
+    if transformed.startswith("```cpp") or transformed.startswith("```c"):
+        transformed = transformed.split('\n', 1)[1] if '\n' in transformed else transformed[6:]
     if transformed.startswith("```"):
         transformed = transformed[3:]
     if transformed.endswith("```"):
         transformed = transformed[:-3]
     transformed = transformed.strip()
 
-    print(f"\n✓ Pragmas added/refined for {os.path.basename(current_file)} in iteration {iteration}")
+    # Validate output - check for common signs of LLM explanation text
+    invalid_phrases = [
+        "here's", "here is", "let's", "let us", "we need to", "we must",
+        "i will", "i'll", "the function", "this function", "we should",
+        "given", "however", "looking at", "we can see", "notice that",
+        "for each", "…", "？", "<U+", # Unicode issues
+    ]
+
+    transformed_lower = transformed.lower()
+    has_invalid_text = any(phrase in transformed_lower for phrase in invalid_phrases)
+
+    # Check if output starts with something that looks like a function signature
+    first_line = transformed.split('\n')[0].strip()
+    looks_like_code = ('(' in first_line and ')' in first_line) or first_line.startswith(('#', '//'))
+
+    if has_invalid_text or not looks_like_code:
+        print(f"\n⚠️  LLM output validation failed for '{func_name}' - contains non-code text")
+        print(f"   Returning original function unchanged")
+        # Return original function to avoid corruption
+        return {
+            "transformed_function": func_body
+        }
+
+    print(f"\n✓ Pragmas added/refined for function '{func_name}'")
 
     return {
-        "current_file_code": transformed
+        "transformed_function": transformed
     }
+
+# Node: Replace function in file
+def replace_function_in_file(state: VectorizationState):
+    """Replace the modified function in the file content"""
+
+    transformed_func = state['transformed_function']
+    func_info = state['current_function']
+    file_content = state['modified_file_content']
+
+    # Replace function at line range
+    lines = file_content.splitlines()
+    new_func_lines = transformed_func.splitlines()
+
+    # Replace lines from start_line to end_line (inclusive)
+    lines[func_info['start_line']:func_info['end_line']+1] = new_func_lines
+
+    new_content = '\n'.join(lines)
+
+    print(f"✓ Replaced function '{func_info['name']}' in file content")
+
+    return {
+        "modified_file_content": new_content,
+        "current_function_index": state['current_function_index'] + 1
+    }
+
+# Decision: Check if file has any functions
+def has_functions_to_process(state: VectorizationState) -> str:
+    """Check if the file has any functions to process"""
+    functions = state['functions_in_file']
+
+    if len(functions) == 0:
+        print(f"⊘ No functions found in file, skipping to next file")
+        return "write_file"  # Skip function processing, go straight to next file
+    else:
+        return "process_functions"  # Enter function processing loop
+
+# Decision: Should continue processing functions?
+def should_continue_functions(state: VectorizationState) -> str:
+    """Decide whether to process more functions or write file"""
+
+    current_idx = state['current_function_index']
+    total_funcs = len(state['functions_in_file'])
+
+    if current_idx < total_funcs:
+        remaining = total_funcs - current_idx
+        print(f"\n→ {remaining} function(s) remaining in this file")
+        return "continue_functions"
+    else:
+        print(f"\n✓ All {total_funcs} function(s) processed in this file")
+        return "write_file"
 
 # Node: Write file
 def write_file(state: VectorizationState):
     """Write the modified code back to the current file"""
     filepath = state['current_file']
-    code = state['current_file_code']
+    code = state['modified_file_content']  # Changed from current_file_code
 
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(code)
@@ -834,9 +1165,12 @@ def create_vectorization_workflow():
     workflow.add_node("run_baseline_benchmark", run_baseline_benchmark)
     workflow.add_node("initialize_benchmark_iteration", initialize_benchmark_iteration)
     workflow.add_node("initialize_file_processing", initialize_file_processing)
-    workflow.add_node("summarize_context", summarize_context)
-    workflow.add_node("analyze_loops", analyze_loops)
-    workflow.add_node("add_pragmas", add_pragmas)
+    workflow.add_node("summarize_file_context", summarize_file_context)  # NEW
+    workflow.add_node("initialize_function_processing", initialize_function_processing)  # NEW
+    workflow.add_node("summarize_context", summarize_context)  # Now per-function
+    workflow.add_node("analyze_loops", analyze_loops)  # Now per-function
+    workflow.add_node("add_pragmas", add_pragmas)  # Now per-function
+    workflow.add_node("replace_function_in_file", replace_function_in_file)  # NEW
     workflow.add_node("write_file", write_file)
     workflow.add_node("compile_iteration_benchmark", compile_iteration_benchmark)
     workflow.add_node("run_iteration_benchmark", run_iteration_benchmark)
@@ -855,11 +1189,34 @@ def create_vectorization_workflow():
     # Phase 2: Per-iteration loop starts here
     workflow.add_edge("initialize_benchmark_iteration", "initialize_file_processing")
 
-    # Phase 3: Per-file loop (inner loop)
-    workflow.add_edge("initialize_file_processing", "summarize_context")
+    # Phase 3: Per-file loop (middle loop)
+    workflow.add_edge("initialize_file_processing", "summarize_file_context")
+
+    # Decision: Does this file have any functions?
+    workflow.add_conditional_edges(
+        "summarize_file_context",
+        has_functions_to_process,
+        {
+            "process_functions": "initialize_function_processing",  # Enter function loop
+            "write_file": "write_file"  # Skip to next file if no functions
+        }
+    )
+
+    # Phase 4: Per-function loop (inner loop - NEW)
+    workflow.add_edge("initialize_function_processing", "summarize_context")
     workflow.add_edge("summarize_context", "analyze_loops")
     workflow.add_edge("analyze_loops", "add_pragmas")
-    workflow.add_edge("add_pragmas", "write_file")
+    workflow.add_edge("add_pragmas", "replace_function_in_file")
+
+    # Decision: More functions to process in this file?
+    workflow.add_conditional_edges(
+        "replace_function_in_file",
+        should_continue_functions,
+        {
+            "continue_functions": "initialize_function_processing",  # Loop back to next function
+            "write_file": "write_file"  # All functions done, write file
+        }
+    )
 
     # Decision: More files to process?
     workflow.add_conditional_edges(
@@ -871,7 +1228,7 @@ def create_vectorization_workflow():
         }
     )
 
-    # Phase 4: After all files processed, compile and run the iteration
+    # Phase 5: After all files processed, compile and run the iteration
     workflow.add_edge("compile_iteration_benchmark", "run_iteration_benchmark")
     workflow.add_edge("run_iteration_benchmark", "decide_next_iteration")
 
@@ -963,6 +1320,14 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
         "current_file": "",
         "current_file_code": "",
 
+        # Function tracking (NEW)
+        "functions_in_file": [],
+        "current_function_index": 0,
+        "current_function": {},
+        "modified_file_content": "",
+        "summarized_file_context": "",
+        "transformed_function": "",  # Temporary field for function transformation
+
         # Iteration tracking
         "current_iteration": 0,
         "max_iterations": max_iterations,
@@ -971,9 +1336,9 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
         "remark_files_baseline": [],
         "remark_files_current": [],
 
-        # Per-file context
-        "file_analysis_history": {},
-        "file_summarized_context": {},
+        # Per-function context (CHANGED from per-file)
+        "function_analysis_history": {},
+        "function_summarized_context": {},
 
         # Status
         "compiler_errors": [],
@@ -982,7 +1347,7 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
 
     # Run workflow with increased recursion limit for multi-iteration/multi-file processing
     # Each iteration processes all files through multiple nodes, so we need a high limit
-    result = app.invoke(initial_state, config={"recursion_limit": 100})
+    result = app.invoke(initial_state, config={"recursion_limit": 20000})
     return result
 
 # Legacy function (kept for backwards compatibility)
