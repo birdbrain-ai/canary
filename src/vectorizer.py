@@ -99,6 +99,11 @@ def setup_ai_logging():
             f.write("AI INTERACTIONS LOG\n")
             f.write(f"Started: {datetime.datetime.now().isoformat()}\n")
             f.write("="*80 + "\n\n")
+    else:
+        with open(AI_LOG_FILE, 'a', encoding='utf-8') as f:
+            f.write("="*80 + "\n")
+            f.write(f"NEW LOG STARTED: {datetime.datetime.now().isoformat()}\n")
+            f.write("="*80 + "\n")
 
 def log_ai_call(function_name: str, prompt: str, response: str, metadata: dict = None):
     """
@@ -458,7 +463,7 @@ def apply_pragma(file_content: str, action: PragmaAction) -> str:
     return '\n'.join(lines)
 
 
-# Node: Setup baseline
+# Node: Setups baseline
 def setup_baseline(state: VectorizationState):
     """Copy benchmark to baseline directory and find target files"""
     original_dir = state['original_benchmark_dir']
@@ -959,7 +964,7 @@ FUNCTION WITH LINE NUMBERS:
 
 TASK:
 Identify FOR LOOPS that should have vectorization pragmas.
-For each loop, output a JSON object with this EXACT format:
+For each loop, create a JSON object with this EXACT format:
 
 {{
   "line_number": <line number of the 'for' statement>,
@@ -969,19 +974,17 @@ For each loop, output a JSON object with this EXACT format:
 }}
 
 CRITICAL OUTPUT RULES:
-- Output ONE JSON object per line (no comma between objects)
-- If multiple loops need pragmas, output multiple JSON objects (one per line)
-- If NO loops need pragmas, output NOTHING (empty response)
+- Output a JSON ARRAY containing all pragma objects: [{{...}}, {{...}}]
+- If NO loops need pragmas, output an empty array: []
 - DO NOT include any explanatory text, markdown, or code fences
-- DO NOT number the JSON objects
-- Each line must be valid JSON or empty
+- Output ONLY the JSON array, nothing else
 
 IMPORTANT:
 - Only suggest pragmas for simple for loops with array operations
 - Avoid loops with complex control flow or function calls
 - When in doubt, don't suggest a pragma
 
-OUTPUT (JSON only, one per line):"""
+OUTPUT (valid JSON array only):"""
 
     response = llm.invoke(prompt)
 
@@ -1000,24 +1003,55 @@ OUTPUT (JSON only, one per line):"""
         }
     )
 
-    # Parse JSON lines
+    # Parse JSON response (supports array format or fallback to JSONL)
     actions = []
-    for line in response.strip().splitlines():
-        line = line.strip()
-        if not line or line.startswith('#') or line.startswith('//'):
-            continue
 
-        # Remove markdown fences if present
-        if line.startswith('```'):
-            continue
+    try:
+        print(response)
 
-        try:
-            action = json.loads(line)
-            actions.append(action)
-            print(f"  Parsed action: {action['pragma_type']} at line {action['line_number']}")
-        except json.JSONDecodeError as e:
-            print(f"⚠ Failed to parse LLM output: {line[:100]}")
-            print(f"  Error: {e}")
+        # Handle empty response
+        if not response or not response.strip():
+            actions = None
+        else:
+            # Try to parse as a single JSON object first (if wrapped in array)
+            try:
+                parsed = json.loads(response)
+                # If it's already a list, use it directly
+                if isinstance(parsed, list):
+                    actions = parsed
+                # If it's a single object, wrap it in a list
+                elif isinstance(parsed, dict):
+                    actions = [parsed]
+                else:
+                    actions = None
+            except json.JSONDecodeError:
+                # Parse as JSONL (one JSON object per line)
+                for line in response.strip().split('\n'):
+                    line = line.strip()
+                    # Skip empty lines and lines that don't look like JSON
+                    if not line or not (line.startswith('{') or line.startswith('[')):
+                        continue
+                    try:
+                        obj = json.loads(line)
+                        if isinstance(obj, dict):
+                            actions.append(obj)
+                        elif isinstance(obj, list):
+                            actions.extend(obj)
+                    except json.JSONDecodeError as line_err:
+                        print(f"⚠ Failed to parse line: {line}")
+                        print(f"  Error: {line_err}")
+                        continue
+
+                # If no valid objects were parsed, set to None
+                if not actions:
+                    actions = None
+
+        if actions:
+            print(f"  Parsed {len(actions)} action(s): {actions}")
+    except Exception as e:
+        print(f"⚠ Failed to parse LLM output: {response}")
+        print(f"  Error: {e}")
+        actions = None
 
     if not actions:
         print(f"✓ No pragma actions suggested for function '{func_name}'")
