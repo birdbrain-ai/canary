@@ -17,6 +17,8 @@ import re
 from pathlib import Path
 from langchain_deepseek import ChatDeepSeek
 import json
+import datetime
+import hashlib
 
 class FunctionInfo(TypedDict):
     """Metadata about an extracted function"""
@@ -81,6 +83,68 @@ llm = OllamaLLM(model="codellama:34b", base_url="http://localhost:11434")
 #     api_key=os.getenv("DEEPSEEK_API_KEY")
 #     # max_tokens=,  # Allow long function outputs without truncation
 # )
+
+# AI Logging Configuration
+AI_LOG_DIR = "ai_logs"
+AI_LOG_FILE = os.path.join(AI_LOG_DIR, "ai_interactions.log")
+
+def setup_ai_logging():
+    """Create logging directory if it doesn't exist"""
+    os.makedirs(AI_LOG_DIR, exist_ok=True)
+
+    # Write header if file is new
+    if not os.path.exists(AI_LOG_FILE):
+        with open(AI_LOG_FILE, 'w', encoding='utf-8') as f:
+            f.write("="*80 + "\n")
+            f.write("AI INTERACTIONS LOG\n")
+            f.write(f"Started: {datetime.datetime.now().isoformat()}\n")
+            f.write("="*80 + "\n\n")
+
+def log_ai_call(function_name: str, prompt: str, response: str, metadata: dict = None):
+    """
+    Log AI input/output to file
+
+    Args:
+        function_name: Name of the function making the AI call
+        prompt: Input prompt sent to AI
+        response: Output received from AI
+        metadata: Optional dict with additional context (iteration, file, function, etc.)
+    """
+    timestamp = datetime.datetime.now().isoformat()
+    prompt_hash = hashlib.md5(prompt.encode()).hexdigest()[:8]
+
+    # Build log entry
+    log_entry = f"\n{'='*80}\n"
+    log_entry += f"TIMESTAMP: {timestamp}\n"
+    log_entry += f"FUNCTION: {function_name}\n"
+    log_entry += f"PROMPT_HASH: {prompt_hash}\n"
+
+    if metadata:
+        log_entry += "METADATA:\n"
+        for key, value in metadata.items():
+            log_entry += f"  {key}: {value}\n"
+
+    log_entry += f"\n{'-'*80}\n"
+    log_entry += "PROMPT (INPUT TO AI):\n"
+    log_entry += f"{'-'*80}\n"
+    log_entry += f"{prompt}\n"
+
+    log_entry += f"\n{'-'*80}\n"
+    log_entry += "RESPONSE (OUTPUT FROM AI):\n"
+    log_entry += f"{'-'*80}\n"
+    log_entry += f"{response}\n"
+    log_entry += f"{'='*80}\n\n"
+
+    # Write to log file
+    with open(AI_LOG_FILE, 'a', encoding='utf-8') as f:
+        f.write(log_entry)
+
+    # Also write individual files for easier inspection
+    log_filename = f"{timestamp.replace(':', '-')}_{function_name}_{prompt_hash}.txt"
+    individual_log_path = os.path.join(AI_LOG_DIR, log_filename)
+
+    with open(individual_log_path, 'w', encoding='utf-8') as f:
+        f.write(log_entry)
 
 def get_base_filename(filepath: str) -> str:
     """Get base filename without extension (e.g., 'test.cpp' -> 'test')"""
@@ -594,6 +658,18 @@ what data structures and globals are available for vectorization analysis."""
     print(f"Summarizing {len(raw_context)} characters of context...")
     summary = llm.invoke(prompt)
 
+    # Log AI interaction
+    log_ai_call(
+        function_name="summarize_file_context",
+        prompt=prompt,
+        response=summary,
+        metadata={
+            "file": state.get('current_file', 'unknown'),
+            "iteration": state.get('current_iteration', 0),
+            "raw_context_length": len(raw_context)
+        }
+    )
+
     print(f"✓ Context summarized ({len(summary)} characters)")
 
     return {"summarized_file_context": summary}
@@ -662,6 +738,20 @@ Focus on actionable insights for the next iteration of THIS FUNCTION.
 Output ONLY the summary, no preamble."""
 
     summary = llm.invoke(prompt)
+
+    # Log AI interaction
+    log_ai_call(
+        function_name="summarize_context",
+        prompt=prompt,
+        response=summary,
+        metadata={
+            "file": current_file,
+            "function": func_name,
+            "iteration": iteration,
+            "num_previous_analyses": len(func_analyses),
+            "analyses_text_length": len(analyses_text)
+        }
+    )
 
     print(f"✓ Compressed {len(analyses_text)} chars to {len(summary)} chars")
 
@@ -769,6 +859,21 @@ Provide a concise analysis of which FOR LOOPS in THIS FUNCTION need pragmas and 
 """
 
     analysis = llm.invoke(prompt)
+
+    # Log AI interaction
+    log_ai_call(
+        function_name="analyze_loops",
+        prompt=prompt,
+        response=analysis,
+        metadata={
+            "file": current_file,
+            "function": func_name,
+            "iteration": iteration,
+            "num_matching_remarks": len(all_matching),
+            "has_remark_analysis": bool(remark_analysis and remark_analysis != "\n\nNo optimization remarks available for this function yet.")
+        }
+    )
+
     print(f"\n=== Loop Analysis ===")
     print(analysis[:500] + "..." if len(analysis) > 500 else analysis)
     print("=" * 60)
@@ -879,18 +984,33 @@ IMPORTANT:
 OUTPUT (JSON only, one per line):"""
 
     response = llm.invoke(prompt)
-    
+
+    # Log AI interaction
+    log_ai_call(
+        function_name="add_pragmas",
+        prompt=prompt,
+        response=response,
+        metadata={
+            "file": current_file,
+            "function": func_name,
+            "iteration": iteration,
+            "function_start_line": current_func['start_line'],
+            "function_end_line": current_func['end_line'],
+            "has_history": bool(func_history)
+        }
+    )
+
     # Parse JSON lines
     actions = []
     for line in response.strip().splitlines():
         line = line.strip()
         if not line or line.startswith('#') or line.startswith('//'):
             continue
-        
+
         # Remove markdown fences if present
         if line.startswith('```'):
             continue
-            
+
         try:
             action = json.loads(line)
             actions.append(action)
@@ -1365,6 +1485,10 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
         print(f"✗ Error: Path is not a directory: {benchmark_dir}")
         return None
 
+    # Setup AI logging
+    setup_ai_logging()
+    print(f"✓ AI logging initialized: {AI_LOG_FILE}")
+
     # Get absolute path and derive names
     abs_benchmark_dir = os.path.abspath(benchmark_dir)
     benchmark_name = os.path.basename(abs_benchmark_dir)
@@ -1439,6 +1563,10 @@ def vectorize_file(filepath: str, max_iterations: int = 3):
     if not os.path.exists(filepath):
         print(f"✗ Error: File not found: {filepath}")
         return None
+
+    # Setup AI logging
+    setup_ai_logging()
+    print(f"✓ AI logging initialized: {AI_LOG_FILE}")
 
     app = create_vectorization_workflow()
 
