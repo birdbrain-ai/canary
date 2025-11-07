@@ -16,6 +16,7 @@ import fnmatch
 import re
 from pathlib import Path
 from langchain_deepseek import ChatDeepSeek
+import json
 
 class FunctionInfo(TypedDict):
     """Metadata about an extracted function"""
@@ -25,6 +26,13 @@ class FunctionInfo(TypedDict):
     full_text: str         # Complete function (signature + body)
     start_line: int        # Starting line number in file (0-indexed)
     end_line: int          # Ending line number in file (0-indexed)
+
+class PragmaAction(TypedDict):
+    """Action to insert a pragma at a specific line"""
+    line_number: int  # Line number in the function (0-indexed)
+    pragma_type: str  # "vectorize", "interleave", or "vectorize_width"
+    width: int | None  # For vectorize_width(N), otherwise None
+    reasoning: str  # Brief explanation from LLM
 
 class VectorizationState(TypedDict):
     # Directory-level fields
@@ -49,6 +57,7 @@ class VectorizationState(TypedDict):
     modified_file_content: str             # File content being built up with modified functions
     summarized_file_context: str           # Summarized file context (structs/globals) - created ONCE per file
     transformed_function: str              # Temporary field for transformed function from LLM
+    pragma_actions: List[PragmaAction]
 
     # Iteration tracking
     current_iteration: int
@@ -346,6 +355,44 @@ def extract_functions(file_content: str) -> List[FunctionInfo]:
             i += 1
 
     return functions
+
+def apply_pragma(file_content: str, action: PragmaAction) -> str:
+    """Apply a single pragma insertion to file content"""
+    lines = file_content.splitlines()
+    
+    # Validate line number
+    if action['line_number'] < 0 or action['line_number'] >= len(lines):
+        print(f"⚠ Invalid line number {action['line_number']}")
+        return file_content
+    
+    # Check if line is actually a for loop
+    target_line = lines[action['line_number']].strip()
+    if not target_line.startswith('for'):
+        print(f"⚠ Line {action['line_number']} is not a for loop: {target_line[:50]}")
+        return file_content
+    
+    # Build pragma string
+    if action['pragma_type'] == 'vectorize':
+        pragma = "#pragma clang loop vectorize(enable)"
+    elif action['pragma_type'] == 'interleave':
+        pragma = "#pragma clang loop interleave(enable)"
+    elif action['pragma_type'] == 'vectorize_width':
+        width = action.get('width', 4)
+        pragma = f"#pragma clang loop vectorize_width({width})"
+    else:
+        print(f"⚠ Unknown pragma type: {action['pragma_type']}")
+        return file_content
+    
+    # Insert pragma before the loop (preserve indentation)
+    indent = len(lines[action['line_number']]) - len(lines[action['line_number']].lstrip())
+    pragma_line = ' ' * indent + pragma
+    
+    lines.insert(action['line_number'], pragma_line)
+    
+    print(f"  ✓ Added {pragma} at line {action['line_number']}")
+    
+    return '\n'.join(lines)
+
 
 # Node: Setup baseline
 def setup_baseline(state: VectorizationState):
@@ -738,8 +785,9 @@ Provide a concise analysis of which FOR LOOPS in THIS FUNCTION need pragmas and 
     }
 
 # Node: Add pragmas (per-function)
+# Node: Add pragmas (per-function)
 def add_pragmas(state: VectorizationState):
-    """Add or refine vectorization pragmas for current function"""
+    """Ask LLM to suggest pragma placements as structured JSON actions"""
 
     current_file = state['current_file']
     current_func = state['current_function']
@@ -751,6 +799,13 @@ def add_pragmas(state: VectorizationState):
 
     # Get function-specific history summary
     func_history = function_summarized_context.get(current_file, {}).get(func_name, "")
+
+    # Annotate lines with numbers for LLM reference
+    func_lines = func_body.splitlines()
+    annotated_code = '\n'.join([
+        f"{i:4d} | {line}" 
+        for i, line in enumerate(func_lines)
+    ])
 
     # Build context sections
     context_section = ""
@@ -772,7 +827,7 @@ PREVIOUS ITERATIONS SUMMARY FOR THIS FUNCTION:
     if iteration == 0:
         iteration_guidance = """
 GUIDANCE:
-This is the first iteration. Add `#pragma clang loop vectorize(enable)` pragmas before FOR LOOPS that:
+This is the first iteration. Suggest `vectorize` pragmas for FOR LOOPS that:
 - Have simple, predictable iteration patterns
 - Perform array/vector operations
 - Don't have complex control flow or dependencies
@@ -780,22 +835,16 @@ This is the first iteration. Add `#pragma clang loop vectorize(enable)` pragmas 
     else:
         iteration_guidance = f"""
 GUIDANCE:
-This is iteration {iteration}. The function may already have pragmas from previous iterations.
-Based on the optimization remarks:
-- Add NEW pragmas before FOR LOOPS where vectorization still failed
-- You may add additional pragma directives like:
-  - #pragma clang loop interleave(enable)
-  - #pragma clang loop vectorize_width(N)
-- DO NOT remove existing pragmas
-- Build upon previous optimizations
+This is iteration {iteration}. Based on optimization remarks:
+- Suggest pragmas for FOR LOOPS where vectorization still failed
+- You may suggest: "vectorize", "interleave", or "vectorize_width"
+- Be conservative - only suggest if you're confident it will help
 """
 
-    prompt = f"""You are a code transformation tool. Your ONLY job is to add vectorization pragmas to C/C++ code.
+    prompt = f"""Analyze this C++ function for vectorization opportunities.
 
-FUNCTION TO MODIFY:
-```c
-{func_body}
-```
+FUNCTION WITH LINE NUMBERS:
+{annotated_code}
 
 {context_section}
 
@@ -803,74 +852,92 @@ FUNCTION TO MODIFY:
 
 {iteration_guidance}
 
-CRITICAL RULES:
-1. Add #pragma clang loop vectorize(enable) IMMEDIATELY BEFORE for loops with:
-   - Simple iteration patterns (i++, i--)
-   - Array/vector operations
-   - No complex control flow
-2. Pragmas go on the line DIRECTLY BEFORE "for" keyword
-3. NEVER modify function logic, variable names, or control flow
-4. NEVER change function implementations
-5. ONLY add pragma lines - nothing else
+TASK:
+Identify FOR LOOPS that should have vectorization pragmas.
+For each loop, output a JSON object with this EXACT format:
 
-ALLOWED PRAGMAS:
-- #pragma clang loop vectorize(enable)
-- #pragma clang loop interleave(enable)
-- #pragma clang loop vectorize_width(N)
+{{
+  "line_number": <line number of the 'for' statement>,
+  "pragma_type": "vectorize" OR "interleave" OR "vectorize_width",
+  "width": <number (only if pragma_type is vectorize_width), otherwise null>,
+  "reasoning": "<brief explanation why this loop needs this pragma>"
+}}
 
-OUTPUT FORMAT REQUIREMENTS:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️  CRITICAL: You MUST output ONLY valid C/C++ code.
-⚠️  DO NOT include ANY explanations, reasoning, or commentary.
-⚠️  DO NOT use markdown code fences.
-⚠️  DO NOT write "Here's the modified function" or similar text.
-⚠️  Your ENTIRE output must be syntactically valid C/C++ code.
-⚠️  Start with the function signature, end with closing brace.
-⚠️  If you cannot add pragmas safely, output the ORIGINAL function unchanged.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CRITICAL OUTPUT RULES:
+- Output ONE JSON object per line (no comma between objects)
+- If multiple loops need pragmas, output multiple JSON objects (one per line)
+- If NO loops need pragmas, output NOTHING (empty response)
+- DO NOT include any explanatory text, markdown, or code fences
+- DO NOT number the JSON objects
+- Each line must be valid JSON or empty
 
-OUTPUT (C code only, no other text):"""
+IMPORTANT:
+- Only suggest pragmas for simple for loops with array operations
+- Avoid loops with complex control flow or function calls
+- When in doubt, don't suggest a pragma
 
-    transformed = llm.invoke(prompt)
+OUTPUT (JSON only, one per line):"""
 
-    # Clean up markdown and whitespace
-    transformed = transformed.strip()
-    if transformed.startswith("```cpp") or transformed.startswith("```c"):
-        transformed = transformed.split('\n', 1)[1] if '\n' in transformed else transformed[6:]
-    if transformed.startswith("```"):
-        transformed = transformed[3:]
-    if transformed.endswith("```"):
-        transformed = transformed[:-3]
-    transformed = transformed.strip()
+    response = llm.invoke(prompt)
+    
+    # Parse JSON lines
+    actions = []
+    for line in response.strip().splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or line.startswith('//'):
+            continue
+        
+        # Remove markdown fences if present
+        if line.startswith('```'):
+            continue
+            
+        try:
+            action = json.loads(line)
+            actions.append(action)
+            print(f"  Parsed action: {action['pragma_type']} at line {action['line_number']}")
+        except json.JSONDecodeError as e:
+            print(f"⚠ Failed to parse LLM output: {line[:100]}")
+            print(f"  Error: {e}")
 
-    # Validate output - check for common signs of LLM explanation text
-    invalid_phrases = [
-        "here's", "here is", "let's", "let us", "we need to", "we must",
-        "i will", "i'll", "the function", "this function", "we should",
-        "given", "however", "looking at", "we can see", "notice that",
-        "for each", "…", "？", "<U+", # Unicode issues
-    ]
-
-    transformed_lower = transformed.lower()
-    has_invalid_text = any(phrase in transformed_lower for phrase in invalid_phrases)
-
-    # Check if output starts with something that looks like a function signature
-    first_line = transformed.split('\n')[0].strip()
-    looks_like_code = ('(' in first_line and ')' in first_line) or first_line.startswith(('#', '//'))
-
-    if has_invalid_text or not looks_like_code:
-        print(f"\n⚠️  LLM output validation failed for '{func_name}' - contains non-code text")
-        print(f"   Returning original function unchanged")
-        # Return original function to avoid corruption
-        return {
-            "transformed_function": func_body
-        }
-
-    print(f"\n✓ Pragmas added/refined for function '{func_name}'")
+    if not actions:
+        print(f"✓ No pragma actions suggested for function '{func_name}'")
+    else:
+        print(f"✓ LLM suggested {len(actions)} pragma action(s) for function '{func_name}'")
 
     return {
-        "transformed_function": transformed
+        "pragma_actions": actions
     }
+
+# Node: Apply pragma actions
+def apply_pragma_actions(state: VectorizationState):
+    """Apply all suggested pragma actions to the function"""
+    
+    func_body = state['current_function']['full_text']
+    func_name = state['current_function']['name']
+    actions = state.get('pragma_actions', [])
+    
+    if not actions:
+        print(f"✓ No pragmas to apply for function '{func_name}'")
+        return {"transformed_function": func_body}
+    
+    print(f"\n=== Applying {len(actions)} Pragma Action(s) ===")
+    
+    # Apply actions in reverse order to preserve line numbers
+    actions_sorted = sorted(actions, key=lambda a: a['line_number'], reverse=True)
+    
+    modified = func_body
+    applied_count = 0
+    
+    for action in actions_sorted:
+        print(f"  Attempting: {action['pragma_type']} at line {action['line_number']}")
+        new_modified = apply_pragma(modified, action)
+        if new_modified != modified:
+            applied_count += 1
+        modified = new_modified
+    
+    print(f"✓ Applied {applied_count}/{len(actions)} pragma(s) for function '{func_name}'")
+    
+    return {"transformed_function": modified}
 
 # Node: Replace function in file
 def replace_function_in_file(state: VectorizationState):
@@ -1182,6 +1249,7 @@ def create_vectorization_workflow():
     workflow.add_node("summarize_context", summarize_context)  # Now per-function
     workflow.add_node("analyze_loops", analyze_loops)  # Now per-function
     workflow.add_node("add_pragmas", add_pragmas)  # Now per-function
+    workflow.add_node("apply_pragma_actions", apply_pragma_actions)  # NEW
     workflow.add_node("replace_function_in_file", replace_function_in_file)  # NEW
     workflow.add_node("write_file", write_file)
     workflow.add_node("compile_iteration_benchmark", compile_iteration_benchmark)
@@ -1218,7 +1286,8 @@ def create_vectorization_workflow():
     workflow.add_edge("initialize_function_processing", "summarize_context")
     workflow.add_edge("summarize_context", "analyze_loops")
     workflow.add_edge("analyze_loops", "add_pragmas")
-    workflow.add_edge("add_pragmas", "replace_function_in_file")
+    workflow.add_edge("add_pragmas", "apply_pragma_actions")
+    workflow.add_edge("apply_pragma_actions", "replace_function_in_file")
 
     # Decision: More functions to process in this file?
     workflow.add_conditional_edges(
@@ -1339,6 +1408,7 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
         "modified_file_content": "",
         "summarized_file_context": "",
         "transformed_function": "",  # Temporary field for function transformation
+        "pragma_actions": [],
 
         # Iteration tracking
         "current_iteration": 0,
