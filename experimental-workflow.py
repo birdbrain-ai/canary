@@ -28,8 +28,8 @@ import os
 import subprocess
 import fnmatch
 import argparse
-from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, \
-    TextBlock
+from agents import Agent, Runner, OpenAIChatCompletionsModel, AsyncOpenAI
+from agents.mcp import MCPServerStdio
 import asyncio
 
 
@@ -202,105 +202,137 @@ async def main(make_command, run_command, bench_folder_name, n_iters):
     print("### Finding *.opt.yaml files ###")
     yaml_files_from_prev_iter = find_opt_yaml_files()
 
-    sessions = {}
     build_diagnostics = {}  # Store diagnostics per iteration
 
     os.chdir("..")
 
-    for i in range(n_iters):
-        print(f"### Starting {i}th Iteration ###")
+    # Setup Ollama model and Codex MCP server once
+    # Use gpt-oss:20b which is known to work with tool calling
+    ollama_model = OpenAIChatCompletionsModel(
+        model="gpt-oss:20b",
+        openai_client=AsyncOpenAI(
+            base_url="http://localhost:11434/v1",
+            api_key="dummy"
+        )
+    )
 
-        print("### Copying Benchmark ###")
-        shutil.copytree(bench_folder_name, f"{bench_folder_name}_AI_{i}")
+    codex_mcp_server = MCPServerStdio(
+        name="Codex CLI",
+        params={
+            "command": "npx",
+            "args": ["-y", "codex", "--oss", "-m", "gpt-oss:20b", "mcp-server"],
+        },
+        client_session_timeout_seconds=360000,
+    )
 
-        os.chdir(f"{bench_folder_name}_AI_{i}")
+    # Use async context manager for MCP server
+    async with codex_mcp_server:
+        for i in range(n_iters):
+            print(f"### Starting {i}th Iteration ###")
 
-        print("### Annotating codes with AI-generated user directives ###")
+            print("### Copying Benchmark ###")
+            shutil.copytree(bench_folder_name, f"{bench_folder_name}_AI_{i}")
 
-        # Gather all target files and remark files.
-        target_files = find_target_files()
+            os.chdir(f"{bench_folder_name}_AI_{i}")
 
-        # Map target_files to sessions
-        os.chdir("..")
+            print("### Annotating codes with AI-generated user directives ###")
 
-        if i == 0:
+            # Gather all target files and remark files.
+            target_files = find_target_files()
+
+            os.chdir("..")
+            os.chdir(f"{bench_folder_name}_AI_{i}")
+            target_and_yaml_files = []
+            for target_file in target_files:
+                # For every target file, scan through all the past remark files
+                # and see if there are any remark files that match the pattern
+                # "{target_prefix}*.opt.yaml", where target_prefix is the basename
+                # without the extension.
+
+                target_prefix = os.path.splitext(os.path.basename(target_file))[0]
+                pat = f"{target_prefix}*.opt.yaml"
+                corresponding_yaml_files = []
+                for yaml_file in yaml_files_from_prev_iter:
+                    yaml_basename = os.path.basename(yaml_file)
+                    if (fnmatch.fnmatch(yaml_basename, pat)):
+                        corresponding_yaml_files.append(yaml_file)
+                target_and_yaml_files.append([target_file,
+                                              corresponding_yaml_files])
+
+            # Print all the files that are going to be annotated so the user can
+            # review it
+            print("### Listing Target Files so you can inspect it ###")
             for target_file in target_files:
                 print(target_file)
-                print("RELATIVE FILE: " + get_rel_file(target_file))
-                sessions[get_rel_file(target_file)] = None
 
-        os.chdir(f"{bench_folder_name}_AI_{i}")        
-        target_and_yaml_files = []
-        for target_file in target_files:
-            # For every target file, scan through all the past remark files
-            # and see if there are any remark files that match the pattern
-            # "{target_prefix}*.opt.yaml", where target_prefix is the basename
-            # without the extension.
+            os.chdir("..")
 
-            target_prefix = os.path.splitext(os.path.basename(target_file))[0]
-            pat = f"{target_prefix}*.opt.yaml"
-            corresponding_yaml_files = []
-            for yaml_file in yaml_files_from_prev_iter:
-                yaml_basename = os.path.basename(yaml_file)
-                if (fnmatch.fnmatch(yaml_basename, pat)):
-                    corresponding_yaml_files.append(yaml_file)
-            target_and_yaml_files.append([target_file,
-                                          corresponding_yaml_files])
+            # Must be in the orchestration working directory otherwise, context management
+            # doesn't work properly
+            for file, yaml_files in target_and_yaml_files:
+                print(f"### Annotating {file} ###")
+                # Pass previous iteration's diagnostics (if any)
+                prev_diagnostics = build_diagnostics.get(i-1, {})
 
-        # Print all the files that are going to be annotated so the user can
-        # review it
-        print("### Listing Target Files so you can inspect it ###")
-        for target_file in target_files:
-            print(target_file)
+                # Retry logic to handle model hallucination errors (e.g., "codx?" instead of "codex")
+                max_retries = 3
+                success = False
+                for attempt in range(max_retries):
+                    try:
+                        await ai_annotations_codex(file, yaml_files, prev_diagnostics, i, ollama_model, codex_mcp_server)
+                        success = True
+                        break  # Success, exit retry loop
+                    except Exception as e:
+                        error_msg = str(e)
+                        # Check if it's a tool calling error (model hallucination)
+                        if "not found in agent" in error_msg:
+                            if attempt < max_retries - 1:
+                                print(f"  ⚠️  Warning: Model generated invalid tool call (attempt {attempt + 1}/{max_retries})")
+                                print(f"  Error: {error_msg}")
+                                print(f"  Retrying...")
+                                continue
+                            else:
+                                print(f"  ❌ Error: Failed after {max_retries} attempts: {error_msg}")
+                                print(f"  Skipping file {file}")
+                        else:
+                            # Unexpected error, re-raise
+                            print(f"  ❌ Unexpected error: {error_msg}")
+                            raise
 
-        options = ClaudeAgentOptions(
-            max_turns=50,
-            allowed_tools=["Read", "Edit", "Write", "Grep"],
-            system_prompt="You are a performance engineer, with the goal of reducing execution time in a specified file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else. You are ONLY permitted to read/edit the target file and use Grep on the specified remark files.",
-        )
-        # client = ClaudeSDKClient(options)
+                if not success:
+                    print(f"  ⚠️  File {file} was not successfully annotated after {max_retries} attempts")
 
-        os.chdir("..")
+            os.chdir(f"{bench_folder_name}_AI_{i}")
 
-        # Must be in the orchestration working directory otherwise, context management
-        # doesn't work properly
-        for file, yaml_files in target_and_yaml_files:
-            print(f"### Annotating {file} ###")
-            # Pass previous iteration's diagnostics (if any)
-            prev_diagnostics = build_diagnostics.get(i-1, {})
-            await ai_annotations(file, yaml_files, prev_diagnostics, sessions, options)
+            # Build the benchmark with diagnostics capture
+            print("### Building Benchmark with Diagnostics Capture ###")
+            build_output = run_cmd_with_capture(make_command, f"build_diagnostics_AI_{i}.log")
 
-        os.chdir(f"{bench_folder_name}_AI_{i}")
+            # Analyze build diagnostics
+            diagnostics = analyze_build_diagnostics(build_output)
+            build_diagnostics[i] = diagnostics
 
-        # Build the benchmark with diagnostics capture
-        print("### Building Benchmark with Diagnostics Capture ###")
-        build_output = run_cmd_with_capture(make_command, f"build_diagnostics_AI_{i}.log")
+            # Print diagnostic summary
+            print(f"### Build Diagnostics Summary for AI_{i} ###")
+            print(f"  Errors: {len(diagnostics['errors'])}")
+            print(f"  Warnings: {len(diagnostics['warnings'])}")
+            print(f"  Pragma Issues: {len(diagnostics['pragma_issues'])}")
 
-        # Analyze build diagnostics
-        diagnostics = analyze_build_diagnostics(build_output)
-        build_diagnostics[i] = diagnostics
+            if diagnostics['pragma_issues']:
+                print("  Pragma Issues Found:")
+                for issue in diagnostics['pragma_issues']:
+                    print(f"    - {issue}")
 
-        # Print diagnostic summary
-        print(f"### Build Diagnostics Summary for AI_{i} ###")
-        print(f"  Errors: {len(diagnostics['errors'])}")
-        print(f"  Warnings: {len(diagnostics['warnings'])}")
-        print(f"  Pragma Issues: {len(diagnostics['pragma_issues'])}")
+            # Run the modified benchmark and time it
+            run_cmd(run_command)
 
-        if diagnostics['pragma_issues']:
-            print("  Pragma Issues Found:")
-            for issue in diagnostics['pragma_issues']:
-                print(f"    - {issue}")
+            # Update yaml files from prev iter
+            yaml_files_from_prev_iter = find_opt_yaml_files()
 
-        # Run the modified benchmark and time it
-        run_cmd(run_command)
-
-        # Update yaml files from prev iter
-        yaml_files_from_prev_iter = find_opt_yaml_files()
-
-        os.chdir("..")
+            os.chdir("..")
 
 
-async def ai_annotations(file, remark_files, prev_diagnostics, sessions, claude_options):
+async def ai_annotations_codex(file, remark_files, prev_diagnostics, iteration_num, ollama_model, codex_mcp_server):
     rel_file = get_rel_file(file)
 
     # Filter remark files to only include those with vector-related passes
@@ -308,185 +340,94 @@ async def ai_annotations(file, remark_files, prev_diagnostics, sessions, claude_
 
     print(f"Original remark files: {len(remark_files)}, Filtered remark files: {len(filtered_remark_files)}")
 
+    # Build compiler feedback section
+    compiler_feedback = ""
+    if prev_diagnostics:
+        if prev_diagnostics.get('pragma_issues'):
+            compiler_feedback = f"""
+
+COMPILER FEEDBACK FROM PREVIOUS BUILD:
+The compiler reported these pragma-related issues:
+{chr(10).join(f"- {issue}" for issue in prev_diagnostics['pragma_issues'])}
+
+Please review these issues and ensure your pragma placements are semantically correct."""
+        elif prev_diagnostics.get('errors') or prev_diagnostics.get('warnings'):
+            compiler_feedback = f"""
+
+COMPILER FEEDBACK FROM PREVIOUS BUILD:
+The compiler reported:
+- {len(prev_diagnostics.get('errors', []))} errors
+- {len(prev_diagnostics.get('warnings', []))} warnings
+
+Please ensure your pragma placements don't cause compilation issues."""
+
+    # Build iteration context
+    iteration_context = ""
+    if iteration_num > 0:
+        iteration_context = f"""
+
+ITERATION CONTEXT:
+This is optimization iteration {iteration_num}. The file has been previously optimized in iteration {iteration_num - 1}.
+Review the current state of the file and build upon previous optimizations.
+Look for additional vectorization opportunities or refine existing pragmas based on compiler feedback."""
+
+    # Build remark files section
+    remark_section = ""
+    if filtered_remark_files:
+        remark_section = f"""
+
+OPTIMIZATION REMARKS AVAILABLE:
+The following compiler optimization remark files contain vectorization information:
+{chr(10).join(filtered_remark_files)}
+
+Read these files to identify loops that failed to vectorize and why.
+Search for keywords: "vectorize", "loop", "pragma", "optimization"."""
+    else:
+        remark_section = """
+
+No optimization remark files available. Analyze the code structure to identify loops that would benefit from vectorization."""
+
+    # Unified prompt
+    prompt = f"""You are a performance engineer optimizing C/C++ code for clang 18.
+
+TARGET FILE: {file}
+
+TASK:
+Add compiler hints to enable loop autovectorization. You are ONLY permitted to add pragmas:
+- #pragma clang loop vectorize(enable)
+- #pragma clang loop interleave(enable)
+- #pragma clang loop vectorize_width(X)
+- #pragma clang loop interleave_count(X)
+
+Where X is a positive integer. You may combine these pragmas.
+
+CONSTRAINTS:
+- ONLY read and edit the target file
+- ONLY add pragmas before loop statements
+- For nested loops, place pragmas on the innermost loop headers (right before the loop that executes the core work)
+- DO NOT modify loop bodies or logic
+- DO NOT add other types of changes{remark_section}{iteration_context}{compiler_feedback}
+
+Begin optimization of {file}."""
+
+    # Run Codex with Ollama
     with open("ai-annotations.log", "a") as f:
-        # Either original session
-        if sessions[rel_file] is None:
-            if filtered_remark_files:
-                # Add compiler feedback to prompt if available
-                compiler_feedback = ""
-                if prev_diagnostics:
-                    if prev_diagnostics.get('pragma_issues'):
-                        compiler_feedback = f"""
+        coding_agent = Agent(
+            name="Vectorization Agent",
+            instructions=(
+                "You are a performance engineer tasked with adding vectorization pragmas to C/C++ code. "
+                "When asked to modify code files, actually modify them. "
+                "Always call codex with \"approval-policy\": \"never\" and \"sandbox\": \"workspace-write\"."
+            ),
+            mcp_servers=[codex_mcp_server],
+            model=ollama_model
+        )
 
-COMPILER FEEDBACK FROM PREVIOUS BUILD:
-The compiler reported these pragma-related issues:
-{chr(10).join(f"- {issue}" for issue in prev_diagnostics['pragma_issues'])}
-
-Please review these issues and ensure your pragma placements are semantically correct."""
-                    elif prev_diagnostics.get('errors') or prev_diagnostics.get('warnings'):
-                        compiler_feedback = f"""
-
-COMPILER FEEDBACK FROM PREVIOUS BUILD:
-The compiler reported:
-- {len(prev_diagnostics.get('errors', []))} errors
-- {len(prev_diagnostics.get('warnings', []))} warnings
-
-Please ensure your pragma placements don't cause compilation issues."""
-
-                focused_prompt = f"""Please add compiler hints to the file at {file}.
-
-You are ONLY permitted to:
-- Read and edit the target file: {file}
-- Use Grep tool on these specific remark files:
-{chr(10).join(filtered_remark_files)}
-
-Search for these patterns in the remark files:
-- "vectorize"
-- "loop"
-- "pragma"
-- "optimization"
-- "hint"
-- "remark"
-
-Then, based on the grep results, add appropriate compiler hints like:
-#pragma clang loop vectorize(enable)
-#pragma clang loop interleave(enable)
-#pragma clang loop vectorize_width(X)
-#pragma clang loop interleave_count(X)
-
-Focus only on adding vectorization pragmas to loops that would benefit from them.{compiler_feedback}"""
-            else:
-                # Add compiler feedback to prompt if available
-                compiler_feedback = ""
-                if prev_diagnostics:
-                    if prev_diagnostics.get('pragma_issues'):
-                        compiler_feedback = f"""
-
-COMPILER FEEDBACK FROM PREVIOUS BUILD:
-The compiler reported these pragma-related issues:
-{chr(10).join(f"- {issue}" for issue in prev_diagnostics['pragma_issues'])}
-
-Please review these issues and ensure your pragma placements are semantically correct."""
-                    elif prev_diagnostics.get('errors') or prev_diagnostics.get('warnings'):
-                        compiler_feedback = f"""
-
-COMPILER FEEDBACK FROM PREVIOUS BUILD:
-The compiler reported:
-- {len(prev_diagnostics.get('errors', []))} errors
-- {len(prev_diagnostics.get('warnings', []))} warnings
-
-Please ensure your pragma placements don't cause compilation issues."""
-
-                focused_prompt = f"""Please add compiler hints to the file at {file}.
-
-You are ONLY permitted to read and edit this target file. There are no optimization remark files available.
-
-Analyze the code and add appropriate vectorization pragmas to loops that would benefit from vectorization:
-#pragma clang loop vectorize(enable)
-#pragma clang loop interleave(enable)
-#pragma clang loop vectorize_width(X)
-#pragma clang loop interleave_count(X)
-
-Focus on loops that process arrays or perform mathematical operations.{compiler_feedback}"""
-
-            async for message in query(
-                    prompt=focused_prompt,
-                    options=claude_options
-            ):
-                if hasattr(message, 'subtype') and message.subtype == 'init':
-                    sessions[rel_file] = message.data.get('session_id')
-                if isinstance(message, AssistantMessage):
-                    for block in message.content:
-                        if isinstance(block, TextBlock):
-                            print(f"Claude: {block.text}")
-                f.write(str(message))
-
-        # Or resume session
-        else:
-            if filtered_remark_files:
-                # Add compiler feedback to prompt if available
-                compiler_feedback = ""
-                if prev_diagnostics:
-                    if prev_diagnostics.get('pragma_issues'):
-                        compiler_feedback = f"""
-
-COMPILER FEEDBACK FROM PREVIOUS BUILD:
-The compiler reported these pragma-related issues:
-{chr(10).join(f"- {issue}" for issue in prev_diagnostics['pragma_issues'])}
-
-Please review these issues and ensure your pragma placements are semantically correct."""
-                    elif prev_diagnostics.get('errors') or prev_diagnostics.get('warnings'):
-                        compiler_feedback = f"""
-
-COMPILER FEEDBACK FROM PREVIOUS BUILD:
-The compiler reported:
-- {len(prev_diagnostics.get('errors', []))} errors
-- {len(prev_diagnostics.get('warnings', []))} warnings
-
-Please ensure your pragma placements don't cause compilation issues."""
-
-                resume_prompt = f"""Please add compiler hints to the file at {file}.
-
-You are ONLY permitted to:
-- Read and edit the target file: {file}
-- Use Grep tool on these specific remark files:
-{chr(10).join(filtered_remark_files)}
-
-Search for: "vectorize", "loop", "pragma", "optimization", "hint", "remark"
-
-Use information from previous optimization attempts and add appropriate vectorization pragmas.{compiler_feedback}"""
-            else:
-                # Add compiler feedback to prompt if available
-                compiler_feedback = ""
-                if prev_diagnostics:
-                    if prev_diagnostics.get('pragma_issues'):
-                        compiler_feedback = f"""
-
-COMPILER FEEDBACK FROM PREVIOUS BUILD:
-The compiler reported these pragma-related issues:
-{chr(10).join(f"- {issue}" for issue in prev_diagnostics['pragma_issues'])}
-
-Please review these issues and ensure your pragma placements are semantically correct."""
-                    elif prev_diagnostics.get('errors') or prev_diagnostics.get('warnings'):
-                        compiler_feedback = f"""
-
-COMPILER FEEDBACK FROM PREVIOUS BUILD:
-The compiler reported:
-- {len(prev_diagnostics.get('errors', []))} errors
-- {len(prev_diagnostics.get('warnings', []))} warnings
-
-Please ensure your pragma placements don't cause compilation issues."""
-
-                resume_prompt = f"""Please add compiler hints to the file at {file}.
-
-You are ONLY permitted to read and edit this target file. There are no optimization remark files available.
-
-Use information from previous optimization attempts and add appropriate vectorization pragmas to loops that would benefit from vectorization:
-#pragma clang loop vectorize(enable)
-#pragma clang loop interleave(enable)
-#pragma clang loop vectorize_width(X)
-#pragma clang loop interleave_count(X)
-
-Focus on loops that process arrays or perform mathematical operations.{compiler_feedback}"""
-
-            async for message in query(
-                prompt=resume_prompt,
-                options=ClaudeAgentOptions(
-                                max_turns=50,
-                                allowed_tools=["Read", "Edit", "Write", "Grep"],
-                                system_prompt="You are a performance engineer, with the goal of reducing execution time in a specified file. The compiler you are using is clang 18. You are ONLY permitted to add any compiler hints to enable and configure loop autovectorization. This at least includes #pragma clang loop vectorize(enable), interleave(enable), vectorize_width(X), interleave_count(X), where X is in the set of any natural numbers, and any combination of those compiler hints. You are NOT permitted to do anything else. You are ONLY permitted to read/edit the target file and use Grep on the specified remark files.",
-                                resume=sessions[rel_file],
-                ),
-            ):
-                if hasattr(message, 'subtype') and message.subtype == 'init':
-                    sessions[rel_file] = message.data.get('session_id')
-
-                if isinstance(message, AssistantMessage):
-                    for block in message.content:
-                        if isinstance(block, TextBlock):
-                            print(f"Claude: {block.text}")
-
-                f.write(str(message))
+        result = await Runner.run(coding_agent, prompt)
+        print(f"Codex: {result}")
+        f.write(f"\n=== Iteration {iteration_num} - {file} ===\n")
+        f.write(str(result))
+        f.write("\n")
 
 
 parser = argparse.ArgumentParser()
