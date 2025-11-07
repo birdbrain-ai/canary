@@ -1,3 +1,9 @@
+###
+### Two ideas
+### 1. I need to expose only specific tools to LLMs
+### 2. I have to shrink my giant prompts
+###
+
 from langgraph.graph import StateGraph, END
 from langchain_ollama import OllamaLLM
 from langchain_community.document_loaders import TextLoader
@@ -9,6 +15,7 @@ import argparse
 import fnmatch
 import re
 from pathlib import Path
+from langchain_deepseek import ChatDeepSeek
 
 class FunctionInfo(TypedDict):
     """Metadata about an extracted function"""
@@ -60,6 +67,11 @@ class VectorizationState(TypedDict):
     success: bool
 
 llm = OllamaLLM(model="codellama:34b", base_url="http://localhost:11434")
+# llm = ChatDeepSeek(
+#     model="deepseek-reasoner",
+#     api_key=os.getenv("DEEPSEEK_API_KEY")
+#     # max_tokens=,  # Allow long function outputs without truncation
+# )
 
 def get_base_filename(filepath: str) -> str:
     """Get base filename without extension (e.g., 'test.cpp' -> 'test')"""
