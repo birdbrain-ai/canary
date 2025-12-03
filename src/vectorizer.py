@@ -98,11 +98,11 @@ class VectorizationState(TypedDict):
 #     # max_tokens=,  # Allow long function outputs without truncation
 # )
 llm = ChatOpenAI(
-    model="codellama:34b",
+    model="Qwen/Qwen2.5-Coder-7B-Instruct",
     openai_api_key="EMPTY",
     openai_api_base="http://localhost:8000/v1",
-    max_tokens=,
-    temperature=0.5
+    # max_tokens=,
+    # temperature=0.5
 )
 
 
@@ -800,7 +800,11 @@ Provide a concise summary (max 300 words) that gives context for understanding
 what data structures and globals are available for vectorization analysis."""
 
     print(f"Summarizing {len(raw_context)} characters of context...")
-    summary = llm.invoke(prompt)
+    raw_summary = llm.invoke(prompt)
+    if hasattr(raw_summary, 'content'):
+        summary = raw_summary.content
+    else:
+        summary = str(raw_summary)
 
     # Log AI interaction
     log_ai_call(
@@ -881,7 +885,11 @@ Create a CONCISE summary (max 300 words) covering:
 Focus on actionable insights for the next iteration of THIS FUNCTION.
 Output ONLY the summary, no preamble."""
 
-    summary = llm.invoke(prompt)
+    raw_summary = llm.invoke(prompt)
+    if hasattr(raw_summary, 'content'):
+        summary = raw_summary.content
+    else:
+        summary = str(raw_summary)
 
     # Log AI interaction
     log_ai_call(
@@ -1002,7 +1010,11 @@ IMPORTANT: Only analyze FOR LOOPS. Do NOT suggest pragmas for while/do-while loo
 Provide a concise analysis of which FOR LOOPS in THIS FUNCTION need pragmas and why.
 """
 
-    analysis = llm.invoke(prompt)
+    raw_analysis = llm.invoke(prompt)
+    if hasattr(raw_analysis, 'content'):
+        analysis = raw_analysis.content
+    else:
+        analysis = str(raw_analysis)
 
     # Log AI interaction
     log_ai_call(
@@ -1172,7 +1184,13 @@ IMPORTANT:
 
 OUTPUT (valid JSON array only):"""
 
-    response = llm.invoke(prompt)
+    raw_response = llm.invoke(prompt)
+    
+    # Handle ChatModel response (AIMessage) vs LLM response (str)
+    if hasattr(raw_response, 'content'):
+        response = raw_response.content
+    else:
+        response = str(raw_response)
 
     # Log AI interaction
     log_ai_call(
