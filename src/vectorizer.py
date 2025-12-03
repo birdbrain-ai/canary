@@ -5,7 +5,9 @@
 ###
 
 from langgraph.graph import StateGraph, END
-from langchain_ollama import OllamaLLM
+# from langchain_ollama import OllamaLLM
+# from langchain_deepseek import ChatDeepSeek
+from langchain_openai import ChatOpenAI
 from langchain_community.document_loaders import TextLoader
 from typing import TypedDict, List, Dict
 import subprocess
@@ -15,7 +17,7 @@ import argparse
 import fnmatch
 import re
 from pathlib import Path
-from langchain_deepseek import ChatDeepSeek
+
 import json
 import datetime
 import hashlib
@@ -89,12 +91,20 @@ class VectorizationState(TypedDict):
     compiler_errors: List[str]
     success: bool
 
-llm = OllamaLLM(model="codellama:34b", base_url="http://localhost:11434")
+# llm = OllamaLLM(model="codellama:34b", base_url="http://localhost:11434")
 # llm = ChatDeepSeek(
 #     model="deepseek-reasoner",
 #     api_key=os.getenv("DEEPSEEK_API_KEY")
 #     # max_tokens=,  # Allow long function outputs without truncation
 # )
+llm = ChatOpenAI(
+    model="codellama:34b",
+    openai_api_key="EMPTY",
+    openai_api_base="http://localhost:8000",
+    max_tokens=,
+    temperature=0.5
+)
+
 
 # AI Logging Configuration
 AI_LOG_DIR = "ai_logs"
