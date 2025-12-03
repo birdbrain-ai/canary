@@ -31,10 +31,19 @@ class FunctionInfo(TypedDict):
 
 class PragmaAction(TypedDict):
     """Action to insert a pragma at a specific line"""
+    action_type: str  # Must be "pragma"
     line_number: int  # Line number in the function (0-indexed)
     pragma_type: str  # "vectorize", "interleave", or "vectorize_width"
     width: int | None  # For vectorize_width(N), otherwise None
     reasoning: str  # Brief explanation from LLM
+
+class CodeReplaceAction(TypedDict):
+    """Action to replace specific lines within a function"""
+    action_type: str  # Must be "code_replace"
+    start_line: int  # Start line (0-indexed, relative to function)
+    end_line: int  # End line (0-indexed, inclusive)
+    new_code: str  # Replacement code (can be multi-line)
+    reasoning: str  # Explanation of change
 
 class VectorizationState(TypedDict):
     # Directory-level fields
@@ -59,7 +68,7 @@ class VectorizationState(TypedDict):
     modified_file_content: str             # File content being built up with modified functions
     summarized_file_context: str           # Summarized file context (structs/globals) - created ONCE per file
     transformed_function: str              # Temporary field for transformed function from LLM
-    pragma_actions: List[PragmaAction]
+    modification_actions: List[PragmaAction | CodeReplaceAction]  # Actions to apply
 
     # Iteration tracking
     current_iteration: int
@@ -461,6 +470,66 @@ def apply_pragma(file_content: str, action: PragmaAction) -> str:
     print(f"  ✓ Added {pragma} at line {action['line_number']}")
     
     return '\n'.join(lines)
+
+def apply_code_replace(file_content: str, action: CodeReplaceAction) -> str:
+    """
+    Apply a code replacement action to function content.
+    
+    Replaces lines [start_line, end_line] with new_code, preserving indentation.
+    
+    Args:
+        file_content: Function content as string
+        action: CodeReplaceAction with line range and new code
+        
+    Returns:
+        Modified function content
+    """
+    lines = file_content.splitlines()
+    
+    # Validate line numbers
+    start = action.get('start_line', -1)
+    end = action.get('end_line', -1)
+    
+    if start < 0 or end >= len(lines):
+        print(f"⚠ Invalid line range [{start}, {end}] (function has {len(lines)} lines)")
+        return file_content
+    
+    if start > end:
+        print(f"⚠ Start line ({start}) must be <= end line ({end})")
+        return file_content
+    
+    # Get indentation from first line being replaced
+    if lines[start].strip():  # If line is not empty
+        indent = len(lines[start]) - len(lines[start].lstrip())
+    else:
+        indent = 0
+    
+    # Split new code and apply indentation
+    new_code = action.get('new_code', '').rstrip()
+    if not new_code:
+        print(f"⚠ Empty replacement code provided")
+        return file_content
+    
+    new_lines = new_code.splitlines()
+    
+    # Apply indentation to each new line (preserve relative indentation)
+    indented_new_lines = []
+    for line in new_lines:
+        if line.strip():  # Non-empty line
+            # Preserve the line's own indentation relative to base
+            indented_new_lines.append(' ' * indent + line.lstrip())
+        else:  # Empty line
+            indented_new_lines.append('')
+    
+    # Replace lines
+    lines[start:end+1] = indented_new_lines
+    
+    reasoning = action.get('reasoning', 'No reason provided')
+    print(f"  ✓ Replaced lines {start}-{end}: {reasoning[:60]}")
+    
+    return '\n'.join(lines)
+
+
 
 
 # Node: Setups baseline
@@ -894,10 +963,9 @@ Provide a concise analysis of which FOR LOOPS in THIS FUNCTION need pragmas and 
         "function_analysis_history": function_analysis_history
     }
 
-# Node: Add pragmas (per-function)
-# Node: Add pragmas (per-function)
-def add_pragmas(state: VectorizationState):
-    """Ask LLM to suggest pragma placements as structured JSON actions"""
+# Node: Suggest modifications (per-function)
+def suggest_modifications(state: VectorizationState):
+    """Ask LLM to suggest modifications (pragmas or function diffs) as structured JSON actions"""
 
     current_file = state['current_file']
     current_func = state['current_function']
@@ -937,18 +1005,33 @@ PREVIOUS ITERATIONS SUMMARY FOR THIS FUNCTION:
     if iteration == 0:
         iteration_guidance = """
 GUIDANCE:
-This is the first iteration. Suggest `vectorize` pragmas for FOR LOOPS that:
-- Have simple, predictable iteration patterns
-- Perform array/vector operations
-- Don't have complex control flow or dependencies
+This is the first iteration. You have two options:
+
+1. PRAGMA ACTIONS: For simple cases, suggest `vectorize` pragmas for FOR LOOPS that:
+   - Have simple, predictable iteration patterns
+   - Perform array/vector operations
+   - Don't have complex control flow or dependencies
+
+2. CODE REPLACE: For targeted code changes:
+   - Add variable declarations (e.g., create local temporaries)
+   - Hoist loop-invariant computations
+   - Replace specific lines to fix vectorization blockers
+   - Make multiple independent changes in one pass
+   - Can replace entire function if needed (start_line=0, end_line=last_line)
 """
     else:
         iteration_guidance = f"""
 GUIDANCE:
-This is iteration {iteration}. Based on optimization remarks:
-- Suggest pragmas for FOR LOOPS where vectorization still failed
-- You may suggest: "vectorize", "interleave", or "vectorize_width"
-- Be conservative - only suggest if you're confident it will help
+This is iteration {iteration}. Based on optimization remarks, you have two options:
+
+1. PRAGMA ACTIONS: Suggest pragmas for FOR LOOPS where vectorization still failed
+   - You may suggest: "vectorize", "interleave", or "vectorize_width"
+   - Be conservative - only suggest if you're confident it will help
+
+2. CODE REPLACE: Make targeted code changes:
+   - Fix specific issues identified in optimization remarks
+   - Add temporaries, hoist computations, break dependencies
+   - Can replace entire function if needed (start_line=0, end_line=last_line)
 """
 
     prompt = f"""Analyze this C++ function for vectorization opportunities.
@@ -963,26 +1046,45 @@ FUNCTION WITH LINE NUMBERS:
 {iteration_guidance}
 
 TASK:
-Identify FOR LOOPS that should have vectorization pragmas.
-For each loop, create a JSON object with this EXACT format:
+Analyze this function and suggest modifications to enable vectorization.
 
+OPTION 1 - PRAGMA ACTIONS (for simple vectorization hints):
+For each loop that needs a pragma, create a JSON object:
 {{
+  "action_type": "pragma",
   "line_number": <line number of the 'for' statement>,
   "pragma_type": "vectorize" OR "interleave" OR "vectorize_width",
   "width": <number (only if pragma_type is vectorize_width), otherwise null>,
-  "reasoning": "<brief explanation why this loop needs this pragma>"
+  "reasoning": "<brief explanation>"
 }}
 
+OPTION 2 - CODE REPLACE (for targeted code changes):
+For each code change, create a JSON object:
+{{
+  "action_type": "code_replace",
+  "start_line": <start line number (0-indexed)>,
+  "end_line": <end line number (0-indexed, inclusive)>,
+  "new_code": "<replacement code (can be multi-line)>",
+  "reasoning": "<brief explanation>"
+}}
+
+Examples:
+- Add variable: {{"action_type": "code_replace", "start_line": 0, "end_line": 0, "new_code": "int temp = 0;", "reasoning": "Add local temporary"}}
+- Replace line: {{"action_type": "code_replace", "start_line": 5, "end_line": 5, "new_code": "result[i] = a[i] * factor;", "reasoning": "Use hoisted variable"}}
+- Multi-line: {{"action_type": "code_replace", "start_line": 3, "end_line": 5, "new_code": "for (int i = 0; i < n; i++) {{\n    output[i] = input[i];\n}}", "reasoning": "Simplify loop"}}
+- Entire function: {{"action_type": "code_replace", "start_line": 0, "end_line": <last_line>, "new_code": "<entire function>", "reasoning": "Complete rewrite"}}
+
 CRITICAL OUTPUT RULES:
-- Output a JSON ARRAY containing all pragma objects: [{{...}}, {{...}}]
-- If NO loops need pragmas, output an empty array: []
+- Output a JSON ARRAY: [{{...}}] or [{{...}}, {{...}}] for multiple actions
+- You can mix pragma and code_replace actions in the same array
+- If NO modifications needed, output an empty array: []
 - DO NOT include any explanatory text, markdown, or code fences
 - Output ONLY the JSON array, nothing else
 
 IMPORTANT:
-- Only suggest pragmas for simple for loops with array operations
-- Avoid loops with complex control flow or function calls
-- When in doubt, don't suggest a pragma
+- Use pragmas for simple hints, code_replace for targeted changes
+- code_replace can handle everything from single lines to entire functions
+- When in doubt, don't suggest any modifications
 
 OUTPUT (valid JSON array only):"""
 
@@ -990,7 +1092,7 @@ OUTPUT (valid JSON array only):"""
 
     # Log AI interaction
     log_ai_call(
-        function_name="add_pragmas",
+        function_name="suggest_modifications",
         prompt=prompt,
         response=response,
         metadata={
@@ -1054,44 +1156,63 @@ OUTPUT (valid JSON array only):"""
         actions = None
 
     if not actions:
-        print(f"✓ No pragma actions suggested for function '{func_name}'")
+        print(f"✓ No modification actions suggested for function '{func_name}'")
     else:
-        print(f"✓ LLM suggested {len(actions)} pragma action(s) for function '{func_name}'")
+        print(f"✓ LLM suggested {len(actions)} modification action(s) for function '{func_name}'")
 
     return {
-        "pragma_actions": actions
+        "modification_actions": actions
     }
 
-# Node: Apply pragma actions
-def apply_pragma_actions(state: VectorizationState):
-    """Apply all suggested pragma actions to the function"""
+# Node: Apply modifications
+def apply_modifications(state: VectorizationState):
+    """Apply all suggested modification actions (pragmas and code_replace) to the function"""
     
     func_body = state['current_function']['full_text']
     func_name = state['current_function']['name']
-    actions = state.get('pragma_actions', [])
+    actions = state.get('modification_actions', [])
     
     if not actions:
-        print(f"✓ No pragmas to apply for function '{func_name}'")
+        print(f"✓ No modifications to apply for function '{func_name}'")
         return {"transformed_function": func_body}
     
-    print(f"\n=== Applying {len(actions)} Pragma Action(s) ===")
-    
-    # Apply actions in reverse order to preserve line numbers
-    actions_sorted = sorted(actions, key=lambda a: a['line_number'], reverse=True)
+    # Separate pragma and code_replace actions
+    pragma_actions = [a for a in actions if a.get('action_type', 'pragma') == 'pragma']
+    code_replace_actions = [a for a in actions if a.get('action_type') == 'code_replace']
     
     modified = func_body
-    applied_count = 0
     
-    for action in actions_sorted:
-        print(f"  Attempting: {action['pragma_type']} at line {action['line_number']}")
-        new_modified = apply_pragma(modified, action)
-        if new_modified != modified:
-            applied_count += 1
-        modified = new_modified
+    # Apply code_replace actions first (in reverse order to preserve line numbers)
+    if code_replace_actions:
+        print(f"\n=== Applying {len(code_replace_actions)} Code Replacement(s) ===")
+        actions_sorted = sorted(code_replace_actions, key=lambda a: a.get('start_line', 0), reverse=True)
+        
+        for action in actions_sorted:
+            new_modified = apply_code_replace(modified, action)
+            modified = new_modified
     
-    print(f"✓ Applied {applied_count}/{len(actions)} pragma(s) for function '{func_name}'")
+    # Then apply pragma actions (in reverse order to preserve line numbers)
+    if pragma_actions:
+        print(f"\n=== Applying {len(pragma_actions)} Pragma Action(s) ===")
+        actions_sorted = sorted(pragma_actions, key=lambda a: a.get('line_number', 0), reverse=True)
+        
+        applied_count = 0
+        for action in actions_sorted:
+            print(f"  Attempting: {action.get('pragma_type', 'unknown')} at line {action.get('line_number', '?')}")
+            new_modified = apply_pragma(modified, action)
+            if new_modified != modified:
+                applied_count += 1
+            modified = new_modified
+        
+        print(f"✓ Applied {applied_count}/{len(pragma_actions)} pragma(s)")
+    
+    if code_replace_actions or pragma_actions:
+        print(f"✓ Applied modifications to function '{func_name}'")
     
     return {"transformed_function": modified}
+
+
+
 
 # Node: Replace function in file
 def replace_function_in_file(state: VectorizationState):
@@ -1402,8 +1523,8 @@ def create_vectorization_workflow():
     workflow.add_node("initialize_function_processing", initialize_function_processing)  # NEW
     workflow.add_node("summarize_context", summarize_context)  # Now per-function
     workflow.add_node("analyze_loops", analyze_loops)  # Now per-function
-    workflow.add_node("add_pragmas", add_pragmas)  # Now per-function
-    workflow.add_node("apply_pragma_actions", apply_pragma_actions)  # NEW
+    workflow.add_node("suggest_modifications", suggest_modifications)  # Renamed from add_pragmas
+    workflow.add_node("apply_modifications", apply_modifications)  # Renamed from apply_pragma_actions
     workflow.add_node("replace_function_in_file", replace_function_in_file)  # NEW
     workflow.add_node("write_file", write_file)
     workflow.add_node("compile_iteration_benchmark", compile_iteration_benchmark)
@@ -1439,9 +1560,9 @@ def create_vectorization_workflow():
     # Phase 4: Per-function loop (inner loop - NEW)
     workflow.add_edge("initialize_function_processing", "summarize_context")
     workflow.add_edge("summarize_context", "analyze_loops")
-    workflow.add_edge("analyze_loops", "add_pragmas")
-    workflow.add_edge("add_pragmas", "apply_pragma_actions")
-    workflow.add_edge("apply_pragma_actions", "replace_function_in_file")
+    workflow.add_edge("analyze_loops", "suggest_modifications")
+    workflow.add_edge("suggest_modifications", "apply_modifications")
+    workflow.add_edge("apply_modifications", "replace_function_in_file")
 
     # Decision: More functions to process in this file?
     workflow.add_conditional_edges(
@@ -1566,7 +1687,7 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
         "modified_file_content": "",
         "summarized_file_context": "",
         "transformed_function": "",  # Temporary field for function transformation
-        "pragma_actions": [],
+        "modification_actions": [],
 
         # Iteration tracking
         "current_iteration": 0,
