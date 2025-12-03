@@ -100,7 +100,7 @@ class VectorizationState(TypedDict):
 llm = ChatOpenAI(
     model="codellama:34b",
     openai_api_key="EMPTY",
-    openai_api_base="http://localhost:8000",
+    openai_api_base="http://localhost:8000/v1",
     max_tokens=,
     temperature=0.5
 )
