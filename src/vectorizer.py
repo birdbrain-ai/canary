@@ -82,6 +82,9 @@ class VectorizationState(TypedDict):
     function_analysis_history: Dict[str, Dict[str, List[str]]]  # file_path -> function_name -> [analyses]
     function_summarized_context: Dict[str, Dict[str, str]]      # file_path -> function_name -> summary
 
+    # Compiler feedback (NEW)
+    file_compilation_feedback: Dict[str, str]  # file_path -> formatted error/warning text
+
     # Status
     compiler_errors: List[str]
     success: bool
@@ -529,7 +532,64 @@ def apply_code_replace(file_content: str, action: CodeReplaceAction) -> str:
     
     return '\n'.join(lines)
 
-
+def format_compilation_feedback(stderr_output: str, current_file: str) -> str:
+    """
+    Parse compiler stderr and format errors/warnings for LLM consumption.
+    
+    Filters to only errors related to current_file and formats them
+    in a clear, actionable way.
+    
+    Args:
+        stderr_output: Raw stderr from compiler
+        current_file: Path to current file being processed
+        
+    Returns:
+        Formatted error/warning text for LLM, or empty string if no relevant errors
+    """
+    if not stderr_output or not stderr_output.strip():
+        return ""
+    
+    # Get basename for matching (errors might use relative or absolute paths)
+    current_basename = os.path.basename(current_file)
+    
+    # Parse errors: <file>:<line>:<col>: <type>: <message>
+    error_pattern = re.compile(r'^(.+?):(\d+):(\d+):\s+(error|warning):\s+(.+)$')
+    
+    relevant_errors = []
+    for line in stderr_output.splitlines():
+        match = error_pattern.match(line.strip())
+        if match:
+            file_path, line_num, col, err_type, message = match.groups()
+            # Check if this error is for the current file
+            if os.path.basename(file_path) == current_basename:
+                relevant_errors.append({
+                    'line': int(line_num),
+                    'type': err_type,
+                    'message': message.strip()
+                })
+    
+    if not relevant_errors:
+        return ""
+    
+    # Sort by line number
+    relevant_errors.sort(key=lambda e: e['line'])
+    
+    # Limit to first 10 errors to avoid overwhelming the LLM
+    if len(relevant_errors) > 10:
+        relevant_errors = relevant_errors[:10]
+        truncated = True
+    else:
+        truncated = False
+    
+    # Format for LLM
+    formatted = "The compiler reported the following issues in this file:\n\n"
+    for err in relevant_errors:
+        formatted += f"Line {err['line']}: {err['type']}: {err['message']}\n"
+    
+    if truncated:
+        formatted += f"\n(Showing first 10 of {len(relevant_errors)} errors)\n"
+    
+    return formatted
 
 
 # Node: Setups baseline
@@ -1000,6 +1060,18 @@ PREVIOUS ITERATIONS SUMMARY FOR THIS FUNCTION:
 {func_history}
 """
 
+    # Build compiler feedback section (NEW)
+    compiler_feedback_section = ""
+    if iteration > 0:
+        file_compilation_feedback = state.get('file_compilation_feedback', {})
+        feedback = file_compilation_feedback.get(current_file, "")
+        if feedback:
+            compiler_feedback_section = f"""
+COMPILER FEEDBACK (from previous iteration):
+{feedback}
+Please address these compilation issues in your modifications.
+"""
+
     # Build iteration guidance
     iteration_guidance = ""
     if iteration == 0:
@@ -1042,6 +1114,8 @@ FUNCTION WITH LINE NUMBERS:
 {context_section}
 
 {history_section}
+
+{compiler_feedback_section}
 
 {iteration_guidance}
 
@@ -1385,10 +1459,24 @@ def compile_iteration_benchmark(state: VectorizationState):
     # Find all new remark files in iteration directory
     remark_files = find_files_with_ext(iteration_dir, [".yaml"])
     print(f"✓ Found {len(remark_files)} remark files")
+    
+    # Generate per-file compilation feedback
+    file_compilation_feedback = {}
+    if result.returncode != 0:
+        # Parse stderr and create feedback for each target file
+        target_files = state['target_files']
+        for target_file in target_files:
+            feedback = format_compilation_feedback(result.stderr, target_file)
+            if feedback:
+                file_compilation_feedback[target_file] = feedback
+        
+        if file_compilation_feedback:
+            print(f"✓ Generated compilation feedback for {len(file_compilation_feedback)} file(s)")
 
     return {
         "remark_files_current": remark_files,
-        "compiler_errors": errors
+        "compiler_errors": errors,
+        "file_compilation_feedback": file_compilation_feedback
     }
 
 # Node: Run iteration benchmark
@@ -1438,18 +1526,18 @@ def run_iteration_benchmark(state: VectorizationState):
 def should_continue_iteration(state: VectorizationState):
     """Decide whether to continue with another iteration"""
 
-    # Check for compilation errors
-    if state['compiler_errors']:
-        print(f"\n⚠ Compilation failed for iteration {state['current_iteration']}")
-        return "failed"
-
     # Check if we've reached max iterations
     if state['current_iteration'] >= state['max_iterations'] - 1:
         print(f"\n✓ Reached maximum iterations ({state['max_iterations']})")
         return "finalize"
-
-    # Continue to next iteration
-    print(f"\n→ Proceeding to next iteration...")
+    
+    # Continue to next iteration (even if there were compilation errors)
+    # The LLM will see the errors in the next iteration and can fix them
+    if state['compiler_errors']:
+        print(f"\n→ Compilation had errors, but continuing to next iteration for LLM to fix them...")
+    else:
+        print(f"\n→ Proceeding to next iteration...")
+    
     return "continue"
 
 # Node: Increment iteration
@@ -1700,6 +1788,9 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
         # Per-function context (CHANGED from per-file)
         "function_analysis_history": {},
         "function_summarized_context": {},
+
+        # Compiler feedback
+        "file_compilation_feedback": {},
 
         # Status
         "compiler_errors": [],
