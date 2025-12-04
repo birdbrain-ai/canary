@@ -5,7 +5,9 @@
 ###
 
 from langgraph.graph import StateGraph, END
-from langchain_ollama import OllamaLLM
+# from langchain_ollama import OllamaLLM
+# from langchain_deepseek import ChatDeepSeek
+from langchain_openai import ChatOpenAI
 from langchain_community.document_loaders import TextLoader
 from typing import TypedDict, List, Dict
 import subprocess
@@ -15,7 +17,7 @@ import argparse
 import fnmatch
 import re
 from pathlib import Path
-from langchain_deepseek import ChatDeepSeek
+
 import json
 import datetime
 import hashlib
@@ -82,16 +84,27 @@ class VectorizationState(TypedDict):
     function_analysis_history: Dict[str, Dict[str, List[str]]]  # file_path -> function_name -> [analyses]
     function_summarized_context: Dict[str, Dict[str, str]]      # file_path -> function_name -> summary
 
+    # Compiler feedback (NEW)
+    file_compilation_feedback: Dict[str, str]  # file_path -> formatted error/warning text
+
     # Status
     compiler_errors: List[str]
     success: bool
 
-llm = OllamaLLM(model="codellama:34b", base_url="http://localhost:11434")
+# llm = OllamaLLM(model="codellama:34b", base_url="http://localhost:11434")
 # llm = ChatDeepSeek(
 #     model="deepseek-reasoner",
 #     api_key=os.getenv("DEEPSEEK_API_KEY")
 #     # max_tokens=,  # Allow long function outputs without truncation
 # )
+llm = ChatOpenAI(
+    model="Qwen/Qwen2.5-Coder-7B-Instruct",
+    openai_api_key="EMPTY",
+    openai_api_base="http://localhost:8000/v1",
+    # max_tokens=,
+    # temperature=0.5
+)
+
 
 # AI Logging Configuration
 AI_LOG_DIR = "ai_logs"
@@ -529,7 +542,93 @@ def apply_code_replace(file_content: str, action: CodeReplaceAction) -> str:
     
     return '\n'.join(lines)
 
+def format_compilation_feedback(stderr_output: str, current_file: str) -> str:
+    """
+    Parse compiler stderr and format errors/warnings for LLM consumption.
+    
+    Filters to only errors related to current_file and formats them
+    in a clear, actionable way.
+    
+    Args:
+        stderr_output: Raw stderr from compiler
+        current_file: Path to current file being processed
+        
+    Returns:
+        Formatted error/warning text for LLM, or empty string if no relevant errors
+    """
+    if not stderr_output or not stderr_output.strip():
+        return ""
+    
+    # Get basename for matching (errors might use relative or absolute paths)
+    current_basename = os.path.basename(current_file)
+    
+    # Parse errors: <file>:<line>:<col>: <type>: <message>
+    error_pattern = re.compile(r'^(.+?):(\d+):(\d+):\s+(error|warning):\s+(.+)$')
+    
+    relevant_errors = []
+    for line in stderr_output.splitlines():
+        match = error_pattern.match(line.strip())
+        if match:
+            file_path, line_num, col, err_type, message = match.groups()
+            # Check if this error is for the current file
+            if os.path.basename(file_path) == current_basename:
+                relevant_errors.append({
+                    'line': int(line_num),
+                    'type': err_type,
+                    'message': message.strip()
+                })
+    
+    if not relevant_errors:
+        return ""
+    
+    # Sort by line number
+    relevant_errors.sort(key=lambda e: e['line'])
+    
+    # Limit to first 10 errors to avoid overwhelming the LLM
+    if len(relevant_errors) > 10:
+        relevant_errors = relevant_errors[:10]
+        truncated = True
+    else:
+        truncated = False
+    
+    # Format for LLM
+    formatted = "The compiler reported the following issues in this file:\n\n"
+    for err in relevant_errors:
+        formatted += f"Line {err['line']}: {err['type']}: {err['message']}\n"
+    
+    if truncated:
+        formatted += f"\n(Showing first 10 of {len(relevant_errors)} errors)\n"
+    
+    return formatted
 
+def extract_json_from_response(response: str) -> str:
+    """
+    Extract JSON content from LLM response, handling markdown code blocks.
+    
+    Args:
+        response: Raw LLM response string
+        
+    Returns:
+        Extracted JSON string
+    """
+    response = response.strip()
+    
+    # 1. Try to find markdown code blocks
+    json_block_pattern = re.compile(r'```(?:json)?\s*([\s\S]*?)\s*```')
+    match = json_block_pattern.search(response)
+    if match:
+        return match.group(1).strip()
+        
+    # 2. If no code blocks, try to find the first '[' and last ']'
+    # (Since we expect a JSON array)
+    start_idx = response.find('[')
+    end_idx = response.rfind(']')
+    
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        return response[start_idx:end_idx+1]
+        
+    # 3. Return original response as fallback
+    return response
 
 
 # Node: Setups baseline
@@ -730,7 +829,11 @@ Provide a concise summary (max 300 words) that gives context for understanding
 what data structures and globals are available for vectorization analysis."""
 
     print(f"Summarizing {len(raw_context)} characters of context...")
-    summary = llm.invoke(prompt)
+    raw_summary = llm.invoke(prompt)
+    if hasattr(raw_summary, 'content'):
+        summary = raw_summary.content
+    else:
+        summary = str(raw_summary)
 
     # Log AI interaction
     log_ai_call(
@@ -811,7 +914,11 @@ Create a CONCISE summary (max 300 words) covering:
 Focus on actionable insights for the next iteration of THIS FUNCTION.
 Output ONLY the summary, no preamble."""
 
-    summary = llm.invoke(prompt)
+    raw_summary = llm.invoke(prompt)
+    if hasattr(raw_summary, 'content'):
+        summary = raw_summary.content
+    else:
+        summary = str(raw_summary)
 
     # Log AI interaction
     log_ai_call(
@@ -932,7 +1039,11 @@ IMPORTANT: Only analyze FOR LOOPS. Do NOT suggest pragmas for while/do-while loo
 Provide a concise analysis of which FOR LOOPS in THIS FUNCTION need pragmas and why.
 """
 
-    analysis = llm.invoke(prompt)
+    raw_analysis = llm.invoke(prompt)
+    if hasattr(raw_analysis, 'content'):
+        analysis = raw_analysis.content
+    else:
+        analysis = str(raw_analysis)
 
     # Log AI interaction
     log_ai_call(
@@ -1000,6 +1111,18 @@ PREVIOUS ITERATIONS SUMMARY FOR THIS FUNCTION:
 {func_history}
 """
 
+    # Build compiler feedback section (NEW)
+    compiler_feedback_section = ""
+    if iteration > 0:
+        file_compilation_feedback = state.get('file_compilation_feedback', {})
+        feedback = file_compilation_feedback.get(current_file, "")
+        if feedback:
+            compiler_feedback_section = f"""
+COMPILER FEEDBACK (from previous iteration):
+{feedback}
+Please address these compilation issues in your modifications.
+"""
+
     # Build iteration guidance
     iteration_guidance = ""
     if iteration == 0:
@@ -1042,6 +1165,8 @@ FUNCTION WITH LINE NUMBERS:
 {context_section}
 
 {history_section}
+
+{compiler_feedback_section}
 
 {iteration_guidance}
 
@@ -1088,7 +1213,13 @@ IMPORTANT:
 
 OUTPUT (valid JSON array only):"""
 
-    response = llm.invoke(prompt)
+    raw_response = llm.invoke(prompt)
+    
+    # Handle ChatModel response (AIMessage) vs LLM response (str)
+    if hasattr(raw_response, 'content'):
+        response = raw_response.content
+    else:
+        response = str(raw_response)
 
     # Log AI interaction
     log_ai_call(
@@ -1115,9 +1246,12 @@ OUTPUT (valid JSON array only):"""
         if not response or not response.strip():
             actions = None
         else:
+            # Clean up response (handle markdown blocks, extra text)
+            cleaned_response = extract_json_from_response(response)
+            
             # Try to parse as a single JSON object first (if wrapped in array)
             try:
-                parsed = json.loads(response)
+                parsed = json.loads(cleaned_response)
                 # If it's already a list, use it directly
                 if isinstance(parsed, list):
                     actions = parsed
@@ -1128,7 +1262,8 @@ OUTPUT (valid JSON array only):"""
                     actions = None
             except json.JSONDecodeError:
                 # Parse as JSONL (one JSON object per line)
-                for line in response.strip().split('\n'):
+                # Use cleaned response for JSONL parsing too
+                for line in cleaned_response.split('\n'):
                     line = line.strip()
                     # Skip empty lines and lines that don't look like JSON
                     if not line or not (line.startswith('{') or line.startswith('[')):
@@ -1385,10 +1520,24 @@ def compile_iteration_benchmark(state: VectorizationState):
     # Find all new remark files in iteration directory
     remark_files = find_files_with_ext(iteration_dir, [".yaml"])
     print(f"✓ Found {len(remark_files)} remark files")
+    
+    # Generate per-file compilation feedback
+    file_compilation_feedback = {}
+    if result.returncode != 0:
+        # Parse stderr and create feedback for each target file
+        target_files = state['target_files']
+        for target_file in target_files:
+            feedback = format_compilation_feedback(result.stderr, target_file)
+            if feedback:
+                file_compilation_feedback[target_file] = feedback
+        
+        if file_compilation_feedback:
+            print(f"✓ Generated compilation feedback for {len(file_compilation_feedback)} file(s)")
 
     return {
         "remark_files_current": remark_files,
-        "compiler_errors": errors
+        "compiler_errors": errors,
+        "file_compilation_feedback": file_compilation_feedback
     }
 
 # Node: Run iteration benchmark
@@ -1438,18 +1587,18 @@ def run_iteration_benchmark(state: VectorizationState):
 def should_continue_iteration(state: VectorizationState):
     """Decide whether to continue with another iteration"""
 
-    # Check for compilation errors
-    if state['compiler_errors']:
-        print(f"\n⚠ Compilation failed for iteration {state['current_iteration']}")
-        return "failed"
-
     # Check if we've reached max iterations
     if state['current_iteration'] >= state['max_iterations'] - 1:
         print(f"\n✓ Reached maximum iterations ({state['max_iterations']})")
         return "finalize"
-
-    # Continue to next iteration
-    print(f"\n→ Proceeding to next iteration...")
+    
+    # Continue to next iteration (even if there were compilation errors)
+    # The LLM will see the errors in the next iteration and can fix them
+    if state['compiler_errors']:
+        print(f"\n→ Compilation had errors, but continuing to next iteration for LLM to fix them...")
+    else:
+        print(f"\n→ Proceeding to next iteration...")
+    
     return "continue"
 
 # Node: Increment iteration
@@ -1700,6 +1849,9 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
         # Per-function context (CHANGED from per-file)
         "function_analysis_history": {},
         "function_summarized_context": {},
+
+        # Compiler feedback
+        "file_compilation_feedback": {},
 
         # Status
         "compiler_errors": [],
