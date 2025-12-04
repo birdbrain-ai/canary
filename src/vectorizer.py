@@ -601,6 +601,35 @@ def format_compilation_feedback(stderr_output: str, current_file: str) -> str:
     
     return formatted
 
+def extract_json_from_response(response: str) -> str:
+    """
+    Extract JSON content from LLM response, handling markdown code blocks.
+    
+    Args:
+        response: Raw LLM response string
+        
+    Returns:
+        Extracted JSON string
+    """
+    response = response.strip()
+    
+    # 1. Try to find markdown code blocks
+    json_block_pattern = re.compile(r'```(?:json)?\s*([\s\S]*?)\s*```')
+    match = json_block_pattern.search(response)
+    if match:
+        return match.group(1).strip()
+        
+    # 2. If no code blocks, try to find the first '[' and last ']'
+    # (Since we expect a JSON array)
+    start_idx = response.find('[')
+    end_idx = response.rfind(']')
+    
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        return response[start_idx:end_idx+1]
+        
+    # 3. Return original response as fallback
+    return response
+
 
 # Node: Setups baseline
 def setup_baseline(state: VectorizationState):
@@ -1217,9 +1246,12 @@ OUTPUT (valid JSON array only):"""
         if not response or not response.strip():
             actions = None
         else:
+            # Clean up response (handle markdown blocks, extra text)
+            cleaned_response = extract_json_from_response(response)
+            
             # Try to parse as a single JSON object first (if wrapped in array)
             try:
-                parsed = json.loads(response)
+                parsed = json.loads(cleaned_response)
                 # If it's already a list, use it directly
                 if isinstance(parsed, list):
                     actions = parsed
@@ -1230,7 +1262,8 @@ OUTPUT (valid JSON array only):"""
                     actions = None
             except json.JSONDecodeError:
                 # Parse as JSONL (one JSON object per line)
-                for line in response.strip().split('\n'):
+                # Use cleaned response for JSONL parsing too
+                for line in cleaned_response.split('\n'):
                     line = line.strip()
                     # Skip empty lines and lines that don't look like JSON
                     if not line or not (line.startswith('{') or line.startswith('[')):
