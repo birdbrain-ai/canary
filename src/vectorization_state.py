@@ -55,7 +55,7 @@ class VectorizationState(TypedDict):
     current_function_index: int
     current_function: FunctionInfo
     modified_file_content: str
-    summarized_file_context: str
+    program_slice_for_file: str
     transformed_function: str
     modification_actions: List[PragmaAction | CodeReplaceAction]
 
@@ -63,14 +63,16 @@ class VectorizationState(TypedDict):
     current_iteration: int
     max_iterations: int
 
-    # Remark files (per-directory)
-    remark_files_baseline: List[str]     # Remark files from baseline compilation
-    remark_files_current: List[str]      # Remark files from current iteration
-
+    # INPUTS FROM PRIOR ANALYSIS STAGE
     # Per-function context (nested: file -> function -> context)
     function_analysis_history: Dict[str, Dict[str, List[str]]]  # file_path -> function_name -> [analyses]
-    function_summarized_context: Dict[str, Dict[str, str]]      # file_path -> function_name -> summary
 
+    # INPUTS FROM PRIOR CODEMOD STAGE
+    # Summary of prior attempted codemod
+    prior_iteration_summary: str
+    # Remark files (per-directory)
+    remark_files_baseline: List[str]     # I want to pass the baseline remarks to every single iteration, to prevent them from vanishing
+    remark_files_current: List[str]      # I want to pass the most recent remarks to the next iteration, because no other analysis captured them
     # Compiler feedback
     file_compilation_feedback: Dict[str, str]  # file_path -> formatted error/warning text
 

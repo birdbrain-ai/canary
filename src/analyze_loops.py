@@ -3,83 +3,6 @@ from typing import TypedDict, List, Dict
 import re
 from helpers import *
 
-# Node: Summarize context (per-function)
-def summarize_context(state: VectorizationState):
-    """Compress previous iteration analyses for current FUNCTION"""
-
-    iteration = state['current_iteration']
-    current_file = state['current_file']
-    current_func = state['current_function']
-    func_name = current_func['name']
-
-    function_analysis_history = state['function_analysis_history']
-    function_summarized_context = state['function_summarized_context'].copy()
-
-    # No summarization needed for first iteration
-    if iteration == 0:
-        print(f"✓ No previous context to summarize (iteration 0)")
-        return {}
-
-    # Get previous analyses for THIS FUNCTION
-    if current_file not in function_analysis_history:
-        print(f"✓ No previous analyses for this function")
-        return {}
-
-    func_analyses = function_analysis_history[current_file].get(func_name, [])
-
-    if not func_analyses:
-        print(f"✓ No previous analyses for function '{func_name}'")
-        return {}
-
-    print(f"Summarizing context for function '{func_name}' from {len(func_analyses)} previous iteration(s)")
-
-    # Build summarization prompt
-    analyses_text = ""
-    for i, analysis in enumerate(func_analyses):
-        analyses_text += f"\n--- Iteration {i} Analysis ---\n{analysis}\n"
-
-    prompt = f"""Summarize the key vectorization insights from these previous analyses for function '{func_name}'.
-
-Previous iteration analyses:
-{analyses_text}
-
-Create a CONCISE summary (max 300 words) covering:
-1. Which loops in this function were identified as vectorization candidates
-2. What pragmas were recommended and why
-3. Any recurring issues or patterns observed
-4. What should be tried next
-
-Focus on actionable insights for the next iteration of THIS FUNCTION.
-Output ONLY the summary, no preamble."""
-
-    raw_summary = llm.invoke(prompt)
-    if hasattr(raw_summary, 'content'):
-        summary = raw_summary.content
-    else:
-        summary = str(raw_summary)
-
-    # Log LLM interaction
-    llm_logger = state.get('llm_logger')
-    if llm_logger:
-        llm_logger.log_llm_call(
-            iteration=iteration,
-            file_path=current_file,
-            call_type="summarize_context",
-            prompt=prompt,
-            response=summary,
-            function_name=func_name
-        )
-
-    print(f"✓ Compressed {len(analyses_text)} chars to {len(summary)} chars")
-
-    # Store summary for this function
-    if current_file not in function_summarized_context:
-        function_summarized_context[current_file] = {}
-    function_summarized_context[current_file][func_name] = summary
-
-    return {"function_summarized_context": function_summarized_context}
-
-
 # Node: Analyze loops (per-function)
 def analyze_loops(state: VectorizationState):
     """Analyze function and matching remark files for current function"""
@@ -90,10 +13,9 @@ def analyze_loops(state: VectorizationState):
     func_body = current_func['full_text']
     iteration = state['current_iteration']
     remark_files_baseline = state['remark_files_baseline']
-    remark_files_current = state.get('remark_files_current', [])
-    summarized_file_context = state.get('summarized_file_context', '')
-    function_summarized_context = state['function_summarized_context']
-    function_analysis_history = state['function_analysis_history'].copy()
+    remark_files_current = state.get('remark_files_current')
+    program_slice_for_file = state.get('program_slice_for_file')
+    function_analysis_history = state['function_analysis_history']
 
     # Match remark files for this specific file
     matching_baseline = match_remark_files(current_file, remark_files_baseline)
@@ -117,16 +39,8 @@ def analyze_loops(state: VectorizationState):
     if not remark_analysis or remark_analysis == "\n\nOPTIMIZATION REMARKS FOR THIS FUNCTION:\n":
         remark_analysis = "\n\nNo optimization remarks available for this function yet."
 
-    # Get function-specific history summary
-    func_history = function_summarized_context.get(current_file, {}).get(func_name, "")
-    iteration_context = ""
-    if iteration > 0 and func_history:
-        iteration_context = f"""
-PREVIOUS ITERATIONS SUMMARY FOR THIS FUNCTION:
-{func_history}
-"""
-    elif iteration > 0:
-        iteration_context = f"""
+    # TODO(Akash): Get function-specific history summary from the function_analysis_history_field in VectorizationState
+    iteration_context = f"""
 ITERATION CONTEXT:
 This is iteration {iteration} of {state['max_iterations']} for function '{func_name}'.
 """
@@ -138,8 +52,8 @@ FUNCTION TO ANALYZE:
 {func_body}
 ```
 
-PROGRAM CONTEXT (structs/globals used by this function):
-{summarized_file_context}
+PROGRAM SLICE FOR FILE (structs/globals used by this function):
+{program_slice_for_file}
 
 {iteration_context}
 

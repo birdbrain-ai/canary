@@ -30,45 +30,7 @@ def summarize_file_context(state: VectorizationState):
     # Extract raw context
     raw_context = extract_file_context(file_content)
 
-    # If context is empty or small, no need to summarize
-    if len(raw_context) < 500:
-        print(f"✓ Context is small ({len(raw_context)} chars), using as-is")
-        return {"summarized_file_context": raw_context}
-
-    # Summarize using LLM
-    prompt = f"""Summarize the following C++ declarations (structs, classes, globals, typedefs, enums).
-Focus on: data structure names, key fields, purpose, and how they might be used in loops.
-
-Context:
-```cpp
-{raw_context}
-```
-
-Provide a concise summary (max 300 words) that gives context for understanding
-what data structures and globals are available for vectorization analysis."""
-
-    print(f"Summarizing {len(raw_context)} characters of context...")
-    raw_summary = llm.invoke(prompt)
-    if hasattr(raw_summary, 'content'):
-        summary = raw_summary.content
-    else:
-        summary = str(raw_summary)
-
-    # Log LLM interaction
-    llm_logger = state.get('llm_logger')
-    if llm_logger:
-        llm_logger.log_llm_call(
-            iteration=state['current_iteration'],
-            file_path=state['current_file'],
-            call_type="file_context",
-            prompt=prompt,
-            response=summary,
-            function_name=None
-        )
-
-    print(f"✓ Context summarized ({len(summary)} characters)")
-
-    return {"summarized_file_context": summary}
+    return {"program_slice_for_file": raw_context}
 
 
 # Node: Initialize file processing
@@ -119,7 +81,6 @@ def create_vectorization_workflow():
     workflow.add_node("initialize_file_processing", initialize_file_processing)
     workflow.add_node("summarize_file_context", summarize_file_context)
     workflow.add_node("initialize_function_processing", initialize_function_processing)
-    workflow.add_node("summarize_context", summarize_context)
     workflow.add_node("analyze_loops", analyze_loops)
     workflow.add_node("suggest_modifications", suggest_modifications)
     workflow.add_node("apply_modifications", apply_modifications)
@@ -156,8 +117,7 @@ def create_vectorization_workflow():
     )
 
     # Phase 4: Per-function loop (inner loop - NEW)
-    workflow.add_edge("initialize_function_processing", "summarize_context")
-    workflow.add_edge("summarize_context", "analyze_loops")
+    workflow.add_edge("initialize_function_processing", "analyze_loops")
     workflow.add_edge("analyze_loops", "suggest_modifications")
     workflow.add_edge("suggest_modifications", "apply_modifications")
     workflow.add_edge("apply_modifications", "replace_function_in_file")

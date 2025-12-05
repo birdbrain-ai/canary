@@ -11,12 +11,8 @@ def suggest_modifications(state: VectorizationState):
     func_name = current_func['name']
     func_body = current_func['full_text']
     iteration = state['current_iteration']
-    summarized_file_context = state.get('summarized_file_context', '')
-    function_summarized_context = state['function_summarized_context']
 
-    # Get function-specific history summary
-    func_history = function_summarized_context.get(current_file, {}).get(func_name, "")
-    
+    # TODO(Akash): Polish this part
     # Get current iteration's loop analysis from analyze_loops
     function_analysis_history = state.get('function_analysis_history', {})
     current_analyses = function_analysis_history.get(current_file, {}).get(func_name, [])
@@ -29,22 +25,7 @@ def suggest_modifications(state: VectorizationState):
         for i, line in enumerate(func_lines)
     ])
 
-    # Build context sections
-    context_section = ""
-    if summarized_file_context:
-        context_section = f"""
-PROGRAM CONTEXT (structs/globals):
-{summarized_file_context}
-"""
-
-    history_section = ""
-    if iteration > 0 and func_history:
-        history_section = f"""
-PREVIOUS ITERATIONS SUMMARY FOR THIS FUNCTION:
-{func_history}
-"""
-
-    # Build compiler feedback section
+    # TODO(Akash): Move 'compiler feedback' to the analysis stage
     compiler_feedback_section = ""
     if iteration > 0:
         file_compilation_feedback = state.get('file_compilation_feedback', {})
@@ -104,8 +85,6 @@ FUNCTION WITH LINE NUMBERS:
 {annotated_code}
 
 {context_section}
-
-{history_section}
 
 {compiler_feedback_section}
 
