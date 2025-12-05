@@ -14,6 +14,106 @@ import json
 import datetime
 import hashlib
 
+
+class LLMLogger:
+    """Handles logging of all LLM interactions with full transparency"""
+    
+    def __init__(self, log_base_dir: str):
+        """
+        Initialize LLM logger.
+        
+        Args:
+            log_base_dir: Base directory for all LLM logs (e.g., "my_bench_llm_logs")
+        """
+        self.log_base_dir = Path(log_base_dir)
+        self.log_base_dir.mkdir(exist_ok=True)
+        print(f"📝 LLM logging enabled: {self.log_base_dir}")
+        
+    def log_llm_call(
+        self,
+        iteration: int,
+        file_path: str,
+        call_type: str,
+        prompt: str,
+        response: str,
+        function_name: str | None = None,
+        metadata: dict | None = None
+    ):
+        """
+        Log a single LLM call with prompt and response in separate files.
+        
+        Args:
+            iteration: Current iteration number
+            file_path: Path to source file being processed
+            call_type: Type of LLM call (e.g., "file_context", "analyze_loops")
+            prompt: The prompt sent to LLM
+            response: The response from LLM
+            function_name: Optional function name (for function-level calls)
+            metadata: Optional metadata dict (model, tokens, timestamp, etc.)
+        """
+        # Build directory path
+        dir_parts = [f"iteration_{iteration}"]
+        
+        # Add file component
+        file_basename = Path(file_path).name
+        dir_parts.append(f"file_{file_basename}")
+        
+        # Add function component if applicable
+        if function_name:
+            dir_parts.append(f"func_{function_name}")
+        
+        # Add call type with numbering
+        call_number = self._get_call_number(call_type, function_name)
+        dir_parts.append(f"{call_number:02d}_{call_type}")
+        
+        # Create full directory path
+        log_dir = self.log_base_dir.joinpath(*dir_parts)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Write prompt
+        prompt_file = log_dir / "prompt.txt"
+        prompt_file.write_text(prompt, encoding='utf-8')
+        
+        # Write response
+        response_file = log_dir / "response.txt"
+        response_file.write_text(response, encoding='utf-8')
+        
+        # Write metadata
+        if metadata is None:
+            metadata = {}
+        
+        metadata.update({
+            'timestamp': datetime.datetime.now().isoformat(),
+            'iteration': iteration,
+            'file': file_path,
+            'function': function_name,
+            'call_type': call_type,
+            'prompt_length': len(prompt),
+            'response_length': len(response)
+        })
+        
+        metadata_file = log_dir / "metadata.json"
+        metadata_file.write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+        
+        print(f"  📝 Logged: {'/'.join(dir_parts[-2:])}")
+    
+    def _get_call_number(self, call_type: str, function_name: str | None) -> int:
+        """Determine sequential number for call type"""
+        # File-level calls
+        if function_name is None:
+            if call_type == "file_context":
+                return 0
+        # Function-level calls
+        else:
+            if call_type == "summarize_context":
+                return 0
+            elif call_type == "analyze_loops":
+                return 1
+            elif call_type == "suggest_modifications":
+                return 2
+        return 99  # Unknown
+
+
 class FunctionInfo(TypedDict):
     """Metadata about an extracted function"""
     name: str              # Function name (e.g., "vecAdd")
@@ -82,6 +182,9 @@ class VectorizationState(TypedDict):
     # Status (is this redundant with above?)
     compiler_errors: List[str]
     success: bool
+    
+    # LLM logging
+    llm_logger: LLMLogger  # Logger for all LLM interactions
 
 
 llm = ChatOpenAI(
@@ -946,6 +1049,18 @@ what data structures and globals are available for vectorization analysis."""
     else:
         summary = str(raw_summary)
 
+    # Log LLM interaction
+    llm_logger = state.get('llm_logger')
+    if llm_logger:
+        llm_logger.log_llm_call(
+            iteration=state['current_iteration'],
+            file_path=state['current_file'],
+            call_type="file_context",
+            prompt=prompt,
+            response=summary,
+            function_name=None
+        )
+
     print(f"✓ Context summarized ({len(summary)} characters)")
 
     return {"summarized_file_context": summary}
@@ -1018,6 +1133,18 @@ Output ONLY the summary, no preamble."""
         summary = raw_summary.content
     else:
         summary = str(raw_summary)
+
+    # Log LLM interaction
+    llm_logger = state.get('llm_logger')
+    if llm_logger:
+        llm_logger.log_llm_call(
+            iteration=iteration,
+            file_path=current_file,
+            call_type="summarize_context",
+            prompt=prompt,
+            response=summary,
+            function_name=func_name
+        )
 
     print(f"✓ Compressed {len(analyses_text)} chars to {len(summary)} chars")
 
@@ -1109,6 +1236,18 @@ Provide a concise analysis of which FOR LOOPS in THIS FUNCTION need pragmas and 
         analysis = raw_analysis.content
     else:
         analysis = str(raw_analysis)
+
+    # Log LLM interaction
+    llm_logger = state.get('llm_logger')
+    if llm_logger:
+        llm_logger.log_llm_call(
+            iteration=iteration,
+            file_path=current_file,
+            call_type="analyze_loops",
+            prompt=prompt,
+            response=analysis,
+            function_name=func_name
+        )
 
     print(f"\n=== Loop Analysis ===")
     print(analysis[:500] + "..." if len(analysis) > 500 else analysis)
@@ -1265,6 +1404,18 @@ OUTPUT (valid JSON array only):"""
         response = raw_response.content
     else:
         response = str(raw_response)
+
+    # Log LLM interaction
+    llm_logger = state.get('llm_logger')
+    if llm_logger:
+        llm_logger.log_llm_call(
+            iteration=iteration,
+            file_path=current_file,
+            call_type="suggest_modifications",
+            prompt=prompt,
+            response=response,
+            function_name=func_name
+        )
 
     # Parse JSON response (supports array format or fallback to JSONL)
     actions = []
@@ -1788,6 +1939,10 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
     print(f"Max iterations: {max_iterations}")
     print(f"{'='*60}\n")
 
+    # Create LLM logger
+    llm_log_dir = os.path.join(parent_dir, f"{benchmark_name}_llm_logs")
+    llm_logger = LLMLogger(llm_log_dir)
+
     # Create workflow
     app = create_vectorization_workflow()
 
@@ -1834,7 +1989,10 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
 
         # Status
         "compiler_errors": [],
-        "success": False
+        "success": False,
+        
+        # LLM logging
+        "llm_logger": llm_logger
     }
 
     # Run workflow with increased recursion limit for multi-iteration/multi-file processing
