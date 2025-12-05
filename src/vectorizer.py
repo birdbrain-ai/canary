@@ -1164,26 +1164,24 @@ def analyze_loops(state: VectorizationState):
     func_name = current_func['name']
     func_body = current_func['full_text']
     iteration = state['current_iteration']
-    # remark_files_baseline = state['remark_files_baseline']
+    remark_files_baseline = state['remark_files_baseline']
     remark_files_current = state.get('remark_files_current', [])
     summarized_file_context = state.get('summarized_file_context', '')
     function_summarized_context = state['function_summarized_context']
     function_analysis_history = state['function_analysis_history'].copy()
 
     # Match remark files for this specific file
-    # matching_baseline = match_remark_files(current_file, remark_files_baseline)
+    matching_baseline = match_remark_files(current_file, remark_files_baseline)
     matching_current = match_remark_files(current_file, remark_files_current)
-    # all_matching = matching_baseline + matching_current
+    all_matching = matching_baseline + matching_current
 
     # Build remark analysis section - filter by function name using yq
     remark_analysis = ""
-    # if all_matching:
-    if matching_current:
+    if all_matching:
         remark_analysis = f"\n\nOPTIMIZATION REMARKS FOR THIS FUNCTION:\n"
 
         # Filter remarks by function name using yq (robust YAML parsing)
-        # for remark_file in all_matching:
-        for remark_file in matching_current:
+        for remark_file in all_matching:
             # Use yq-based filtering to get complete YAML documents for this function
             filtered_content = filter_remarks_by_function(remark_file, func_name)
 
