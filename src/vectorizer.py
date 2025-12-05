@@ -1,12 +1,4 @@
-###
-### Two ideas
-### 1. I need to expose only specific tools to LLMs
-### 2. I have to shrink my giant prompts
-###
-
 from langgraph.graph import StateGraph, END
-# from langchain_ollama import OllamaLLM
-# from langchain_deepseek import ChatDeepSeek
 from langchain_openai import ChatOpenAI
 from langchain_community.document_loaders import TextLoader
 from typing import TypedDict, List, Dict
@@ -21,6 +13,106 @@ from pathlib import Path
 import json
 import datetime
 import hashlib
+
+
+class LLMLogger:
+    """Handles logging of all LLM interactions with full transparency"""
+    
+    def __init__(self, log_base_dir: str):
+        """
+        Initialize LLM logger.
+        
+        Args:
+            log_base_dir: Base directory for all LLM logs (e.g., "my_bench_llm_logs")
+        """
+        self.log_base_dir = Path(log_base_dir)
+        self.log_base_dir.mkdir(exist_ok=True)
+        print(f"📝 LLM logging enabled: {self.log_base_dir}")
+        
+    def log_llm_call(
+        self,
+        iteration: int,
+        file_path: str,
+        call_type: str,
+        prompt: str,
+        response: str,
+        function_name: str | None = None,
+        metadata: dict | None = None
+    ):
+        """
+        Log a single LLM call with prompt and response in separate files.
+        
+        Args:
+            iteration: Current iteration number
+            file_path: Path to source file being processed
+            call_type: Type of LLM call (e.g., "file_context", "analyze_loops")
+            prompt: The prompt sent to LLM
+            response: The response from LLM
+            function_name: Optional function name (for function-level calls)
+            metadata: Optional metadata dict (model, tokens, timestamp, etc.)
+        """
+        # Build directory path
+        dir_parts = [f"iteration_{iteration}"]
+        
+        # Add file component
+        file_basename = Path(file_path).name
+        dir_parts.append(f"file_{file_basename}")
+        
+        # Add function component if applicable
+        if function_name:
+            dir_parts.append(f"func_{function_name}")
+        
+        # Add call type with numbering
+        call_number = self._get_call_number(call_type, function_name)
+        dir_parts.append(f"{call_number:02d}_{call_type}")
+        
+        # Create full directory path
+        log_dir = self.log_base_dir.joinpath(*dir_parts)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Write prompt
+        prompt_file = log_dir / "prompt.txt"
+        prompt_file.write_text(prompt, encoding='utf-8')
+        
+        # Write response
+        response_file = log_dir / "response.txt"
+        response_file.write_text(response, encoding='utf-8')
+        
+        # Write metadata
+        if metadata is None:
+            metadata = {}
+        
+        metadata.update({
+            'timestamp': datetime.datetime.now().isoformat(),
+            'iteration': iteration,
+            'file': file_path,
+            'function': function_name,
+            'call_type': call_type,
+            'prompt_length': len(prompt),
+            'response_length': len(response)
+        })
+        
+        metadata_file = log_dir / "metadata.json"
+        metadata_file.write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+        
+        print(f"  📝 Logged: {'/'.join(dir_parts[-2:])}")
+    
+    def _get_call_number(self, call_type: str, function_name: str | None) -> int:
+        """Determine sequential number for call type"""
+        # File-level calls
+        if function_name is None:
+            if call_type == "file_context":
+                return 0
+        # Function-level calls
+        else:
+            if call_type == "summarize_context":
+                return 0
+            elif call_type == "analyze_loops":
+                return 1
+            elif call_type == "suggest_modifications":
+                return 2
+        return 99  # Unknown
+
 
 class FunctionInfo(TypedDict):
     """Metadata about an extracted function"""
@@ -49,28 +141,28 @@ class CodeReplaceAction(TypedDict):
 
 class VectorizationState(TypedDict):
     # Directory-level fields
-    original_benchmark_dir: str          # Original benchmark directory (untouched)
-    benchmark_base_dir: str              # benchmark_base copy (for baseline)
-    current_iteration_dir: str           # benchmark_AI_i directory
+    original_benchmark_dir: str
+    benchmark_base_dir: str
+    current_iteration_dir: str
 
     # Build/run commands
-    make_command: str                    # Command to build benchmark
-    run_command: str                     # Optional: command to run benchmark
+    make_command: str
+    run_command: str
 
     # File tracking
-    target_files: List[str]              # All .cpp/.hpp files found in benchmark
-    current_file_index: int              # Index of file being processed
-    current_file: str                    # Path to file being processed
-    current_file_code: str               # Code of current file
+    target_files: List[str]
+    current_file_index: int
+    current_file: str
+    current_file_code: str
 
-    # Function tracking (NEW - for function-level processing)
-    functions_in_file: List[FunctionInfo]  # All functions extracted from current file
-    current_function_index: int            # Index of function being processed
-    current_function: FunctionInfo         # Currently processing function
-    modified_file_content: str             # File content being built up with modified functions
-    summarized_file_context: str           # Summarized file context (structs/globals) - created ONCE per file
-    transformed_function: str              # Temporary field for transformed function from LLM
-    modification_actions: List[PragmaAction | CodeReplaceAction]  # Actions to apply
+    # Function tracking
+    functions_in_file: List[FunctionInfo]
+    current_function_index: int
+    current_function: FunctionInfo
+    modified_file_content: str
+    summarized_file_context: str
+    transformed_function: str
+    modification_actions: List[PragmaAction | CodeReplaceAction]
 
     # Iteration tracking
     current_iteration: int
@@ -80,25 +172,23 @@ class VectorizationState(TypedDict):
     remark_files_baseline: List[str]     # Remark files from baseline compilation
     remark_files_current: List[str]      # Remark files from current iteration
 
-    # Per-function context (CHANGED - now nested: file -> function -> context)
+    # Per-function context (nested: file -> function -> context)
     function_analysis_history: Dict[str, Dict[str, List[str]]]  # file_path -> function_name -> [analyses]
     function_summarized_context: Dict[str, Dict[str, str]]      # file_path -> function_name -> summary
 
-    # Compiler feedback (NEW)
+    # Compiler feedback
     file_compilation_feedback: Dict[str, str]  # file_path -> formatted error/warning text
 
-    # Status
+    # Status (is this redundant with above?)
     compiler_errors: List[str]
     success: bool
+    
+    # LLM logging
+    llm_logger: LLMLogger  # Logger for all LLM interactions
 
-# llm = OllamaLLM(model="codellama:34b", base_url="http://localhost:11434")
-# llm = ChatDeepSeek(
-#     model="deepseek-reasoner",
-#     api_key=os.getenv("DEEPSEEK_API_KEY")
-#     # max_tokens=,  # Allow long function outputs without truncation
-# )
+
 llm = ChatOpenAI(
-    model="Qwen/Qwen2.5-Coder-7B-Instruct",
+    model="Qwen/Qwen2.5-Coder-7B-Instruct", 
     openai_api_key="EMPTY",
     openai_api_base="http://localhost:8000/v1",
     # max_tokens=,
@@ -107,71 +197,71 @@ llm = ChatOpenAI(
 
 
 # AI Logging Configuration
-AI_LOG_DIR = "ai_logs"
-AI_LOG_FILE = os.path.join(AI_LOG_DIR, "ai_interactions.log")
+# AI_LOG_DIR = "ai_logs"
+# AI_LOG_FILE = os.path.join(AI_LOG_DIR, "ai_interactions.log")
 
-def setup_ai_logging():
-    """Create logging directory if it doesn't exist"""
-    os.makedirs(AI_LOG_DIR, exist_ok=True)
+# def setup_ai_logging():
+#     """Create logging directory if it doesn't exist"""
+#     os.makedirs(AI_LOG_DIR, exist_ok=True)
 
-    # Write header if file is new
-    if not os.path.exists(AI_LOG_FILE):
-        with open(AI_LOG_FILE, 'w', encoding='utf-8') as f:
-            f.write("="*80 + "\n")
-            f.write("AI INTERACTIONS LOG\n")
-            f.write(f"Started: {datetime.datetime.now().isoformat()}\n")
-            f.write("="*80 + "\n\n")
-    else:
-        with open(AI_LOG_FILE, 'a', encoding='utf-8') as f:
-            f.write("="*80 + "\n")
-            f.write(f"NEW LOG STARTED: {datetime.datetime.now().isoformat()}\n")
-            f.write("="*80 + "\n")
+#     # Write header if file is new
+#     if not os.path.exists(AI_LOG_FILE):
+#         with open(AI_LOG_FILE, 'w', encoding='utf-8') as f:
+#             f.write("="*80 + "\n")
+#             f.write("AI INTERACTIONS LOG\n")
+#             f.write(f"Started: {datetime.datetime.now().isoformat()}\n")
+#             f.write("="*80 + "\n\n")
+#     else:
+#         with open(AI_LOG_FILE, 'a', encoding='utf-8') as f:
+#             f.write("="*80 + "\n")
+#             f.write(f"NEW LOG STARTED: {datetime.datetime.now().isoformat()}\n")
+#             f.write("="*80 + "\n")
 
-def log_ai_call(function_name: str, prompt: str, response: str, metadata: dict = None):
-    """
-    Log AI input/output to file
+# def log_ai_call(function_name: str, prompt: str, response: str, metadata: dict = None):
+#     """
+#     Log AI input/output to file
 
-    Args:
-        function_name: Name of the function making the AI call
-        prompt: Input prompt sent to AI
-        response: Output received from AI
-        metadata: Optional dict with additional context (iteration, file, function, etc.)
-    """
-    timestamp = datetime.datetime.now().isoformat()
-    prompt_hash = hashlib.md5(prompt.encode()).hexdigest()[:8]
+#     Args:
+#         function_name: Name of the function making the AI call
+#         prompt: Input prompt sent to AI
+#         response: Output received from AI
+#         metadata: Optional dict with additional context (iteration, file, function, etc.)
+#     """
+#     timestamp = datetime.datetime.now().isoformat()
+#     prompt_hash = hashlib.md5(prompt.encode()).hexdigest()[:8]
 
-    # Build log entry
-    log_entry = f"\n{'='*80}\n"
-    log_entry += f"TIMESTAMP: {timestamp}\n"
-    log_entry += f"FUNCTION: {function_name}\n"
-    log_entry += f"PROMPT_HASH: {prompt_hash}\n"
+#     # Build log entry
+#     log_entry = f"\n{'='*80}\n"
+#     log_entry += f"TIMESTAMP: {timestamp}\n"
+#     log_entry += f"FUNCTION: {function_name}\n"
+#     log_entry += f"PROMPT_HASH: {prompt_hash}\n"
 
-    if metadata:
-        log_entry += "METADATA:\n"
-        for key, value in metadata.items():
-            log_entry += f"  {key}: {value}\n"
+#     if metadata:
+#         log_entry += "METADATA:\n"
+#         for key, value in metadata.items():
+#             log_entry += f"  {key}: {value}\n"
 
-    log_entry += f"\n{'-'*80}\n"
-    log_entry += "PROMPT (INPUT TO AI):\n"
-    log_entry += f"{'-'*80}\n"
-    log_entry += f"{prompt}\n"
+#     log_entry += f"\n{'-'*80}\n"
+#     log_entry += "PROMPT (INPUT TO AI):\n"
+#     log_entry += f"{'-'*80}\n"
+#     log_entry += f"{prompt}\n"
 
-    log_entry += f"\n{'-'*80}\n"
-    log_entry += "RESPONSE (OUTPUT FROM AI):\n"
-    log_entry += f"{'-'*80}\n"
-    log_entry += f"{response}\n"
-    log_entry += f"{'='*80}\n\n"
+#     log_entry += f"\n{'-'*80}\n"
+#     log_entry += "RESPONSE (OUTPUT FROM AI):\n"
+#     log_entry += f"{'-'*80}\n"
+#     log_entry += f"{response}\n"
+#     log_entry += f"{'='*80}\n\n"
 
-    # Write to log file
-    with open(AI_LOG_FILE, 'a', encoding='utf-8') as f:
-        f.write(log_entry)
+#     # Write to log file
+#     with open(AI_LOG_FILE, 'a', encoding='utf-8') as f:
+#         f.write(log_entry)
 
-    # Also write individual files for easier inspection
-    log_filename = f"{timestamp.replace(':', '-')}_{function_name}_{prompt_hash}.txt"
-    individual_log_path = os.path.join(AI_LOG_DIR, log_filename)
+#     # Also write individual files for easier inspection
+#     log_filename = f"{timestamp.replace(':', '-')}_{function_name}_{prompt_hash}.txt"
+#     individual_log_path = os.path.join(AI_LOG_DIR, log_filename)
 
-    with open(individual_log_path, 'w', encoding='utf-8') as f:
-        f.write(log_entry)
+#     with open(individual_log_path, 'w', encoding='utf-8') as f:
+#         f.write(log_entry)
 
 def get_base_filename(filepath: str) -> str:
     """Get base filename without extension (e.g., 'test.cpp' -> 'test')"""
@@ -263,7 +353,6 @@ def filter_vectorize_remarks(yaml_file_path: str) -> str:
             ["yq", "select(.Pass == \"loop-vectorize\")", yaml_file_path],
             capture_output=True,
             text=True,
-#             timeout=10
         )
 
         if result.returncode == 0:
@@ -274,6 +363,105 @@ def filter_vectorize_remarks(yaml_file_path: str) -> str:
             return ""
     except Exception as e:
         print(f"⚠ Warning: Could not filter remarks for {yaml_file_path}: {e}")
+        return ""
+
+def filter_remarks_by_function(yaml_file_path: str, func_name: str) -> str:
+    """
+    Filter YAML optimization remarks to only include entries for a specific function.
+    Uses yq to properly parse YAML and match against both mangled and demangled function names.
+    
+    Args:
+        yaml_file_path: Path to .opt.yaml file
+        func_name: Function name to filter for (e.g., "vecAdd")
+    
+    Returns:
+        Filtered YAML content as string containing complete YAML documents,
+        or empty string if no matches or filtering fails
+    """
+    try:
+        # First, filter for loop-vectorize pass
+        result = subprocess.run(
+            ["yq", "select(.Pass == \"loop-vectorize\")", yaml_file_path],
+            capture_output=True,
+            text=True,
+        )
+        
+        if result.returncode != 0 or not result.stdout.strip():
+            return ""
+        
+        # Now filter by function name
+        # We need to check if func_name appears in the Function field
+        # The Function field contains mangled names, so we need to:
+        # 1. Try exact match with mangled name
+        # 2. Try substring match (func_name in demangled version)
+        
+        # Use yq to select documents where Function field contains our function name
+        # This works because demangled names typically contain the original function name
+        yq_filter = f'select(.Function and (.Function | test("{re.escape(func_name)}")))'
+        
+        result = subprocess.run(
+            ["yq", yq_filter],
+            input=result.stdout,
+            capture_output=True,
+            text=True,
+        )
+        
+        if result.returncode == 0:
+            # If direct match didn't work, try demangling approach
+            if not result.stdout.strip():
+                # Fall back to manual demangling check
+                return filter_remarks_by_function_with_demangle(result.stdout, func_name)
+            return result.stdout
+        else:
+            print(f"⚠ Warning: yq function filter failed for {yaml_file_path}")
+            return ""
+            
+    except Exception as e:
+        print(f"⚠ Warning: Could not filter remarks by function for {yaml_file_path}: {e}")
+        return ""
+
+def filter_remarks_by_function_with_demangle(yaml_content: str, func_name: str) -> str:
+    """
+    Filter YAML remarks by demangling function names.
+    Fallback when direct yq filtering doesn't work.
+    
+    Args:
+        yaml_content: YAML content (already filtered by pass)
+        func_name: Function name to match
+    
+    Returns:
+        Filtered YAML documents as string
+    """
+    try:
+        # Parse YAML documents
+        import yaml
+        
+        documents = list(yaml.safe_load_all(yaml_content))
+        matching_docs = []
+        
+        for doc in documents:
+            if doc and 'Function' in doc:
+                mangled = doc['Function']
+                demangled = demangle_function_name(mangled)
+                
+                # Check if func_name appears in demangled name
+                if func_name in demangled:
+                    matching_docs.append(doc)
+        
+        if not matching_docs:
+            return ""
+        
+        # Convert back to YAML
+        result = ""
+        for doc in matching_docs:
+            result += "---\n"
+            result += yaml.dump(doc, default_flow_style=False)
+            result += "...\n"
+        
+        return result
+        
+    except Exception as e:
+        print(f"⚠ Warning: Demangle-based filtering failed: {e}")
         return ""
 
 def demangle_function_name(mangled: str) -> str:
@@ -547,7 +735,8 @@ def format_compilation_feedback(stderr_output: str, current_file: str) -> str:
     Parse compiler stderr and format errors/warnings for LLM consumption.
     
     Filters to only errors related to current_file and formats them
-    in a clear, actionable way.
+    in a clear, actionable way. Uses multiple regex patterns to catch
+    various compiler error formats.
     
     Args:
         stderr_output: Raw stderr from compiler
@@ -562,42 +751,69 @@ def format_compilation_feedback(stderr_output: str, current_file: str) -> str:
     # Get basename for matching (errors might use relative or absolute paths)
     current_basename = os.path.basename(current_file)
     
-    # Parse errors: <file>:<line>:<col>: <type>: <message>
-    error_pattern = re.compile(r'^(.+?):(\d+):(\d+):\s+(error|warning):\s+(.+)$')
+    # Multiple regex patterns to handle different compiler error formats
+    # Pattern 1: Full format - file:line:col: type: message
+    pattern_full = re.compile(r'^(.+?):(\d+):(\d+):\s+(error|warning):\s+(.+)$')
+    
+    # Pattern 2: No column - file:line: type: message (common in GCC/Clang)
+    pattern_no_col = re.compile(r'^(.+?):(\d+):\s+(error|warning):\s+(.+)$')
+    
+    # Pattern 3: Minimal - just type: message (linker errors, general errors)
+    pattern_minimal = re.compile(r'^(error|warning):\s+(.+)$')
     
     relevant_errors = []
+    
     for line in stderr_output.splitlines():
-        match = error_pattern.match(line.strip())
+        stripped = line.strip()
+        
+        # Try full format first (file:line:col: type: message)
+        match = pattern_full.match(stripped)
         if match:
             file_path, line_num, col, err_type, message = match.groups()
-            # Check if this error is for the current file
             if os.path.basename(file_path) == current_basename:
                 relevant_errors.append({
                     'line': int(line_num),
                     'type': err_type,
                     'message': message.strip()
                 })
+            continue
+        
+        # Try no-column format (file:line: type: message)
+        match = pattern_no_col.match(stripped)
+        if match:
+            file_path, line_num, err_type, message = match.groups()
+            if os.path.basename(file_path) == current_basename:
+                relevant_errors.append({
+                    'line': int(line_num),
+                    'type': err_type,
+                    'message': message.strip()
+                })
+            continue
+        
+        # Try minimal format (error: message or warning: message)
+        match = pattern_minimal.match(stripped)
+        if match:
+            err_type, message = match.groups()
+            # Include these as they might be relevant (e.g., linker errors)
+            relevant_errors.append({
+                'line': None,  # No line info available
+                'type': err_type,
+                'message': message.strip()
+            })
     
     if not relevant_errors:
         return ""
     
-    # Sort by line number
-    relevant_errors.sort(key=lambda e: e['line'])
+    # Sort by line number (put None at end)
+    relevant_errors.sort(key=lambda e: (e['line'] is None, e['line'] or 0))
     
-    # Limit to first 10 errors to avoid overwhelming the LLM
-    if len(relevant_errors) > 10:
-        relevant_errors = relevant_errors[:10]
-        truncated = True
-    else:
-        truncated = False
-    
-    # Format for LLM
+    # Format for LLM - include all errors (no limit)
     formatted = "The compiler reported the following issues in this file:\n\n"
     for err in relevant_errors:
-        formatted += f"Line {err['line']}: {err['type']}: {err['message']}\n"
-    
-    if truncated:
-        formatted += f"\n(Showing first 10 of {len(relevant_errors)} errors)\n"
+        if err['line'] is not None:
+            formatted += f"Line {err['line']}: {err['type']}: {err['message']}\n"
+        else:
+            formatted += f"{err['type']}: {err['message']}\n"
     
     return formatted
 
@@ -638,7 +854,7 @@ def setup_baseline(state: VectorizationState):
     base_dir = state['benchmark_base_dir']
 
     print(f"\n{'='*60}")
-    print(f"ITERATIVE VECTORIZATION PRAGMA TOOL (Multi-File)")
+    print(f"COMPILER-ASSISTED AI VECTORIZER")
     print(f"Benchmark: {original_dir}")
     print(f"Iterations: {state['max_iterations']}")
     print('='*60)
@@ -657,8 +873,8 @@ def setup_baseline(state: VectorizationState):
         "target_files": target_files
     }
 
-# Node: Compile benchmark (baseline or iteration)
-def compile_benchmark(state: VectorizationState):
+# Node: Compile baseline benchmark
+def compile_baseline_benchmark(state: VectorizationState):
     """Compile benchmark to generate optimization remarks"""
     base_dir = state['benchmark_base_dir']
     make_command = state['make_command']
@@ -676,7 +892,6 @@ def compile_benchmark(state: VectorizationState):
         shell=True,
         capture_output=True,
         text=True,
-#        timeout=300
     )
 
     # Change back
@@ -721,7 +936,6 @@ def run_baseline_benchmark(state: VectorizationState):
         shell=True,
         capture_output=False,  # Let output go to stdout/stderr
         text=True,
-        # timeout=600  # 10 minute timeout
     )
 
     # Change back
@@ -835,17 +1049,17 @@ what data structures and globals are available for vectorization analysis."""
     else:
         summary = str(raw_summary)
 
-    # Log AI interaction
-    log_ai_call(
-        function_name="summarize_file_context",
-        prompt=prompt,
-        response=summary,
-        metadata={
-            "file": state.get('current_file', 'unknown'),
-            "iteration": state.get('current_iteration', 0),
-            "raw_context_length": len(raw_context)
-        }
-    )
+    # Log LLM interaction
+    llm_logger = state.get('llm_logger')
+    if llm_logger:
+        llm_logger.log_llm_call(
+            iteration=state['current_iteration'],
+            file_path=state['current_file'],
+            call_type="file_context",
+            prompt=prompt,
+            response=summary,
+            function_name=None
+        )
 
     print(f"✓ Context summarized ({len(summary)} characters)")
 
@@ -920,19 +1134,17 @@ Output ONLY the summary, no preamble."""
     else:
         summary = str(raw_summary)
 
-    # Log AI interaction
-    log_ai_call(
-        function_name="summarize_context",
-        prompt=prompt,
-        response=summary,
-        metadata={
-            "file": current_file,
-            "function": func_name,
-            "iteration": iteration,
-            "num_previous_analyses": len(func_analyses),
-            "analyses_text_length": len(analyses_text)
-        }
-    )
+    # Log LLM interaction
+    llm_logger = state.get('llm_logger')
+    if llm_logger:
+        llm_logger.log_llm_call(
+            iteration=iteration,
+            file_path=current_file,
+            call_type="summarize_context",
+            prompt=prompt,
+            response=summary,
+            function_name=func_name
+        )
 
     print(f"✓ Compressed {len(analyses_text)} chars to {len(summary)} chars")
 
@@ -963,34 +1175,19 @@ def analyze_loops(state: VectorizationState):
     matching_current = match_remark_files(current_file, remark_files_current)
     all_matching = matching_baseline + matching_current
 
-    # Build remark analysis section - filter by function name
+    # Build remark analysis section - filter by function name using yq
     remark_analysis = ""
     if all_matching:
         remark_analysis = f"\n\nOPTIMIZATION REMARKS FOR THIS FUNCTION:\n"
 
-        # Filter remarks by function name using demangling
+        # Filter remarks by function name using yq (robust YAML parsing)
         for remark_file in all_matching:
-            filtered_content = filter_vectorize_remarks(remark_file)
+            # Use yq-based filtering to get complete YAML documents for this function
+            filtered_content = filter_remarks_by_function(remark_file, func_name)
 
-            if filtered_content:
-                # Further filter by demangled function name
-                relevant_remarks = []
-                for line in filtered_content.splitlines():
-                    if 'Function:' in line:
-                        # Extract mangled name and demangle
-                        mangled = line.split('Function:')[1].strip()
-                        demangled = demangle_function_name(mangled)
-                        # Check if this remark is for our function
-                        if func_name in demangled:
-                            relevant_remarks.append(line)
-                        else:
-                            relevant_remarks = []  # Reset if not our function
-                    elif relevant_remarks:  # We're in a relevant block
-                        relevant_remarks.append(line)
-
-                if relevant_remarks:
-                    remark_analysis += f"\n--- From {os.path.basename(remark_file)} ---\n"
-                    remark_analysis += "```yaml\n" + '\n'.join(relevant_remarks) + "\n```\n"
+            if filtered_content and filtered_content.strip():
+                remark_analysis += f"\n--- From {os.path.basename(remark_file)} ---\n"
+                remark_analysis += "```yaml\n" + filtered_content + "```\n"
 
     if not remark_analysis or remark_analysis == "\n\nOPTIMIZATION REMARKS FOR THIS FUNCTION:\n":
         remark_analysis = "\n\nNo optimization remarks available for this function yet."
@@ -1029,13 +1226,6 @@ Analyze the FOR LOOPS in this function to identify vectorization opportunities:
 2. Loops that failed to vectorize (check remarks for failures)
 3. Loops with vectorization issues that could be fixed with pragmas
 
-Focus ONLY on FOR LOOPS with:
-- Simple iteration patterns (i++, i+=1, etc.)
-- Array/vector operations in the loop body
-- No complex control flow
-
-IMPORTANT: Only analyze FOR LOOPS. Do NOT suggest pragmas for while/do-while loops.
-
 Provide a concise analysis of which FOR LOOPS in THIS FUNCTION need pragmas and why.
 """
 
@@ -1045,19 +1235,17 @@ Provide a concise analysis of which FOR LOOPS in THIS FUNCTION need pragmas and 
     else:
         analysis = str(raw_analysis)
 
-    # Log AI interaction
-    log_ai_call(
-        function_name="analyze_loops",
-        prompt=prompt,
-        response=analysis,
-        metadata={
-            "file": current_file,
-            "function": func_name,
-            "iteration": iteration,
-            "num_matching_remarks": len(all_matching),
-            "has_remark_analysis": bool(remark_analysis and remark_analysis != "\n\nNo optimization remarks available for this function yet.")
-        }
-    )
+    # Log LLM interaction
+    llm_logger = state.get('llm_logger')
+    if llm_logger:
+        llm_logger.log_llm_call(
+            iteration=iteration,
+            file_path=current_file,
+            call_type="analyze_loops",
+            prompt=prompt,
+            response=analysis,
+            function_name=func_name
+        )
 
     print(f"\n=== Loop Analysis ===")
     print(analysis[:500] + "..." if len(analysis) > 500 else analysis)
@@ -1111,7 +1299,7 @@ PREVIOUS ITERATIONS SUMMARY FOR THIS FUNCTION:
 {func_history}
 """
 
-    # Build compiler feedback section (NEW)
+    # Build compiler feedback section
     compiler_feedback_section = ""
     if iteration > 0:
         file_compilation_feedback = state.get('file_compilation_feedback', {})
@@ -1140,7 +1328,7 @@ This is the first iteration. You have two options:
    - Hoist loop-invariant computations
    - Replace specific lines to fix vectorization blockers
    - Make multiple independent changes in one pass
-   - Can replace entire function if needed (start_line=0, end_line=last_line)
+   - Avoid making changes that alter the meaning of the function
 """
     else:
         iteration_guidance = f"""
@@ -1154,7 +1342,7 @@ This is iteration {iteration}. Based on optimization remarks, you have two optio
 2. CODE REPLACE: Make targeted code changes:
    - Fix specific issues identified in optimization remarks
    - Add temporaries, hoist computations, break dependencies
-   - Can replace entire function if needed (start_line=0, end_line=last_line)
+   - Avoid making changes that alter the meaning of the function
 """
 
     prompt = f"""Analyze this C++ function for vectorization opportunities.
@@ -1197,7 +1385,6 @@ Examples:
 - Add variable: {{"action_type": "code_replace", "start_line": 0, "end_line": 0, "new_code": "int temp = 0;", "reasoning": "Add local temporary"}}
 - Replace line: {{"action_type": "code_replace", "start_line": 5, "end_line": 5, "new_code": "result[i] = a[i] * factor;", "reasoning": "Use hoisted variable"}}
 - Multi-line: {{"action_type": "code_replace", "start_line": 3, "end_line": 5, "new_code": "for (int i = 0; i < n; i++) {{\n    output[i] = input[i];\n}}", "reasoning": "Simplify loop"}}
-- Entire function: {{"action_type": "code_replace", "start_line": 0, "end_line": <last_line>, "new_code": "<entire function>", "reasoning": "Complete rewrite"}}
 
 CRITICAL OUTPUT RULES:
 - Output a JSON ARRAY: [{{...}}] or [{{...}}, {{...}}] for multiple actions
@@ -1205,11 +1392,6 @@ CRITICAL OUTPUT RULES:
 - If NO modifications needed, output an empty array: []
 - DO NOT include any explanatory text, markdown, or code fences
 - Output ONLY the JSON array, nothing else
-
-IMPORTANT:
-- Use pragmas for simple hints, code_replace for targeted changes
-- code_replace can handle everything from single lines to entire functions
-- When in doubt, don't suggest any modifications
 
 OUTPUT (valid JSON array only):"""
 
@@ -1221,20 +1403,17 @@ OUTPUT (valid JSON array only):"""
     else:
         response = str(raw_response)
 
-    # Log AI interaction
-    log_ai_call(
-        function_name="suggest_modifications",
-        prompt=prompt,
-        response=response,
-        metadata={
-            "file": current_file,
-            "function": func_name,
-            "iteration": iteration,
-            "function_start_line": current_func['start_line'],
-            "function_end_line": current_func['end_line'],
-            "has_history": bool(func_history)
-        }
-    )
+    # Log LLM interaction
+    llm_logger = state.get('llm_logger')
+    if llm_logger:
+        llm_logger.log_llm_call(
+            iteration=iteration,
+            file_path=current_file,
+            call_type="suggest_modifications",
+            prompt=prompt,
+            response=response,
+            function_name=func_name
+        )
 
     # Parse JSON response (supports array format or fallback to JSONL)
     actions = []
@@ -1347,8 +1526,6 @@ def apply_modifications(state: VectorizationState):
     return {"transformed_function": modified}
 
 
-
-
 # Node: Replace function in file
 def replace_function_in_file(state: VectorizationState):
     """Replace the modified function in the file content"""
@@ -1430,50 +1607,6 @@ def should_continue_files(state: VectorizationState) -> str:
         print(f"\n✓ All {total_files} files processed in iteration {state['current_iteration']}")
         return "compile_iteration"
 
-# Node: Compile and verify
-def compile_code(state: VectorizationState):
-    """Compile iteration file with optimization remarks for verification"""
-    filepath = state['current_iteration_file']
-    iteration = state['current_iteration']
-    remark_file = get_remark_filename(filepath)
-    object_file = get_object_filename(filepath)
-
-    print(f"\n=== Compiling Iteration {iteration} ===")
-
-    result = subprocess.run(
-        ["clang++", "-std=c++17", "-Wall", "-fsave-optimization-record",
-         "-c", filepath, "-o", object_file],
-        capture_output=True,
-        text=True,
-        # timeout=60
-    )
-
-    errors = []
-    if result.returncode != 0:
-        errors = [line for line in result.stderr.split("\n") if line.strip()]
-        print(f"✗ Compilation failed with {len(errors)} errors:")
-        for err in errors[:5]:
-            print(f"  {err}")
-    else:
-        print("✓ Compilation successful!")
-
-    # Check for new remark file
-    if os.path.exists(remark_file):
-        print(f"✓ Generated remark file: {remark_file}")
-        # Add to remark files list
-        remark_files = state['remark_files'].copy()
-        if remark_file not in remark_files:
-            remark_files.append(remark_file)
-        return {
-            "compiler_errors": errors,
-            "remark_files": remark_files
-        }
-    else:
-        print(f"⚠ No remark file generated")
-        return {
-            "compiler_errors": errors
-        }
-
 # Node: Compile entire iteration benchmark
 def compile_iteration_benchmark(state: VectorizationState):
     """Compile the AI-modified benchmark to generate new optimization remarks"""
@@ -1498,7 +1631,6 @@ def compile_iteration_benchmark(state: VectorizationState):
         shell=True,
         capture_output=True,
         text=True,
-#         timeout=300  # 5 minute timeout for build
     )
 
     # Return to original directory
@@ -1664,17 +1796,17 @@ def create_vectorization_workflow():
 
     # Add all nodes
     workflow.add_node("setup_baseline", setup_baseline)
-    workflow.add_node("compile_benchmark", compile_benchmark)
+    workflow.add_node("compile_baseline_benchmark", compile_baseline_benchmark)
     workflow.add_node("run_baseline_benchmark", run_baseline_benchmark)
     workflow.add_node("initialize_benchmark_iteration", initialize_benchmark_iteration)
     workflow.add_node("initialize_file_processing", initialize_file_processing)
-    workflow.add_node("summarize_file_context", summarize_file_context)  # NEW
-    workflow.add_node("initialize_function_processing", initialize_function_processing)  # NEW
-    workflow.add_node("summarize_context", summarize_context)  # Now per-function
-    workflow.add_node("analyze_loops", analyze_loops)  # Now per-function
-    workflow.add_node("suggest_modifications", suggest_modifications)  # Renamed from add_pragmas
-    workflow.add_node("apply_modifications", apply_modifications)  # Renamed from apply_pragma_actions
-    workflow.add_node("replace_function_in_file", replace_function_in_file)  # NEW
+    workflow.add_node("summarize_file_context", summarize_file_context)
+    workflow.add_node("initialize_function_processing", initialize_function_processing)
+    workflow.add_node("summarize_context", summarize_context)
+    workflow.add_node("analyze_loops", analyze_loops)
+    workflow.add_node("suggest_modifications", suggest_modifications)
+    workflow.add_node("apply_modifications", apply_modifications)
+    workflow.add_node("replace_function_in_file", replace_function_in_file)
     workflow.add_node("write_file", write_file)
     workflow.add_node("compile_iteration_benchmark", compile_iteration_benchmark)
     workflow.add_node("run_iteration_benchmark", run_iteration_benchmark)
@@ -1686,8 +1818,8 @@ def create_vectorization_workflow():
     workflow.set_entry_point("setup_baseline")
 
     # Phase 1: Setup and baseline compilation
-    workflow.add_edge("setup_baseline", "compile_benchmark")
-    workflow.add_edge("compile_benchmark", "run_baseline_benchmark")
+    workflow.add_edge("setup_baseline", "compile_baseline_benchmark")
+    workflow.add_edge("compile_baseline_benchmark", "run_baseline_benchmark")
     workflow.add_edge("run_baseline_benchmark", "initialize_benchmark_iteration")
 
     # Phase 2: Per-iteration loop starts here
@@ -1701,8 +1833,8 @@ def create_vectorization_workflow():
         "summarize_file_context",
         has_functions_to_process,
         {
-            "process_functions": "initialize_function_processing",  # Enter function loop
-            "write_file": "write_file"  # Skip to next file if no functions
+            "process_functions": "initialize_function_processing",
+            "write_file": "write_file"
         }
     )
 
@@ -1718,8 +1850,8 @@ def create_vectorization_workflow():
         "replace_function_in_file",
         should_continue_functions,
         {
-            "continue_functions": "initialize_function_processing",  # Loop back to next function
-            "write_file": "write_file"  # All functions done, write file
+            "continue_functions": "initialize_function_processing",
+            "write_file": "write_file"
         }
     )
 
@@ -1728,8 +1860,8 @@ def create_vectorization_workflow():
         "write_file",
         should_continue_files,
         {
-            "continue_files": "initialize_file_processing",  # Loop back to next file
-            "compile_iteration": "compile_iteration_benchmark"  # All files done, compile
+            "continue_files": "initialize_file_processing",
+            "compile_iteration": "compile_iteration_benchmark"
         }
     )
 
@@ -1789,10 +1921,6 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
         print(f"✗ Error: Path is not a directory: {benchmark_dir}")
         return None
 
-    # Setup AI logging
-    setup_ai_logging()
-    print(f"✓ AI logging initialized: {AI_LOG_FILE}")
-
     # Get absolute path and derive names
     abs_benchmark_dir = os.path.abspath(benchmark_dir)
     benchmark_name = os.path.basename(abs_benchmark_dir)
@@ -1808,6 +1936,10 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
     print(f"Make command: {make_command}")
     print(f"Max iterations: {max_iterations}")
     print(f"{'='*60}\n")
+
+    # Create LLM logger
+    llm_log_dir = os.path.join(parent_dir, f"{benchmark_name}_llm_logs")
+    llm_logger = LLMLogger(llm_log_dir)
 
     # Create workflow
     app = create_vectorization_workflow()
@@ -1855,44 +1987,15 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
 
         # Status
         "compiler_errors": [],
-        "success": False
+        "success": False,
+        
+        # LLM logging
+        "llm_logger": llm_logger
     }
 
     # Run workflow with increased recursion limit for multi-iteration/multi-file processing
     # Each iteration processes all files through multiple nodes, so we need a high limit
     result = app.invoke(initial_state, config={"recursion_limit": 20000})
-    return result
-
-# Legacy function (kept for backwards compatibility)
-def vectorize_file(filepath: str, max_iterations: int = 3):
-    """Add vectorization pragmas to a C++ file with iterative refinement"""
-
-    if not os.path.exists(filepath):
-        print(f"✗ Error: File not found: {filepath}")
-        return None
-
-    # Setup AI logging
-    setup_ai_logging()
-    print(f"✓ AI logging initialized: {AI_LOG_FILE}")
-
-    app = create_vectorization_workflow()
-
-    initial_state = {
-        "original_filepath": filepath,
-        "original_code": "",
-        "current_iteration": 0,
-        "max_iterations": max_iterations,
-        "remark_files": [],
-        "iteration_files": [],
-        "current_iteration_file": "",
-        "current_code": "",
-        "compiler_errors": [],
-        "success": False,
-        "analysis_history": [],
-        "summarized_context": ""
-    }
-
-    result = app.invoke(initial_state, config={"recursion_limit": 100})
     return result
 
 # CLI entry point
@@ -1953,13 +2056,8 @@ Examples:
             max_iterations=args.iterations,
             run_command=args.run_command
         )
-    elif os.path.isfile(args.path):
-        # Legacy file mode
-        print("⚠ Running in legacy single-file mode")
-        print("⚠ Consider using benchmark directory mode for better results\n")
-        result = vectorize_file(args.path, args.iterations)
     else:
-        print(f"✗ Error: Path not found: {args.path}")
+        print(f"✗ Error: Directory not found: {args.path}")
         exit(1)
 
     # Exit with appropriate code
