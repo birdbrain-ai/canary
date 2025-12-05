@@ -55,7 +55,7 @@ class VectorizationState(TypedDict):
     current_file: str
     current_file_code: str
 
-    # Function tracking (Akash: These options should only be used in post-processing - Outputs from LLMs should not be piped into these options)
+    # Function tracking
     functions_in_file: List[FunctionInfo]
     current_function_index: int
     current_function: FunctionInfo
@@ -260,6 +260,105 @@ def filter_vectorize_remarks(yaml_file_path: str) -> str:
             return ""
     except Exception as e:
         print(f"⚠ Warning: Could not filter remarks for {yaml_file_path}: {e}")
+        return ""
+
+def filter_remarks_by_function(yaml_file_path: str, func_name: str) -> str:
+    """
+    Filter YAML optimization remarks to only include entries for a specific function.
+    Uses yq to properly parse YAML and match against both mangled and demangled function names.
+    
+    Args:
+        yaml_file_path: Path to .opt.yaml file
+        func_name: Function name to filter for (e.g., "vecAdd")
+    
+    Returns:
+        Filtered YAML content as string containing complete YAML documents,
+        or empty string if no matches or filtering fails
+    """
+    try:
+        # First, filter for loop-vectorize pass
+        result = subprocess.run(
+            ["yq", "select(.Pass == \"loop-vectorize\")", yaml_file_path],
+            capture_output=True,
+            text=True,
+        )
+        
+        if result.returncode != 0 or not result.stdout.strip():
+            return ""
+        
+        # Now filter by function name
+        # We need to check if func_name appears in the Function field
+        # The Function field contains mangled names, so we need to:
+        # 1. Try exact match with mangled name
+        # 2. Try substring match (func_name in demangled version)
+        
+        # Use yq to select documents where Function field contains our function name
+        # This works because demangled names typically contain the original function name
+        yq_filter = f'select(.Function and (.Function | test("{re.escape(func_name)}")))'
+        
+        result = subprocess.run(
+            ["yq", yq_filter],
+            input=result.stdout,
+            capture_output=True,
+            text=True,
+        )
+        
+        if result.returncode == 0:
+            # If direct match didn't work, try demangling approach
+            if not result.stdout.strip():
+                # Fall back to manual demangling check
+                return filter_remarks_by_function_with_demangle(result.stdout, func_name)
+            return result.stdout
+        else:
+            print(f"⚠ Warning: yq function filter failed for {yaml_file_path}")
+            return ""
+            
+    except Exception as e:
+        print(f"⚠ Warning: Could not filter remarks by function for {yaml_file_path}: {e}")
+        return ""
+
+def filter_remarks_by_function_with_demangle(yaml_content: str, func_name: str) -> str:
+    """
+    Filter YAML remarks by demangling function names.
+    Fallback when direct yq filtering doesn't work.
+    
+    Args:
+        yaml_content: YAML content (already filtered by pass)
+        func_name: Function name to match
+    
+    Returns:
+        Filtered YAML documents as string
+    """
+    try:
+        # Parse YAML documents
+        import yaml
+        
+        documents = list(yaml.safe_load_all(yaml_content))
+        matching_docs = []
+        
+        for doc in documents:
+            if doc and 'Function' in doc:
+                mangled = doc['Function']
+                demangled = demangle_function_name(mangled)
+                
+                # Check if func_name appears in demangled name
+                if func_name in demangled:
+                    matching_docs.append(doc)
+        
+        if not matching_docs:
+            return ""
+        
+        # Convert back to YAML
+        result = ""
+        for doc in matching_docs:
+            result += "---\n"
+            result += yaml.dump(doc, default_flow_style=False)
+            result += "...\n"
+        
+        return result
+        
+    except Exception as e:
+        print(f"⚠ Warning: Demangle-based filtering failed: {e}")
         return ""
 
 def demangle_function_name(mangled: str) -> str:
@@ -533,7 +632,8 @@ def format_compilation_feedback(stderr_output: str, current_file: str) -> str:
     Parse compiler stderr and format errors/warnings for LLM consumption.
     
     Filters to only errors related to current_file and formats them
-    in a clear, actionable way.
+    in a clear, actionable way. Uses multiple regex patterns to catch
+    various compiler error formats.
     
     Args:
         stderr_output: Raw stderr from compiler
@@ -548,45 +648,69 @@ def format_compilation_feedback(stderr_output: str, current_file: str) -> str:
     # Get basename for matching (errors might use relative or absolute paths)
     current_basename = os.path.basename(current_file)
     
-    # Parse errors: <file>:<line>:<col>: <type>: <message>
-    # Akash: I think this is too strict of an error parser - it might not catch some of the looser
-    # errors/warnings that lack column numbers for instance...
-    # What if an error doesn't have a file number of a line number?
-    error_pattern = re.compile(r'^(.+?):(\d+):(\d+):\s+(error|warning):\s+(.+)$')
+    # Multiple regex patterns to handle different compiler error formats
+    # Pattern 1: Full format - file:line:col: type: message
+    pattern_full = re.compile(r'^(.+?):(\d+):(\d+):\s+(error|warning):\s+(.+)$')
+    
+    # Pattern 2: No column - file:line: type: message (common in GCC/Clang)
+    pattern_no_col = re.compile(r'^(.+?):(\d+):\s+(error|warning):\s+(.+)$')
+    
+    # Pattern 3: Minimal - just type: message (linker errors, general errors)
+    pattern_minimal = re.compile(r'^(error|warning):\s+(.+)$')
     
     relevant_errors = []
+    
     for line in stderr_output.splitlines():
-        match = error_pattern.match(line.strip())
+        stripped = line.strip()
+        
+        # Try full format first (file:line:col: type: message)
+        match = pattern_full.match(stripped)
         if match:
             file_path, line_num, col, err_type, message = match.groups()
-            # Check if this error is for the current file
             if os.path.basename(file_path) == current_basename:
                 relevant_errors.append({
                     'line': int(line_num),
                     'type': err_type,
                     'message': message.strip()
                 })
+            continue
+        
+        # Try no-column format (file:line: type: message)
+        match = pattern_no_col.match(stripped)
+        if match:
+            file_path, line_num, err_type, message = match.groups()
+            if os.path.basename(file_path) == current_basename:
+                relevant_errors.append({
+                    'line': int(line_num),
+                    'type': err_type,
+                    'message': message.strip()
+                })
+            continue
+        
+        # Try minimal format (error: message or warning: message)
+        match = pattern_minimal.match(stripped)
+        if match:
+            err_type, message = match.groups()
+            # Include these as they might be relevant (e.g., linker errors)
+            relevant_errors.append({
+                'line': None,  # No line info available
+                'type': err_type,
+                'message': message.strip()
+            })
     
     if not relevant_errors:
         return ""
     
-    # Sort by line number
-    relevant_errors.sort(key=lambda e: e['line'])
+    # Sort by line number (put None at end)
+    relevant_errors.sort(key=lambda e: (e['line'] is None, e['line'] or 0))
     
-    # Limit to first 10 errors to avoid overwhelming the LLM
-    if len(relevant_errors) > 10:
-        relevant_errors = relevant_errors[:10]
-        truncated = True
-    else:
-        truncated = False
-    
-    # Format for LLM
+    # Format for LLM - include all errors (no limit)
     formatted = "The compiler reported the following issues in this file:\n\n"
     for err in relevant_errors:
-        formatted += f"Line {err['line']}: {err['type']}: {err['message']}\n"
-    
-    if truncated:
-        formatted += f"\n(Showing first 10 of {len(relevant_errors)} errors)\n"
+        if err['line'] is not None:
+            formatted += f"Line {err['line']}: {err['type']}: {err['message']}\n"
+        else:
+            formatted += f"{err['type']}: {err['message']}\n"
     
     return formatted
 
@@ -924,37 +1048,21 @@ def analyze_loops(state: VectorizationState):
     matching_current = match_remark_files(current_file, remark_files_current)
     # all_matching = matching_baseline + matching_current
 
-    # Build remark analysis section - filter by function name
+    # Build remark analysis section - filter by function name using yq
     remark_analysis = ""
     # if all_matching:
     if matching_current:
         remark_analysis = f"\n\nOPTIMIZATION REMARKS FOR THIS FUNCTION:\n"
 
-        # Filter remarks by function name using demangling
+        # Filter remarks by function name using yq (robust YAML parsing)
         # for remark_file in all_matching:
         for remark_file in matching_current:
-            filtered_content = filter_vectorize_remarks(remark_file)
+            # Use yq-based filtering to get complete YAML documents for this function
+            filtered_content = filter_remarks_by_function(remark_file, func_name)
 
-            # Akash: is this actually working? Or is this just getting total nonsense? Like: 'Function: ...' over and over 
-            if filtered_content:
-                # Further filter by demangled function name
-                relevant_remarks = []
-                for line in filtered_content.splitlines():
-                    if 'Function:' in line:
-                        # Extract mangled name and demangle
-                        mangled = line.split('Function:')[1].strip()
-                        demangled = demangle_function_name(mangled)
-                        # Check if this remark is for our function
-                        if func_name in demangled:
-                            relevant_remarks.append(line)
-                        else:
-                            relevant_remarks = []  # Reset if not our function
-                    elif relevant_remarks:  # We're in a relevant block
-                        relevant_remarks.append(line)
-
-                if relevant_remarks:
-                    remark_analysis += f"\n--- From {os.path.basename(remark_file)} ---\n"
-                    remark_analysis += "```yaml\n" + '\n'.join(relevant_remarks) + "\n```\n"
+            if filtered_content and filtered_content.strip():
+                remark_analysis += f"\n--- From {os.path.basename(remark_file)} ---\n"
+                remark_analysis += "```yaml\n" + filtered_content + "```\n"
 
     if not remark_analysis or remark_analysis == "\n\nOPTIMIZATION REMARKS FOR THIS FUNCTION:\n":
         remark_analysis = "\n\nNo optimization remarks available for this function yet."
@@ -1411,7 +1519,6 @@ def compile_iteration_benchmark(state: VectorizationState):
 
     return {
         "remark_files_current": remark_files,
-        # Akash: do we need this line
         "compiler_errors": errors,
         "file_compilation_feedback": file_compilation_feedback
     }
