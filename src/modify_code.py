@@ -84,8 +84,6 @@ This is iteration {iteration}. Based on optimization remarks, you have two optio
 FUNCTION WITH LINE NUMBERS:
 {annotated_code}
 
-{context_section}
-
 {compiler_feedback_section}
 
 {loop_analysis_section}
