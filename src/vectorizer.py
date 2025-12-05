@@ -179,7 +179,7 @@ class VectorizationState(TypedDict):
     # Compiler feedback
     file_compilation_feedback: Dict[str, str]  # file_path -> formatted error/warning text
 
-    # Status (is this redundant with above?)
+    # Status
     compiler_errors: List[str]
     success: bool
     
@@ -194,74 +194,6 @@ llm = ChatOpenAI(
     # max_tokens=,
     # temperature=0.5
 )
-
-
-# AI Logging Configuration
-# AI_LOG_DIR = "ai_logs"
-# AI_LOG_FILE = os.path.join(AI_LOG_DIR, "ai_interactions.log")
-
-# def setup_ai_logging():
-#     """Create logging directory if it doesn't exist"""
-#     os.makedirs(AI_LOG_DIR, exist_ok=True)
-
-#     # Write header if file is new
-#     if not os.path.exists(AI_LOG_FILE):
-#         with open(AI_LOG_FILE, 'w', encoding='utf-8') as f:
-#             f.write("="*80 + "\n")
-#             f.write("AI INTERACTIONS LOG\n")
-#             f.write(f"Started: {datetime.datetime.now().isoformat()}\n")
-#             f.write("="*80 + "\n\n")
-#     else:
-#         with open(AI_LOG_FILE, 'a', encoding='utf-8') as f:
-#             f.write("="*80 + "\n")
-#             f.write(f"NEW LOG STARTED: {datetime.datetime.now().isoformat()}\n")
-#             f.write("="*80 + "\n")
-
-# def log_ai_call(function_name: str, prompt: str, response: str, metadata: dict = None):
-#     """
-#     Log AI input/output to file
-
-#     Args:
-#         function_name: Name of the function making the AI call
-#         prompt: Input prompt sent to AI
-#         response: Output received from AI
-#         metadata: Optional dict with additional context (iteration, file, function, etc.)
-#     """
-#     timestamp = datetime.datetime.now().isoformat()
-#     prompt_hash = hashlib.md5(prompt.encode()).hexdigest()[:8]
-
-#     # Build log entry
-#     log_entry = f"\n{'='*80}\n"
-#     log_entry += f"TIMESTAMP: {timestamp}\n"
-#     log_entry += f"FUNCTION: {function_name}\n"
-#     log_entry += f"PROMPT_HASH: {prompt_hash}\n"
-
-#     if metadata:
-#         log_entry += "METADATA:\n"
-#         for key, value in metadata.items():
-#             log_entry += f"  {key}: {value}\n"
-
-#     log_entry += f"\n{'-'*80}\n"
-#     log_entry += "PROMPT (INPUT TO AI):\n"
-#     log_entry += f"{'-'*80}\n"
-#     log_entry += f"{prompt}\n"
-
-#     log_entry += f"\n{'-'*80}\n"
-#     log_entry += "RESPONSE (OUTPUT FROM AI):\n"
-#     log_entry += f"{'-'*80}\n"
-#     log_entry += f"{response}\n"
-#     log_entry += f"{'='*80}\n\n"
-
-#     # Write to log file
-#     with open(AI_LOG_FILE, 'a', encoding='utf-8') as f:
-#         f.write(log_entry)
-
-#     # Also write individual files for easier inspection
-#     log_filename = f"{timestamp.replace(':', '-')}_{function_name}_{prompt_hash}.txt"
-#     individual_log_path = os.path.join(AI_LOG_DIR, log_filename)
-
-#     with open(individual_log_path, 'w', encoding='utf-8') as f:
-#         f.write(log_entry)
 
 def get_base_filename(filepath: str) -> str:
     """Get base filename without extension (e.g., 'test.cpp' -> 'test')"""
