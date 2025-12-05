@@ -239,28 +239,26 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
         "current_file": "",
         "current_file_code": "",
 
-        # Function tracking (NEW)
+        # Function tracking
         "functions_in_file": [],
         "current_function_index": 0,
         "current_function": {},
         "modified_file_content": "",
-        "summarized_file_context": "",
-        "transformed_function": "",  # Temporary field for function transformation
+        "program_slice_for_file": "",  # Changed from summarized_file_context
+        "transformed_function": "",
         "modification_actions": [],
 
         # Iteration tracking
         "current_iteration": 0,
         "max_iterations": max_iterations,
 
-        # Remark files
+        # INPUTS FROM PRIOR ANALYSIS STAGE
+        "function_analysis_history": {},
+
+        # INPUTS FROM PRIOR CODEMOD STAGE
+        "prior_iteration_summary": "",  # New field
         "remark_files_baseline": [],
         "remark_files_current": [],
-
-        # Per-function context (CHANGED from per-file)
-        "function_analysis_history": {},
-        "function_summarized_context": {},
-
-        # Compiler feedback
         "file_compilation_feedback": {},
 
         # Status
