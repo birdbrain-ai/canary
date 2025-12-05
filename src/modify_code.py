@@ -26,16 +26,16 @@ def suggest_modifications(state: VectorizationState):
     ])
 
     # TODO(Akash): Move 'compiler feedback' to the analysis stage
-    compiler_feedback_section = ""
-    if iteration > 0:
-        file_compilation_feedback = state.get('file_compilation_feedback', {})
-        feedback = file_compilation_feedback.get(current_file, "")
-        if feedback:
-            compiler_feedback_section = f"""
-COMPILER FEEDBACK (from previous iteration):
-{feedback}
-Please address these compilation issues in your modifications.
-"""
+#     compiler_feedback_section = ""
+#     if iteration > 0:
+#         file_compilation_feedback = state.get('file_compilation_feedback', {})
+#         feedback = file_compilation_feedback.get(current_file, "")
+#         if feedback:
+#             compiler_feedback_section = f"""
+# COMPILER FEEDBACK (from previous iteration):
+# {feedback}
+# Please address these compilation issues in your modifications.
+# """
     
     # Build loop analysis section
     loop_analysis_section = ""
@@ -83,8 +83,6 @@ This is iteration {iteration}. Based on optimization remarks, you have two optio
 
 FUNCTION WITH LINE NUMBERS:
 {annotated_code}
-
-{compiler_feedback_section}
 
 {loop_analysis_section}
 
