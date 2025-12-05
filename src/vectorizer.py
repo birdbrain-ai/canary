@@ -1276,6 +1276,11 @@ def suggest_modifications(state: VectorizationState):
 
     # Get function-specific history summary
     func_history = function_summarized_context.get(current_file, {}).get(func_name, "")
+    
+    # Get current iteration's loop analysis from analyze_loops
+    function_analysis_history = state.get('function_analysis_history', {})
+    current_analyses = function_analysis_history.get(current_file, {}).get(func_name, [])
+    current_loop_analysis = current_analyses[-1] if current_analyses else ""
 
     # Annotate lines with numbers for LLM reference
     func_lines = func_body.splitlines()
@@ -1309,6 +1314,14 @@ PREVIOUS ITERATIONS SUMMARY FOR THIS FUNCTION:
 COMPILER FEEDBACK (from previous iteration):
 {feedback}
 Please address these compilation issues in your modifications.
+"""
+    
+    # Build loop analysis section
+    loop_analysis_section = ""
+    if current_loop_analysis:
+        loop_analysis_section = f"""
+LOOP ANALYSIS (from analyze_loops):
+{current_loop_analysis}
 """
 
     # Build iteration guidance
@@ -1355,6 +1368,8 @@ FUNCTION WITH LINE NUMBERS:
 {history_section}
 
 {compiler_feedback_section}
+
+{loop_analysis_section}
 
 {iteration_guidance}
 
