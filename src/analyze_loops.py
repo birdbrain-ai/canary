@@ -1,0 +1,420 @@
+from vectorization_state import *
+from typing import TypedDict, List, Dict
+import re
+from helpers import *
+
+# Node: Summarize context (per-function)
+def summarize_context(state: VectorizationState):
+    """Compress previous iteration analyses for current FUNCTION"""
+
+    iteration = state['current_iteration']
+    current_file = state['current_file']
+    current_func = state['current_function']
+    func_name = current_func['name']
+
+    function_analysis_history = state['function_analysis_history']
+    function_summarized_context = state['function_summarized_context'].copy()
+
+    # No summarization needed for first iteration
+    if iteration == 0:
+        print(f"✓ No previous context to summarize (iteration 0)")
+        return {}
+
+    # Get previous analyses for THIS FUNCTION
+    if current_file not in function_analysis_history:
+        print(f"✓ No previous analyses for this function")
+        return {}
+
+    func_analyses = function_analysis_history[current_file].get(func_name, [])
+
+    if not func_analyses:
+        print(f"✓ No previous analyses for function '{func_name}'")
+        return {}
+
+    print(f"Summarizing context for function '{func_name}' from {len(func_analyses)} previous iteration(s)")
+
+    # Build summarization prompt
+    analyses_text = ""
+    for i, analysis in enumerate(func_analyses):
+        analyses_text += f"\n--- Iteration {i} Analysis ---\n{analysis}\n"
+
+    prompt = f"""Summarize the key vectorization insights from these previous analyses for function '{func_name}'.
+
+Previous iteration analyses:
+{analyses_text}
+
+Create a CONCISE summary (max 300 words) covering:
+1. Which loops in this function were identified as vectorization candidates
+2. What pragmas were recommended and why
+3. Any recurring issues or patterns observed
+4. What should be tried next
+
+Focus on actionable insights for the next iteration of THIS FUNCTION.
+Output ONLY the summary, no preamble."""
+
+    raw_summary = llm.invoke(prompt)
+    if hasattr(raw_summary, 'content'):
+        summary = raw_summary.content
+    else:
+        summary = str(raw_summary)
+
+    # Log LLM interaction
+    llm_logger = state.get('llm_logger')
+    if llm_logger:
+        llm_logger.log_llm_call(
+            iteration=iteration,
+            file_path=current_file,
+            call_type="summarize_context",
+            prompt=prompt,
+            response=summary,
+            function_name=func_name
+        )
+
+    print(f"✓ Compressed {len(analyses_text)} chars to {len(summary)} chars")
+
+    # Store summary for this function
+    if current_file not in function_summarized_context:
+        function_summarized_context[current_file] = {}
+    function_summarized_context[current_file][func_name] = summary
+
+    return {"function_summarized_context": function_summarized_context}
+
+
+# Node: Analyze loops (per-function)
+def analyze_loops(state: VectorizationState):
+    """Analyze function and matching remark files for current function"""
+
+    current_file = state['current_file']
+    current_func = state['current_function']
+    func_name = current_func['name']
+    func_body = current_func['full_text']
+    iteration = state['current_iteration']
+    remark_files_baseline = state['remark_files_baseline']
+    remark_files_current = state.get('remark_files_current', [])
+    summarized_file_context = state.get('summarized_file_context', '')
+    function_summarized_context = state['function_summarized_context']
+    function_analysis_history = state['function_analysis_history'].copy()
+
+    # Match remark files for this specific file
+    matching_baseline = match_remark_files(current_file, remark_files_baseline)
+    matching_current = match_remark_files(current_file, remark_files_current)
+    all_matching = matching_baseline + matching_current
+
+    # Build remark analysis section - filter by function name using yq
+    remark_analysis = ""
+    if all_matching:
+        remark_analysis = f"\n\nOPTIMIZATION REMARKS FOR THIS FUNCTION:\n"
+
+        # Filter remarks by function name using yq (robust YAML parsing)
+        for remark_file in all_matching:
+            # Use yq-based filtering to get complete YAML documents for this function
+            filtered_content = filter_remarks_by_function(remark_file, func_name)
+
+            if filtered_content and filtered_content.strip():
+                remark_analysis += f"\n--- From {os.path.basename(remark_file)} ---\n"
+                remark_analysis += "```yaml\n" + filtered_content + "```\n"
+
+    if not remark_analysis or remark_analysis == "\n\nOPTIMIZATION REMARKS FOR THIS FUNCTION:\n":
+        remark_analysis = "\n\nNo optimization remarks available for this function yet."
+
+    # Get function-specific history summary
+    func_history = function_summarized_context.get(current_file, {}).get(func_name, "")
+    iteration_context = ""
+    if iteration > 0 and func_history:
+        iteration_context = f"""
+PREVIOUS ITERATIONS SUMMARY FOR THIS FUNCTION:
+{func_history}
+"""
+    elif iteration > 0:
+        iteration_context = f"""
+ITERATION CONTEXT:
+This is iteration {iteration} of {state['max_iterations']} for function '{func_name}'.
+"""
+
+    prompt = f"""You are analyzing a C++ function for vectorization opportunities.
+
+FUNCTION TO ANALYZE:
+```cpp
+{func_body}
+```
+
+PROGRAM CONTEXT (structs/globals used by this function):
+{summarized_file_context}
+
+{iteration_context}
+
+{remark_analysis}
+
+TASK:
+Analyze the FOR LOOPS in this function to identify vectorization opportunities:
+1. Loops that could benefit from vectorization but aren't vectorized yet
+2. Loops that failed to vectorize (check remarks for failures)
+3. Loops with vectorization issues that could be fixed with pragmas
+
+Provide a concise analysis of which FOR LOOPS in THIS FUNCTION need pragmas and why.
+"""
+
+    raw_analysis = llm.invoke(prompt)
+    if hasattr(raw_analysis, 'content'):
+        analysis = raw_analysis.content
+    else:
+        analysis = str(raw_analysis)
+
+    # Log LLM interaction
+    llm_logger = state.get('llm_logger')
+    if llm_logger:
+        llm_logger.log_llm_call(
+            iteration=iteration,
+            file_path=current_file,
+            call_type="analyze_loops",
+            prompt=prompt,
+            response=analysis,
+            function_name=func_name
+        )
+
+    print(f"\n=== Loop Analysis ===")
+    print(analysis[:500] + "..." if len(analysis) > 500 else analysis)
+    print("=" * 60)
+
+    # Store analysis in per-function history
+    if current_file not in function_analysis_history:
+        function_analysis_history[current_file] = {}
+    if func_name not in function_analysis_history[current_file]:
+        function_analysis_history[current_file][func_name] = []
+    function_analysis_history[current_file][func_name].append(analysis)
+
+    return {
+        "function_analysis_history": function_analysis_history
+    }
+
+
+def extract_file_context(file_content: str) -> str:
+    """
+    Extract relevant context from file (structs, classes, globals, typedefs, enums).
+    These provide context for understanding what functions operate on.
+
+    Args:
+        file_content: Complete file content
+
+    Returns:
+        String containing extracted context declarations
+    """
+    lines = file_content.splitlines()
+    context_lines = []
+
+    in_multiline_comment = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Handle multi-line comments
+        if '/*' in stripped:
+            in_multiline_comment = True
+        if '*/' in stripped:
+            in_multiline_comment = False
+            continue
+        if in_multiline_comment:
+            continue
+
+        # Skip single-line comments and empty lines
+        if stripped.startswith('//') or not stripped:
+            continue
+
+        # Capture context: struct, class, typedef, enum, global variables
+        if any(stripped.startswith(keyword) for keyword in ['struct', 'class', 'typedef', 'enum', 'using']):
+            context_lines.append(line)
+        # Capture global variable declarations (simple heuristic: type name = or type name;)
+        elif ';' in stripped and not stripped.startswith('for') and not stripped.startswith('if') and not stripped.startswith('while'):
+            # Rough heuristic for global vars
+            if ' ' in stripped and not '{' in stripped and not stripped.startswith('return'):
+                context_lines.append(line)
+
+    return '\n'.join(context_lines)
+
+def extract_functions(file_content: str) -> List[FunctionInfo]:
+    """
+    Extract all function definitions from C/C++ file using regex.
+
+    Args:
+        file_content: Complete file content
+
+    Returns:
+        List of FunctionInfo objects containing metadata for each function
+    """
+    functions = []
+    lines = file_content.splitlines()
+
+    # Regex pattern for C/C++ function signatures
+    # Matches: [static/inline/etc] return_type function_name(params) [const] [{]
+    # More permissive to handle various C/C++ styles
+    func_sig_pattern = re.compile(
+        r'^(?:static\s+|inline\s+|extern\s+|__attribute__\(\([^)]+\)\)\s+)*'  # Optional modifiers
+        r'[\w\s:<>*&,]+\s+'  # Return type (can include templates, pointers, etc.)
+        r'(\w+)\s*'  # Function name (captured)
+        r'\([^)]*\)'  # Parameters
+        r'(?:\s*const)?'  # Optional const
+        r'(?:\s*\{|\s*$)',  # Either opening brace or end of line
+        re.MULTILINE
+    )
+
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+
+        # Skip empty lines, preprocessor directives, and comments
+        if not line or line.startswith('#') or line.startswith('//'):
+            i += 1
+            continue
+
+        # Try to match function signature
+        match = func_sig_pattern.match(line)
+        if match:
+            func_name = match.group(1)
+
+            # Skip common non-function keywords that might match pattern
+            if func_name in ['if', 'for', 'while', 'switch', 'return', 'sizeof']:
+                i += 1
+                continue
+
+            start_line = i
+            signature = lines[i]
+
+            # Look for opening brace (might be on same line or next few lines)
+            brace_line_idx = i
+            found_brace = False
+
+            # Check current line first
+            if '{' in lines[i]:
+                found_brace = True
+            else:
+                # Look ahead up to 3 lines for opening brace
+                for j in range(i + 1, min(i + 4, len(lines))):
+                    if '{' in lines[j]:
+                        brace_line_idx = j
+                        found_brace = True
+                        break
+                    # Stop if we hit something that's not whitespace or comment
+                    stripped = lines[j].strip()
+                    if stripped and not stripped.startswith('//') and stripped != '{':
+                        break
+
+            if not found_brace:
+                # No opening brace found, not a function definition
+                i += 1
+                continue
+
+            # Count braces starting from the brace line
+            brace_count = lines[brace_line_idx].count('{') - lines[brace_line_idx].count('}')
+            body_lines = []
+            i = brace_line_idx + 1
+
+            while i < len(lines) and brace_count > 0:
+                current_line = lines[i]
+                body_lines.append(current_line)
+                brace_count += current_line.count('{') - current_line.count('}')
+                i += 1
+
+            end_line = i - 1
+            body = '\n'.join(body_lines[:-1]) if body_lines else ""  # Exclude closing brace line
+            full_text = '\n'.join(lines[start_line:end_line+1])
+
+            functions.append({
+                'name': func_name,
+                'signature': signature.strip(),
+                'body': body,
+                'full_text': full_text,
+                'start_line': start_line,
+                'end_line': end_line
+            })
+        else:
+            i += 1
+
+    return functions
+
+
+def format_compilation_feedback(stderr_output: str, current_file: str) -> str:
+    """
+    Parse compiler stderr and format errors/warnings for LLM consumption.
+    
+    Filters to only errors related to current_file and formats them
+    in a clear, actionable way. Uses multiple regex patterns to catch
+    various compiler error formats.
+    
+    Args:
+        stderr_output: Raw stderr from compiler
+        current_file: Path to current file being processed
+        
+    Returns:
+        Formatted error/warning text for LLM, or empty string if no relevant errors
+    """
+    if not stderr_output or not stderr_output.strip():
+        return ""
+    
+    # Get basename for matching (errors might use relative or absolute paths)
+    current_basename = os.path.basename(current_file)
+    
+    # Multiple regex patterns to handle different compiler error formats
+    # Pattern 1: Full format - file:line:col: type: message
+    pattern_full = re.compile(r'^(.+?):(\d+):(\d+):\s+(error|warning):\s+(.+)$')
+    
+    # Pattern 2: No column - file:line: type: message (common in GCC/Clang)
+    pattern_no_col = re.compile(r'^(.+?):(\d+):\s+(error|warning):\s+(.+)$')
+    
+    # Pattern 3: Minimal - just type: message (linker errors, general errors)
+    pattern_minimal = re.compile(r'^(error|warning):\s+(.+)$')
+    
+    relevant_errors = []
+    
+    for line in stderr_output.splitlines():
+        stripped = line.strip()
+        
+        # Try full format first (file:line:col: type: message)
+        match = pattern_full.match(stripped)
+        if match:
+            file_path, line_num, col, err_type, message = match.groups()
+            if os.path.basename(file_path) == current_basename:
+                relevant_errors.append({
+                    'line': int(line_num),
+                    'type': err_type,
+                    'message': message.strip()
+                })
+            continue
+        
+        # Try no-column format (file:line: type: message)
+        match = pattern_no_col.match(stripped)
+        if match:
+            file_path, line_num, err_type, message = match.groups()
+            if os.path.basename(file_path) == current_basename:
+                relevant_errors.append({
+                    'line': int(line_num),
+                    'type': err_type,
+                    'message': message.strip()
+                })
+            continue
+        
+        # Try minimal format (error: message or warning: message)
+        match = pattern_minimal.match(stripped)
+        if match:
+            err_type, message = match.groups()
+            # Include these as they might be relevant (e.g., linker errors)
+            relevant_errors.append({
+                'line': None,  # No line info available
+                'type': err_type,
+                'message': message.strip()
+            })
+    
+    if not relevant_errors:
+        return ""
+    
+    # Sort by line number (put None at end)
+    relevant_errors.sort(key=lambda e: (e['line'] is None, e['line'] or 0))
+    
+    # Format for LLM - include all errors (no limit)
+    formatted = "The compiler reported the following issues in this file:\n\n"
+    for err in relevant_errors:
+        if err['line'] is not None:
+            formatted += f"Line {err['line']}: {err['type']}: {err['message']}\n"
+        else:
+            formatted += f"{err['type']}: {err['message']}\n"
+    
+    return formatted
