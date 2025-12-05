@@ -220,7 +220,8 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
 
     # Create workflow
     app = create_vectorization_workflow()
-
+    # print(app.get_graph().draw_mermaid())
+    
     # Initialize state
     initial_state = {
         # Directory-level fields
