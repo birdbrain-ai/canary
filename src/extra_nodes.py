@@ -56,9 +56,30 @@ def compile_baseline_benchmark(state: VectorizationState):
     # Change back
     os.chdir(current_dir)
 
+    # Check compilation result
+    errors = []
+    file_compilation_feedback = {}
+
     if result.returncode != 0:
-        print(f"⚠ Warning: Baseline compilation had issues")
-        print(f"  Output: {result.stderr[:300]}")
+        errors = [line for line in result.stderr.split("\n") if line.strip()]
+        print(f"✗ Baseline compilation failed")
+        print(f"Exit code: {result.returncode}")
+        if errors:
+            print("First few errors:")
+            for err in errors[:10]:
+                print(f"  {err}")
+        
+        # Generate per-file compilation feedback
+        target_files = state['target_files']
+        for target_file in target_files:
+            feedback = extract_compilation_errors(result.stderr, target_file)
+            
+            if feedback:
+                rel_path = os.path.relpath(target_file, state['benchmark_base_dir'])
+                file_compilation_feedback[rel_path] = feedback
+        
+        if file_compilation_feedback:
+            print(f"✓ Generated compilation feedback for {len(file_compilation_feedback)} file(s)")
     else:
         print(f"✓ Baseline compiled successfully")
 
@@ -67,7 +88,9 @@ def compile_baseline_benchmark(state: VectorizationState):
     print(f"✓ Found {len(remark_files)} remark files")
 
     return {
-        "remark_files_baseline": remark_files
+        "remark_files_baseline": remark_files,
+        "compiler_errors": errors,
+        "file_compilation_feedback": file_compilation_feedback
     }
 
 # Node: Run baseline benchmark
@@ -285,9 +308,11 @@ def compile_iteration_benchmark(state: VectorizationState):
         # Parse stderr and create feedback for each target file
         target_files = state['target_files']
         for target_file in target_files:
-            feedback = format_compilation_feedback(result.stderr, target_file)
+            feedback = extract_compilation_errors(result.stderr, target_file)
+
             if feedback:
-                file_compilation_feedback[target_file] = feedback
+                rel_path = os.path.relpath(target_file, state['current_iteration_dir'])
+                file_compilation_feedback[rel_path] = feedback
         
         if file_compilation_feedback:
             print(f"✓ Generated compilation feedback for {len(file_compilation_feedback)} file(s)")

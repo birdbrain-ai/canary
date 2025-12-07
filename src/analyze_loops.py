@@ -39,7 +39,10 @@ def analyze_loops(state: VectorizationState):
     if not remark_analysis or remark_analysis == "\n\nOPTIMIZATION REMARKS FOR THIS FUNCTION:\n":
         remark_analysis = "\n\nNo optimization remarks available for this function yet."
 
-    compiler_feedback = state["file_compilation_feedback"]
+    # Use relative path for lookup to match keys from compile_baseline/iteration_benchmark
+    # current_file is in the current iteration directory
+    rel_path = os.path.relpath(current_file, state['current_iteration_dir'])
+    compiler_feedback = state["file_compilation_feedback"].get(rel_path, "No compilation errors.")
         
     # TODO(Akash): Get function-specific history summary from the function_analysis_history_field in VectorizationState
     iteration_context = f"""
@@ -250,90 +253,3 @@ def extract_functions(file_content: str) -> List[FunctionInfo]:
 
     return functions
 
-
-def format_compilation_feedback(stderr_output: str, current_file: str) -> str:
-    """
-    Parse compiler stderr and format errors/warnings for LLM consumption.
-    
-    Filters to only errors related to current_file and formats them
-    in a clear, actionable way. Uses multiple regex patterns to catch
-    various compiler error formats.
-    
-    Args:
-        stderr_output: Raw stderr from compiler
-        current_file: Path to current file being processed
-        
-    Returns:
-        Formatted error/warning text for LLM, or empty string if no relevant errors
-    """
-    if not stderr_output or not stderr_output.strip():
-        return ""
-    
-    # Get basename for matching (errors might use relative or absolute paths)
-    current_basename = os.path.basename(current_file)
-    
-    # Multiple regex patterns to handle different compiler error formats
-    # Pattern 1: Full format - file:line:col: type: message
-    pattern_full = re.compile(r'^(.+?):(\d+):(\d+):\s+(error|warning):\s+(.+)$')
-    
-    # Pattern 2: No column - file:line: type: message (common in GCC/Clang)
-    pattern_no_col = re.compile(r'^(.+?):(\d+):\s+(error|warning):\s+(.+)$')
-    
-    # Pattern 3: Minimal - just type: message (linker errors, general errors)
-    pattern_minimal = re.compile(r'^(error|warning):\s+(.+)$')
-    
-    relevant_errors = []
-    
-    for line in stderr_output.splitlines():
-        stripped = line.strip()
-        
-        # Try full format first (file:line:col: type: message)
-        match = pattern_full.match(stripped)
-        if match:
-            file_path, line_num, col, err_type, message = match.groups()
-            if os.path.basename(file_path) == current_basename:
-                relevant_errors.append({
-                    'line': int(line_num),
-                    'type': err_type,
-                    'message': message.strip()
-                })
-            continue
-        
-        # Try no-column format (file:line: type: message)
-        match = pattern_no_col.match(stripped)
-        if match:
-            file_path, line_num, err_type, message = match.groups()
-            if os.path.basename(file_path) == current_basename:
-                relevant_errors.append({
-                    'line': int(line_num),
-                    'type': err_type,
-                    'message': message.strip()
-                })
-            continue
-        
-        # Try minimal format (error: message or warning: message)
-        match = pattern_minimal.match(stripped)
-        if match:
-            err_type, message = match.groups()
-            # Include these as they might be relevant (e.g., linker errors)
-            relevant_errors.append({
-                'line': None,  # No line info available
-                'type': err_type,
-                'message': message.strip()
-            })
-    
-    if not relevant_errors:
-        return ""
-    
-    # Sort by line number (put None at end)
-    relevant_errors.sort(key=lambda e: (e['line'] is None, e['line'] or 0))
-    
-    # Format for LLM - include all errors (no limit)
-    formatted = "The compiler reported the following issues in this file:\n\n"
-    for err in relevant_errors:
-        if err['line'] is not None:
-            formatted += f"Line {err['line']}: {err['type']}: {err['message']}\n"
-        else:
-            formatted += f"{err['type']}: {err['message']}\n"
-    
-    return formatted

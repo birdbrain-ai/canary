@@ -233,3 +233,41 @@ def demangle_function_name(mangled: str) -> str:
         return mangled
     except Exception:
         return mangled
+
+def extract_compilation_errors(stderr_output: str, target_file: str) -> str:
+    """
+    Extracts 'error:' and 'warning:' lines from stderr along with the following 10 lines,
+    but ONLY if the error line contains the target filename.
+    
+    Args:
+        stderr_output: Raw stderr from compiler
+        target_file: Path to the file we want errors for
+        
+    Returns:
+        Filtered error/warning text
+    """
+    if not stderr_output:
+        return ""
+        
+    target_basename = os.path.basename(target_file)
+    lines = stderr_output.splitlines()
+    filtered_lines = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        # Check for error/warning AND target filename on the same line
+        if ("error:" in line or "warning:" in line):
+            # Capture this line and up to 10 following lines
+            end_idx = min(i + 11, len(lines))
+            filtered_lines.extend(lines[i:end_idx])
+            filtered_lines.append("-" * 20) # Separator
+            i = end_idx
+        else:
+            i += 1
+            
+    if not filtered_lines:
+        return ""
+        
+    return f"File: {target_file}\n" + "\n".join(filtered_lines) + "\n" + ("-" * 20)
+
+

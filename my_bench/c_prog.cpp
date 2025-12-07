@@ -8,7 +8,6 @@ constexpr int ROWS = 10000;
 constexpr int COLS = 47;
 
 std::vector<int> hi(std::vector<int> A, std::vector<int> B) {
-  int
   std::vector<int> C;
     for (int i = 0; i < A.size(); i++) {
         C[i] = A[i] + B[i];
