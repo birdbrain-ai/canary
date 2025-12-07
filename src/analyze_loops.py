@@ -39,9 +39,10 @@ def analyze_loops(state: VectorizationState):
     if not remark_analysis or remark_analysis == "\n\nOPTIMIZATION REMARKS FOR THIS FUNCTION:\n":
         remark_analysis = "\n\nNo optimization remarks available for this function yet."
 
-    print(f"DEBUG: Requesting feedback for: {os.path.basename(current_file)}")
-    print(f"DEBUG: Available keys: {list(state['file_compilation_feedback'].keys())}")
-    compiler_feedback = state["file_compilation_feedback"].get(os.path.basename(current_file), "No compilation errors.")
+    # Use relative path for lookup to match keys from compile_baseline/iteration_benchmark
+    # current_file is in the current iteration directory
+    rel_path = os.path.relpath(current_file, state['current_iteration_dir'])
+    compiler_feedback = state["file_compilation_feedback"].get(rel_path, "No compilation errors.")
         
     # TODO(Akash): Get function-specific history summary from the function_analysis_history_field in VectorizationState
     iteration_context = f"""

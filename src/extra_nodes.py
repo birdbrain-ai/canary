@@ -75,7 +75,8 @@ def compile_baseline_benchmark(state: VectorizationState):
             feedback = extract_compilation_errors(result.stderr, target_file)
             
             if feedback:
-                file_compilation_feedback[os.path.basename(target_file)] = feedback
+                rel_path = os.path.relpath(target_file, state['benchmark_base_dir'])
+                file_compilation_feedback[rel_path] = feedback
         
         if file_compilation_feedback:
             print(f"✓ Generated compilation feedback for {len(file_compilation_feedback)} file(s)")
@@ -310,7 +311,8 @@ def compile_iteration_benchmark(state: VectorizationState):
             feedback = extract_compilation_errors(result.stderr, target_file)
 
             if feedback:
-                file_compilation_feedback[os.path.basename(target_file)] = feedback
+                rel_path = os.path.relpath(target_file, state['current_iteration_dir'])
+                file_compilation_feedback[rel_path] = feedback
         
         if file_compilation_feedback:
             print(f"✓ Generated compilation feedback for {len(file_compilation_feedback)} file(s)")
