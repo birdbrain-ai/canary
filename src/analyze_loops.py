@@ -39,6 +39,8 @@ def analyze_loops(state: VectorizationState):
     if not remark_analysis or remark_analysis == "\n\nOPTIMIZATION REMARKS FOR THIS FUNCTION:\n":
         remark_analysis = "\n\nNo optimization remarks available for this function yet."
 
+    compiler_feedback = state["file_compilation_feedback"]
+        
     # TODO(Akash): Get function-specific history summary from the function_analysis_history_field in VectorizationState
     iteration_context = f"""
 ITERATION CONTEXT:
@@ -51,6 +53,9 @@ FUNCTION TO ANALYZE:
 ```cpp
 {func_body}
 ```
+
+COMPILER FEEDBACK:
+{compiler_feedback}
 
 PROGRAM SLICE FOR FILE (structs/globals used by this function):
 {program_slice_for_file}
