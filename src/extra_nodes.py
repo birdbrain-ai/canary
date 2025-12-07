@@ -72,7 +72,7 @@ def compile_baseline_benchmark(state: VectorizationState):
         # Generate per-file compilation feedback
         target_files = state['target_files']
         for target_file in target_files:
-            feedback = format_compilation_feedback(result.stderr, target_file)
+            feedback = result.stderr
             if feedback:
                 file_compilation_feedback[target_file] = feedback
         
@@ -306,7 +306,7 @@ def compile_iteration_benchmark(state: VectorizationState):
         # Parse stderr and create feedback for each target file
         target_files = state['target_files']
         for target_file in target_files:
-            feedback = format_compilation_feedback(result.stderr, target_file)
+            feedback = result.stderr
             if feedback:
                 file_compilation_feedback[target_file] = feedback
         
