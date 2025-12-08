@@ -43,11 +43,54 @@ def analyze_loops(state: VectorizationState):
     # current_file is in the current iteration directory
     rel_path = os.path.relpath(current_file, state['current_iteration_dir'])
     compiler_feedback = state["file_compilation_feedback"].get(rel_path, "No compilation errors.")
+
+    # Get prior analysis history
+    function_analysis_history = state["function_analysis_history"]
+    function_analysis_history_for_func = []
+    if rel_path in function_analysis_history:
+        function_analysis_history_for_file = function_analysis_history[rel_path]
+        print(func_name)
+        print(function_analysis_history_for_file.keys())
+        if func_name in function_analysis_history_for_file:
+            function_analysis_history_for_func = function_analysis_history_for_file[func_name]
+
+    function_analysis_history_str = ""
+
+    # Debugging
+    # if iteration == 1:
+    #     print(function_analysis_history)
+    
+    for analysis_str in function_analysis_history_for_func:
+        function_analysis_history_str += analysis_str
+        function_analysis_history_str += "\n\n"
+        function_analysis_history_str += "-"*20
+
+    if function_analysis_history_str == "":
+        function_analysis_history_str = "There is no prior analysis history for this function"
+    else:
+        summarize_analysis_prompt = f"Summarize this. Note that each dashed line separates out 'iterations' or attempts at vectorizing the function. {function_analysis_history_str}  "
+        raw_function_analysis_history_str = llm.invoke(summarize_analysis_prompt)
+        if hasattr(raw_function_analysis_history_str, 'content'):
+            function_analysis_history_str = raw_function_analysis_history_str.content
+        else:
+            function_analysis_history_str = str(raw_function_analysis_history_str)
+
+        llm_logger = state.get('llm_logger')
+        if llm_logger:
+            llm_logger.log_llm_call(
+                iteration=iteration,
+                file_path=current_file,
+                call_type="summarize_function_analysis_history",
+                prompt=summarize_analysis_prompt,
+                response=function_analysis_history_str,
+                function_name=func_name
+            )
+
         
     # TODO(Akash): Get function-specific history summary from the function_analysis_history_field in VectorizationState
     iteration_context = f"""
 ITERATION CONTEXT:
-This is iteration {iteration} of {state['max_iterations']} for function '{func_name}'.
+This is iteration {iteration} of {state['max_iterations']} for function '{func_name}'. Here is analysis from previous iterations.
 """
 
     prompt = f"""You are analyzing a C++ function for vectorization opportunities.
@@ -64,6 +107,7 @@ PROGRAM SLICE FOR FILE (structs/globals used by this function):
 {program_slice_for_file}
 
 {iteration_context}
+{function_analysis_history_str}
 
 {remark_analysis}
 
@@ -99,11 +143,11 @@ Provide a concise analysis of which FOR LOOPS in THIS FUNCTION need pragmas and 
     print("=" * 60)
 
     # Store analysis in per-function history
-    if current_file not in function_analysis_history:
-        function_analysis_history[current_file] = {}
-    if func_name not in function_analysis_history[current_file]:
-        function_analysis_history[current_file][func_name] = []
-    function_analysis_history[current_file][func_name].append(analysis)
+    if rel_path not in function_analysis_history:
+        function_analysis_history[rel_path] = {}
+    if func_name not in function_analysis_history[rel_path]:
+        function_analysis_history[rel_path][func_name] = []
+    function_analysis_history[rel_path][func_name].append(analysis)
 
     return {
         "function_analysis_history": function_analysis_history
