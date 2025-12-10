@@ -1,0 +1,14 @@
+
+Okay, we've got a lot of work to do now.
+
+We are changing the architecture of the whole project it seems like.
+
+Let's extract all the utilities and consolidate them into a file.
+
+Basically. Everything outside of the LLM calls, and sometimes the VectorizationState updates.
+
+For every iteration, there are three steps:
+
+1) Manager Agent. The manager picks the optimal previous iteration to build off based on the reviewer's feedback. (Takes the reviewer's feedback, and the actual function text, for each previous iteration, and chooses which one!).
+2) Engineer Agent. The engineer agent takes the feedback from the reviewer and implements it. Responsible for adding the actual codemods (Takes the raw function text, reviewer's feedback, and makes suggestions).
+3) Reviewer Agent. The reviewer ingests a few things (raw function text, program slice, compiler feedback, and optimization remarks) and recommends vectorization opportunities or deems the program state a dead end. 
