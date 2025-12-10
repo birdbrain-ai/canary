@@ -56,10 +56,6 @@ def analyze_loops(state: VectorizationState):
 
     function_analysis_history_str = ""
 
-    # Debugging
-    # if iteration == 1:
-    #     print(function_analysis_history)
-    
     for analysis_str in function_analysis_history_for_func:
         function_analysis_history_str += analysis_str
         function_analysis_history_str += "\n\n"
@@ -86,7 +82,14 @@ def analyze_loops(state: VectorizationState):
                 function_name=func_name
             )
 
-        
+    print("I am trying to get the previous attempt details, so I can feed it into my LLM, so it can effectively analyze my loop. This is just a debug log basically: I'm inspecting the contents of modification_actions in VectorizationState.")
+
+    modification_actions = state["modification_actions"]
+    
+    print(modification_actions)
+
+    previous_attempt_details = "this is useless for now."
+            
     # TODO(Akash): Get function-specific history summary from the function_analysis_history_field in VectorizationState
     iteration_context = f"""
 ITERATION CONTEXT:
@@ -99,6 +102,9 @@ FUNCTION TO ANALYZE:
 ```cpp
 {func_body}
 ```
+
+This is what we attempted previously
+{previous_attempt_details}
 
 COMPILER FEEDBACK:
 {compiler_feedback}
