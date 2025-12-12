@@ -5,6 +5,55 @@ import shutil
 from helpers import *
 from langchain_community.document_loaders import TextLoader
 
+# Node: Summarize file context (structs/globals)
+def summarize_file_context(state: VectorizationState):
+    """
+    Summarize file-level context (structs, globals, types) ONCE per file.
+    This summary is reused for all functions in the file.
+    """
+    file_content = state['current_file_code']
+
+    print(f"\n=== Summarizing File Context ===")
+
+    # Extract raw context
+    raw_context = extract_file_context(file_content)
+
+    return {"program_slice_for_file": raw_context}
+
+
+# Node: Initialize file processing
+def initialize_file_processing(state: VectorizationState):
+    """Select next file to process, load its code, and extract functions"""
+    target_files = state['target_files']
+    file_index = state['current_file_index']
+    current_file = target_files[file_index]
+
+    print(f"\n=== Processing File {file_index + 1}/{len(target_files)} ===")
+    print(f"File: {current_file}")
+
+    # Load file code
+    loader = TextLoader(current_file, encoding='utf-8')
+    document = loader.load()
+    code = document[0].page_content
+
+    print(f"✓ Loaded file ({len(code)} characters)")
+
+    # Extract all functions from file
+    functions = extract_functions(code)
+    print(f"✓ Extracted {len(functions)} functions")
+
+    # CRITICAL: Reverse function order to process from bottom to top
+    # This prevents line number shifts when replacing earlier functions
+    functions_reversed = list(reversed(functions))
+    print(f"✓ Functions will be processed in reverse order (bottom-to-top)")
+
+    return {
+        "current_file": current_file,
+        "current_file_code": code,
+        "functions_in_file": functions_reversed,
+        "current_function_index": 0,
+        "modified_file_content": code  # Start with original content
+    }
 
 # Node: Setups baseline
 def setup_baseline(state: VectorizationState):
