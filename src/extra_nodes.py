@@ -420,7 +420,7 @@ def should_continue_iteration(state: VectorizationState):
     """Decide whether to continue with another iteration"""
 
     # Check if we've reached max iterations
-    if state['current_iteration'] >= state['max_iterations'] - 1:
+    if state['current_iteration'] >= state['max_iterations']:
         print(f"\n✓ Reached maximum iterations ({state['max_iterations']})")
         return "finalize"
     

@@ -116,13 +116,10 @@ def create_vectorization_workflow():
         }
     )
 
-    # Phase 4: Per-function loop (inner loop - NEW)
-    workflow.add_edge("initialize_function_processing", "analyze_loops")
-    workflow.add_edge("analyze_loops", "suggest_modifications")
-    workflow.add_edge("suggest_modifications", "apply_modifications")
+    workflow.add_edge("initialize_function_processing", "engineer_agent")
+    workflow.add_edge("engineer_agent", "apply_modifications")
     workflow.add_edge("apply_modifications", "replace_function_in_file")
 
-    # Decision: More functions to process in this file?
     workflow.add_conditional_edges(
         "replace_function_in_file",
         should_continue_functions,
@@ -131,45 +128,14 @@ def create_vectorization_workflow():
             "write_file": "write_file"
         }
     )
-
-    # Decision: More files to process?
     workflow.add_conditional_edges(
         "write_file",
         should_continue_files,
         {
             "continue_files": "initialize_file_processing",
-            "compile_iteration": "compile_iteration_benchmark"
+            "compile_iteration": "compile_benchmark"
         }
     )
-
-    # Phase 5: After all files processed, compile and run the iteration
-    workflow.add_edge("compile_iteration_benchmark", "run_iteration_benchmark")
-    workflow.add_edge("run_iteration_benchmark", "decide_next_iteration")
-
-    # Add a dummy node for the iteration decision routing
-    def decide_next_iteration(state: VectorizationState):
-        """Dummy node to route iteration decision"""
-        return state
-
-    workflow.add_node("decide_next_iteration", decide_next_iteration)
-
-    # Decision: Continue to next iteration?
-    workflow.add_conditional_edges(
-        "decide_next_iteration",
-        should_continue_iteration,
-        {
-            "continue": "increment_iteration",
-            "finalize": "finalize",
-            "failed": "handle_failure"
-        }
-    )
-
-    # Loop back: increment iteration then start new iteration
-    workflow.add_edge("increment_iteration", "initialize_benchmark_iteration")
-
-    # End nodes
-    workflow.add_edge("finalize", END)
-    workflow.add_edge("handle_failure", END)
 
     return workflow.compile()
 
