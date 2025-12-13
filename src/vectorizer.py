@@ -18,6 +18,8 @@ import json
 import hashlib
 
 
+
+
 # Build the workflow graph
 def create_vectorization_workflow():
     """Create the multi-file, multi-iteration vectorization workflow"""
@@ -152,77 +154,39 @@ def vectorize_benchmark(benchmark_dir: str, make_command: str,
     abs_benchmark_dir = os.path.abspath(benchmark_dir)
     benchmark_name = os.path.basename(abs_benchmark_dir)
     parent_dir = os.path.dirname(abs_benchmark_dir)
-    base_dir = os.path.join(parent_dir, f"{benchmark_name}_base")
+    opt_dir = os.path.join(parent_dir, f"{benchmark_name}_opt")
+    current_dir = os.getcwd()
 
-    print(f"{'='*60}")
-    print(f"VECTORIZATION WORKFLOW")
-    print(f"{'='*60}")
-    print(f"Benchmark: {benchmark_name}")
-    print(f"Original: {abs_benchmark_dir}")
-    print(f"Baseline: {base_dir}")
+    print(f"{'='*60}\n")
+    print(f"Vectorizing {benchmark_dir} ")
     print(f"Make command: {make_command}")
     print(f"Max iterations: {max_iterations}")
     print(f"{'='*60}\n")
 
-    # Create LLM logger
-    llm_log_dir = os.path.join(parent_dir, f"{benchmark_name}_llm_logs")
-    llm_logger = LLMLogger(llm_log_dir)
+    print(f"Copying {benchmark_dir}")
+    shutil.copytree(abs_benchmark_dir, opt_dir)
+    print(f"{'='*60}\n")
 
-    # Create workflow
-    app = create_vectorization_workflow()
-    # print(app.get_graph().draw_mermaid())
-    
-    # Initialize state
-    initial_state = {
-        # Directory-level fields
-        "original_benchmark_dir": abs_benchmark_dir,
-        "benchmark_base_dir": base_dir,
-        "current_iteration_dir": "",
-
-        # Build/run commands
-        "make_command": make_command,
-        "run_command": run_command,
-
-        # File tracking
-        "target_files": [],
-        "current_file_index": 0,
-        "current_file": "",
-        "current_file_code": "",
-
-        # Function tracking
-        "functions_in_file": [],
-        "current_function_index": 0,
-        "current_function": {},
-        "modified_file_content": "",
-        "program_slice_for_file": "",  # Changed from summarized_file_context
-        "transformed_function": "",
-        "modification_actions": [],
-
-        # Iteration tracking
-        "current_iteration": 0,
-        "max_iterations": max_iterations,
-
-        # INPUTS FROM PRIOR ANALYSIS STAGE
-        "function_analysis_history": {},
-
-        # INPUTS FROM PRIOR CODEMOD STAGE
-        "prior_iteration_summary": "",  # New field
-        "remark_files_baseline": [],
-        "remark_files_current": [],
-        "file_compilation_feedback": {},
-
-        # Status
-        "compiler_errors": [],
-        "success": False,
+    # Update vectorization state
+    for current_file in find_target_files(opt_dir):
+        # Update vectorization state
+        loader = TextLoader(current_file, encoding='utf-8')
+        document = loader.load()
+        code = document[0].page_content
+        functions = extract_functions(code)
         
-        # LLM logging
-        "llm_logger": llm_logger
-    }
+        for function in functions:
+            # Encapsulate all of it in a LangGraph workflow
+            # Compile -> Run -> Reviewer -> Manager -> Engineer
+            # Exit when we're done with iterations, then finalize
+            pass
+            
+        
 
-    # Run workflow with increased recursion limit for multi-iteration/multi-file processing
-    # Each iteration processes all files through multiple nodes, so we need a high limit
-    result = app.invoke(initial_state, config={"recursion_limit": 20000})
-    return result
+
+    
+
+
 
 # CLI entry point
 if __name__ == "__main__":
