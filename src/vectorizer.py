@@ -1,38 +1,92 @@
+import subprocess
 from langgraph.graph import StateGraph, END
 from langchain_community.document_loaders import TextLoader
-from typing import TypedDict, List, Dict
-import subprocess
 import os
 import shutil
 import argparse
-import fnmatch
-import re
-from logger import LLMLogger
 from more_helpers import extract_functions, find_target_files
+from my_types import llm, PragmaAction, CodeReplaceAction, FunctionInfo, FunctionDraft, VectorizationState
 
 
-class ModifiedFunction(TypedDict):
-    compile_success: bool
-    dead_end: bool
-    vectorization_success: bool
-    reviewer_feedback: str
-    modified_function_text: str
+# Node: compile_code
+def compile_code(state: VectorizationState):
+    return {}
 
 
-class VectorizationState(TypedDict):
-    raw_function_text: str
-    program_slice: str
-    compiler_feedback: str
-    optimization_remarks: str
+# Node: run_code
+def run_code(state: VectorizationState):
+    return {}
 
-    current_iteration: int
-    max_iterations: int
-    manager_chosen_i: int
 
-    function_drafts: Dict[int, ModifiedFunction]
+# Node: reviewer
+def reviewer(state: VectorizationState):
+    return {}
 
-    final_function_text: str
 
+# Node: increment
+def increment(state: VectorizationState):
+    current_iteration = state["current_iteration"]
+    return {
+        "current_iteration": current_iteration + 1
+    }
+
+
+# Node: manager
+def manager(state: VectorizationState):
+    return {}
+
+
+# Node: engineer
+def engineer(state: VectorizationState):
+    return {}
+
+
+# Node: finalize
+def finalize(state: VectorizationState):
+    return {}
+
+
+# Node: should_continue
+def should_continue(state: VectorizationState):
+    max_iterations = state["max_iterations"]
+    current_iteration = state["current_iteration"]
+    if current_iteration < max_iterations:
+        return "continue"
+    else:
+        return "done"
+
+
+# Compile -> Run -> Reviewer -> If cur_iter < n, i++, manager -> engineer -> Compiler, else, finalize
+def create_vectorization_graph():
+    workflow = StateGraph(VectorizationState)
+
+    workflow.add_node("compile_code", compile_code)
+    workflow.add_node("run_code", run_code)
+    workflow.add_node("reviewer", reviewer)
+    workflow.add_node("increment", increment)
+    workflow.add_node("manager", manager)
+    workflow.add_node("engineer", engineer)
+    workflow.add_node("finalize", finalize)
+
+    workflow.set_entry_point("compile_code")
+    workflow.add_edge("compile_code", "run_code")
+    workflow.add_edge("run_code", "reviewer")        
+    workflow.add_conditional_edges(
+        "reviewer",
+        should_continue,
+        {
+            "continue": "increment",
+            "done": "finalize"
+        }
+    )
+    workflow.add_edge("increment", "manager")
+    workflow.add_edge("manager", "engineer")
+    workflow.add_edge("engineer", "compile_code")
+
+    workflow.add_edge("finalize", END)
+    
+    return workflow.compile()
+    
     
 def vectorize_benchmark(benchmark_dir: str,
                         make_command: str,
@@ -65,14 +119,10 @@ def vectorize_benchmark(benchmark_dir: str,
     for current_file in target_files:
         loader = TextLoader(current_file, encoding='utf-8')
         document = loader.load()
-        code = document[0].page_content
-        functions = extract_functions(code)
-        
-        for function in functions:
-            # Encapsulate all of it in a LangGraph workflow
-            # Compile -> Run -> Reviewer -> Manager -> Engineer
-            # Exit when we're done with iterations, then finalize
+        code: str = document[0].page_content
+        functions: List[FunctionInfo] = extract_functions(code)
 
+        for function in functions:
             # Construct an initial state
             initial_state = VectorizationState(
                 raw_function_text=function,
@@ -82,13 +132,10 @@ def vectorize_benchmark(benchmark_dir: str,
                 current_iteration=0,
                 max_iterations=max_iterations,
                 manager_chosen_i=0,
-                function_drafts={}
-                final_function_text=""
+                function_drafts={},
             )
 
-            # Pass it to LangGraph workflow
-
-            # Apply the final function_text
+            # Pass it to LangGraph workflow: Compile -> Run -> Reviewer -> Manager -> Engineer
 
 
 if __name__ == "__main__":
