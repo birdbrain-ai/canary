@@ -1,11 +1,11 @@
-import subprocess
 from langgraph.graph import StateGraph, END
 from langchain_community.document_loaders import TextLoader
 import os
 import shutil
 import argparse
 from more_helpers import extract_functions, find_target_files
-from my_types import llm, PragmaAction, CodeReplaceAction, FunctionInfo, FunctionDraft, VectorizationState
+from typing import List
+from my_types import FunctionInfo, VectorizationState
 
 
 # Node: compile_code
@@ -114,8 +114,10 @@ def vectorize_benchmark(benchmark_dir: str,
     shutil.copytree(abs_benchmark_dir, opt_dir)
     print(f"{'='*60}\n")
 
-    target_files = find_target_files(opt_dir)
+    print("Creating vectorization workflow graph")
+    vectorization_graph = create_vectorization_graph()
     
+    target_files = find_target_files(opt_dir)
     for current_file in target_files:
         loader = TextLoader(current_file, encoding='utf-8')
         document = loader.load()
@@ -125,7 +127,7 @@ def vectorize_benchmark(benchmark_dir: str,
         for function in functions:
             # Construct an initial state
             initial_state = VectorizationState(
-                raw_function_text=function,
+                raw_function=function,
                 program_slice="",
                 compiler_feedback="",
                 optimization_remarks="",
@@ -136,6 +138,8 @@ def vectorize_benchmark(benchmark_dir: str,
             )
 
             # Pass it to LangGraph workflow: Compile -> Run -> Reviewer -> Manager -> Engineer
+            final_state = vectorization_graph.invoke(initial_state)
+            print(f"Final State is:\n{final_state}")
 
 
 if __name__ == "__main__":
