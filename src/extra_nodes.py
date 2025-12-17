@@ -101,7 +101,7 @@ def compile_baseline_benchmark(state: VectorizationState):
         capture_output=True,
         text=True,
     )
-
+    
     # Change back
     os.chdir(current_dir)
 

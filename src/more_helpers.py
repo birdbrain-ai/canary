@@ -1,7 +1,53 @@
+import subprocess
 from typing import List
 import re
 import os
-from my_types import FunctionInfo, FunctionDraft, VectorizationState, 
+import fnmatch
+from my_types import FunctionInfo, FunctionDraft, VectorizationState
+
+
+def extract_file_context(file_content: str) -> str:
+    """
+    Extract relevant context from file (structs, classes, globals, typedefs, enums).
+    These provide context for understanding what functions operate on.
+
+    Args:
+        file_content: Complete file content
+
+    Returns:
+        String containing extracted context declarations
+    """
+    lines = file_content.splitlines()
+    context_lines = []
+
+    in_multiline_comment = False
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Handle multi-line comments
+        if '/*' in stripped:
+            in_multiline_comment = True
+        if '*/' in stripped:
+            in_multiline_comment = False
+            continue
+        if in_multiline_comment:
+            continue
+
+        # Skip single-line comments and empty lines
+        if stripped.startswith('//') or not stripped:
+            continue
+
+        # Capture context: struct, class, typedef, enum, global variables
+        if any(stripped.startswith(keyword) for keyword in ['struct', 'class', 'typedef', 'enum', 'using']):
+            context_lines.append(line)
+        # Capture global variable declarations (simple heuristic: type name = or type name;)
+        elif ';' in stripped and not stripped.startswith('for') and not stripped.startswith('if') and not stripped.startswith('while'):
+            # Rough heuristic for global vars
+            if ' ' in stripped and not '{' in stripped and not stripped.startswith('return'):
+                context_lines.append(line)
+
+    return '\n'.join(context_lines)
 
 
 def extract_functions(file_content: str) -> List[FunctionInfo]:
@@ -12,7 +58,7 @@ def extract_functions(file_content: str) -> List[FunctionInfo]:
         file_content: Complete file content
 
     Returns:
-        List of strings, each containing the full text of a function
+        List of FunctionInfo objects containing metadata for each function
     """
     functions = []
     lines = file_content.splitlines()
@@ -136,3 +182,55 @@ def find_target_files(directory: str) -> List[str]:
         List of absolute paths to .h, .c, .cpp, .hxx, .hpp files
     """
     return find_files_with_ext(directory, [".h", ".c", ".cpp", ".hxx", ".hpp"])
+
+def match_remark_files(target_file: str, remark_files: List[str]) -> List[str]:
+    """
+    Find remark files corresponding to a target source file.
+
+    Matches pattern: kernel.cpp -> kernel*.opt.yaml
+    This handles cases like kernel.opt.yaml, kernel.opt.yaml.1, etc.
+
+    Args:
+        target_file: Path to source file
+        remark_files: List of all available remark files
+
+    Returns:
+        List of matching remark file paths
+    """
+    target_prefix = os.path.splitext(os.path.basename(target_file))[0]
+    pattern = f"{target_prefix}*.opt.yaml"
+
+    matching = []
+    for remark_file in remark_files:
+        yaml_basename = os.path.basename(remark_file)
+        if fnmatch.fnmatch(yaml_basename, pattern):
+            matching.append(remark_file)
+    return matching
+
+def filter_vectorize_remarks(yaml_file_path: str) -> str:
+    """
+    Filter YAML optimization remarks to only include loop-vectorize entries.
+    This dramatically reduces the content sent to the LLM.
+
+    Args:
+        yaml_file_path: Path to .opt.yaml file
+
+    Returns:
+        Filtered YAML content as string, or empty string if filtering fails
+    """
+    try:
+        result = subprocess.run(
+            ["yq", "select(.Pass == \"loop-vectorize\")", yaml_file_path],
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode == 0:
+            return result.stdout
+        else:
+            # If yq fails, return empty (don't fail the entire process)
+            print(f"⚠ Warning: yq filter failed for {yaml_file_path}")
+            return ""
+    except Exception as e:
+        print(f"⚠ Warning: Could not filter remarks for {yaml_file_path}: {e}")
+        return ""

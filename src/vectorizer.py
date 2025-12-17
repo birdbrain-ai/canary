@@ -1,20 +1,74 @@
+# Vectorizer
 from langgraph.graph import StateGraph, END
 from langchain_community.document_loaders import TextLoader
 import os
+import subprocess
 import shutil
 import argparse
-from more_helpers import extract_functions, find_target_files
+from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_vectorize_remarks
 from typing import List
 from my_types import FunctionInfo, VectorizationState
 
 
 # Node: compile_code
 def compile_code(state: VectorizationState):
-    return {}
+    bench_path = state["bench_path"]
+    cur_working_dir = os.getcwd()
+    make_command = state["make_command"]
+    current_file = state["file_path"]
+    
+    os.chdir(bench_path)
+
+    result = subprocess.run(
+        make_command,
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+
+    # print(f"CURRENT WORKING DIR: {bench_path}")
+    all_remark_files = find_files_with_ext(bench_path, [".yaml"])
+    # print(f"ALL REMARK FILES: {all_remark_files}")
+    relevant_remark_files: List[str] = match_remark_files(current_file, all_remark_files)
+    # print(f"RELEVANT REMARK FILES: {relevant_remark_files}")
+    relevant_remarks: List[str] = []
+
+    for remark_file in relevant_remark_files:
+        relevant_remarks.append(filter_vectorize_remarks(remark_file))
+    # print(f"RELEVANT REMARKS: {relevant_remarks}")
+    os.chdir(cur_working_dir)
+
+    return {
+        "compiler_feedback": result.stderr,
+        "optimization_remarks": "\n".join(relevant_remarks)
+    }
 
 
 # Node: run_code
 def run_code(state: VectorizationState):
+    run_command = state['run_command']
+
+    if not run_command:
+        print("No run command provided")
+        return {}
+
+    bench_path = state['bench_path']
+    cur_working_dir = os.getcwd()
+
+    os.chdir(bench_path)
+
+    result = subprocess.run(
+        run_command,
+        shell=True,
+        capture_output=False,  # Let output go to stdout/stderr
+        text=True,
+    )
+
+    if result.returncode != 0:
+        print(f"Running the benchmark threw an error: {result.returncode}")
+    
+    os.chdir(cur_working_dir)
+    
     return {}
 
 
@@ -46,7 +100,7 @@ def finalize(state: VectorizationState):
     return {}
 
 
-# Node: should_continue
+# Decision point: should_continue
 def should_continue(state: VectorizationState):
     max_iterations = state["max_iterations"]
     current_iteration = state["current_iteration"]
@@ -56,7 +110,6 @@ def should_continue(state: VectorizationState):
         return "done"
 
 
-# Compile -> Run -> Reviewer -> If cur_iter < n, i++, manager -> engineer -> Compiler, else, finalize
 def create_vectorization_graph():
     workflow = StateGraph(VectorizationState)
 
@@ -90,8 +143,8 @@ def create_vectorization_graph():
     
 def vectorize_benchmark(benchmark_dir: str,
                         make_command: str,
-                        max_iterations: int = 3,
-                        run_command: str = ""):
+                        max_iterations: int,
+                        run_command: str):
 
     abs_benchmark_dir = os.path.abspath(benchmark_dir)
     benchmark_name = os.path.basename(abs_benchmark_dir)
@@ -122,15 +175,24 @@ def vectorize_benchmark(benchmark_dir: str,
         loader = TextLoader(current_file, encoding='utf-8')
         document = loader.load()
         code: str = document[0].page_content
+        program_slice: str = extract_file_context(code)
         functions: List[FunctionInfo] = extract_functions(code)
 
         for function in functions:
             # Construct an initial state
             initial_state = VectorizationState(
+                bench_path=opt_dir,
+                file_path=current_file,
+                make_command=make_command,
+                run_command=run_command,
+                
                 raw_function=function,
-                program_slice="",
+                start_line=function["start_line"],
+                end_line=function["end_line"],
+                program_slice=program_slice,
                 compiler_feedback="",
                 optimization_remarks="",
+                
                 current_iteration=0,
                 max_iterations=max_iterations,
                 manager_chosen_i=0,

@@ -3,10 +3,10 @@ from typing import TypedDict, List, Dict
 from langchain_openai import ChatOpenAI
 
 
-llm = ChatOpenAI(
-    model="Qwen/Qwen2.5-Coder-7B-Instruct", 
-    base_url="http://localhost:8000/v1",
-)
+# llm = ChatOpenAI(
+#     model="Qwen/Qwen2.5-Coder-7B-Instruct", 
+#     base_url="http://localhost:8000/v1",
+# )
 
 
 class PragmaAction(TypedDict):
@@ -43,13 +43,20 @@ class FunctionDraft(TypedDict):
 
 
 class VectorizationState(TypedDict):
+    bench_path: str # const
+    file_path: str # const
+    make_command: str # const
+    run_command: str # const
+
     raw_function: FunctionInfo
-    program_slice: str
+    start_line: int
+    end_line: int
+    program_slice: str # const
     compiler_feedback: str
     optimization_remarks: str
 
     current_iteration: int
-    max_iterations: int
+    max_iterations: int # const
     manager_chosen_i: int
 
     function_drafts: Dict[int, FunctionDraft]
