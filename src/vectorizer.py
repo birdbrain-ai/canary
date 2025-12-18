@@ -106,7 +106,6 @@ def reviewer(state: VectorizationState):
         cur_function_draft.dead_end = False
     
     if reviewer_feedback == "":
-        # TODO(akash): review the prompt - I think the JSON output format is wrong
         prompt = f"""You are reviewing THIS FUNCTION for opportunities to autovectorize it.
 
         {cur_function_info["full_text"]}
