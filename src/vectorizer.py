@@ -154,10 +154,19 @@ def reviewer(state: VectorizationState):
         output = prompt
 
         print(output)
-        
+
+        # TODO(akash): Properly parse the JSON object output of the LLM
+        # Make it something that I can return to update the corresponding
+        # function_draft in VectorizationState properly.
+        # See 'parse_reviewer_output'
+
         return {}
 
     return {}
+
+# Node: reviewer: parse output
+def parse_reviewer_output(output):
+    pass
 
 
 # Node: increment
@@ -205,12 +214,15 @@ def manager(state: VectorizationState):
     """
 
     result = prompt
+
+    # TODO(akash). Write a helper function that takes the result, gets the 'i' field, and stores it in manager_chosen_i. 
     
     return {}
 
 
 # Node: engineer
 def engineer(state: VectorizationState):
+    program_slice = state["program_slice"]
     make_command = state["make_command"]
     current_iteration = state["current_iteration"]
     current_function_draft = state["function_drafts"][current_iteration]
@@ -223,6 +235,10 @@ def engineer(state: VectorizationState):
     The FUNCTION is:
 
     {current_function_body}
+
+    The surrounding context is:
+
+    {program_slice}
 
     It is compiled with Clang, using the following command:
 
@@ -278,6 +294,8 @@ def engineer(state: VectorizationState):
     """
 
     response = prompt
+
+    # TODO(akash). Parse the array and apply the modifications. There are some helpers in modify_code.py that can give you some inspiration for that.  
     
     return {}
 
