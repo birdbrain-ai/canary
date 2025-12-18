@@ -16,7 +16,7 @@ def compile_code(state: VectorizationState):
     cur_working_dir = os.getcwd()
     make_command = state["make_command"]
     current_file = state["file_path"]
-    
+
     os.chdir(bench_path)
 
     result = subprocess.run(
@@ -26,16 +26,13 @@ def compile_code(state: VectorizationState):
         text=True,
     )
 
-    # print(f"CURRENT WORKING DIR: {bench_path}")
     all_remark_files = find_files_with_ext(bench_path, [".yaml"])
-    # print(f"ALL REMARK FILES: {all_remark_files}")
     relevant_remark_files: List[str] = match_remark_files(current_file, all_remark_files)
-    # print(f"RELEVANT REMARK FILES: {relevant_remark_files}")
     relevant_remarks: List[str] = []
 
     for remark_file in relevant_remark_files:
         relevant_remarks.append(filter_vectorize_remarks(remark_file))
-    # print(f"RELEVANT REMARKS: {relevant_remarks}")
+
     os.chdir(cur_working_dir)
 
     return {
@@ -302,9 +299,7 @@ def engineer(state: VectorizationState):
     # TODO(akash). Parse the array and apply the modifications. There are some helpers in modify_code.py that can give you some inspiration for that.
     new_func_info = current_function_info
     current_iteration = state["current_iteration"]
-    function_drafts[current_iteration] = FunctionDraft(
-        new_func_info
-    )
+    function_drafts[current_iteration] = FunctionDraft(new_func_info)
     return {
         "function_drafts": function_drafts
     }
