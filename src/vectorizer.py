@@ -5,7 +5,7 @@ import os
 import subprocess
 import shutil
 import argparse
-from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function
+from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
 from typing import List
 from my_types import FunctionInfo, FunctionDraft, VectorizationState
 
@@ -39,12 +39,14 @@ def compile_code(state: VectorizationState):
     for remark_file in relevant_remark_files:
         relevant_remarks.append(filter_remarks_by_function(remark_file,
                                                            cur_function_name))
+
+    compilation_feedback = extract_compilation_errors(result.stderr)
         
     os.chdir(cur_working_dir)
 
     return {
         # TODO(akash): this is lazy. we need to extract the relevant parts from stderr for this to be effective
-        "compiler_feedback": result.stderr,
+        "compiler_feedback": compilation_feedback,
         "optimization_remarks": "\n".join(relevant_remarks)
     }
 
