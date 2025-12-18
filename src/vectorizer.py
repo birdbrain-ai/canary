@@ -74,6 +74,89 @@ def run_code(state: VectorizationState):
 
 # Node: reviewer
 def reviewer(state: VectorizationState):
+    function_drafts = state["function_drafts"]
+    current_iteration = state["current_iteration"]
+    reviewer_feedback = function_drafts[current_iteration].reviewer_feedback
+    make_command = state["make_command"]
+    
+    raw_function = state["raw_function"]
+    program_slice = state["program_slice"]
+    compiler_feedback = state["compiler_feedback"]
+    optimization_remarks = state["optimization_remarks"]
+
+    if reviewer_feedback == "":
+        prompt = """You are reviewing THIS FUNCTION for opportunities to autovectorize it.
+
+        {raw_function.full_text}
+
+        The function is compiled with Clang, using the following command: {make_command}
+
+        You have access to some information to help.
+
+        First, the PROGRAM SLICE:
+
+        {program_slice}
+
+        Second, COMPILER FEEDBACK:
+
+        {copmiler_feedback}
+
+        Third, OPTIMIZATION REMARKS.
+
+        {optimization_remarks}
+
+        You MUST return a JSON object in this format:
+
+        ```
+        {
+          "compile_success": bool
+          "dead_end": bool
+          "vectorization_success": bool
+          "reviewer_feedback": str
+        }
+        ```
+        
+        RULES:
+        - If the file did not compile, you must set the compile_success field to false, the dead_end field to false, and vectorization_success field to false, and reviewer_feedback to the empty string "". Otherwise, you must set the compile_success field to true.
+        - If the function was already autovectorized, you must set the dead_end field to false, and the vectorization_success field to true.
+        - You must set 'dead_end' to false is the function is a useful starting point for autovectorization.
+        - Fill out the reviewer_feedback field to include future directions to modify the function in order to autovectorize it.
+
+        EXAMPLE OUTPUTS:
+        1. 
+        {
+          "compile_success": true,
+          "dead_end": false,
+          "vectorization_success": true,
+          "reviewer_feedback": "This function is already fully autovectorized. No further work is needed." 
+        }
+
+        2.
+        {
+          "compile_success": false,
+          "dead_end": true,
+          "vectorization_success": false,
+          "reviewer_feedback": "" 
+        }
+
+        3.
+        {
+          "compile_success": true,
+          "dead_end": true,
+          "vectorization_success": false,
+          "reviewer_feedback": "Optimization remarks for this function suggest that a non-reduction value in the loop body is used outside the loop. Compiler feedback indicates that this function could be autovectorized if we make a copy of the variable 'a'. Suggestion: Make a copy of the variable 'a'."
+        }
+
+        YOUR OUTPUT:
+        
+        """
+
+        output = prompt
+
+        print(output)
+        
+        return {}
+
     return {}
 
 
@@ -87,16 +170,134 @@ def increment(state: VectorizationState):
 
 # Node: manager
 def manager(state: VectorizationState):
+    function_drafts = state["function_drafts"]
+    make_command = state["make_command"]
+
+    prompt = """Given a few drafts of the same function, pick the function that is most likely to be autovectorized by the compiler.
+
+    The command that this function will be compiled with is:
+
+    {make_command}
+
+    The FUNCTION DRAFTS are in this JSON object:
+
+    {function_drafts}
+
+    OUTPUT RULES:
+    Your output MUST be a JSON object in the following format.
+    ```
+    {
+      i: int,
+      explanation: str,
+    }
+    ```
+    
+    EXAMPLE OUTPUT:
+    ```
+    {
+      i: 2,
+      explanation: It was the only function draft that was successfully autovectorized. This is a good starting point for further autovectorization attempts.
+    }
+    ```
+
+    YOUR OUTPUT:
+    
+    """
+
+    result = prompt
+    
     return {}
 
 
 # Node: engineer
 def engineer(state: VectorizationState):
+    make_command = state["make_command"]
+    current_iteration = state["current_iteration"]
+    current_function_draft = state["function_drafts"][current_iteration]
+    reviewer_feedback = current_function_draft.reviewer_feedback
+    current_function_info = current_function_draft.modified_function_text
+    current_function_body = current_function_info["full_text"]
+
+    prompt = """Your task is to take a function and modify it to make it easier to autovectorize.
+
+    The FUNCTION is:
+
+    {current_function_body}
+
+    It is compiled with Clang, using the following command:
+
+    {make_command}
+
+    Please use SUGGESTIONS FROM A REVIEWER when modifying the function.
+
+    {reviewer_feedback}
+
+    You have two options:
+    
+    1. PRAGMA ACTIONS: Suggest pragmas for FOR LOOPS where vectorization still failed
+   - You may suggest: "vectorize", "interleave", or "vectorize_width"
+   - Be conservative - only suggest if you're confident it will help
+
+    2. CODE REPLACE: Make targeted code changes:
+   - Fix specific issues identified in optimization remarks
+   - Add temporaries, hoist computations, break dependencies
+   - Avoid making changes that alter the meaning of the function
+
+    OPTION 1 - PRAGMA ACTIONS (for simple vectorization hints):
+    For each loop that needs a pragma, create a JSON object:
+    {{
+      "action_type": "pragma",
+      "line_number": <line number of the 'for' statement>,
+      "pragma_type": "vectorize" OR "interleave" OR "vectorize_width",
+      "width": <number (only if pragma_type is vectorize_width), otherwise null>,
+      "reasoning": "<brief explanation>"
+    }}
+
+    OPTION 2 - CODE REPLACE (for targeted code changes):
+    For each code change, create a JSON object:
+    {{
+      "action_type": "code_replace",
+      "start_line": <start line number (0-indexed)>,
+      "end_line": <end line number (0-indexed, inclusive)>,
+      "new_code": "<replacement code (can be multi-line)>",
+      "reasoning": "<brief explanation>"
+    }}
+
+    Examples:
+    - Add variable: {{"action_type": "code_replace", "start_line": 0, "end_line": 0, "new_code": "int temp = 0;", "reasoning": "Add local temporary"}}
+    - Replace line: {{"action_type": "code_replace", "start_line": 5, "end_line": 5, "new_code": "result[i] = a[i] * factor;", "reasoning": "Use hoisted variable"}}
+    - Multi-line: {{"action_type": "code_replace", "start_line": 3, "end_line": 5, "new_code": "for (int i = 0; i < n; i++) {{\n    output[i] = input[i];\n}}", "reasoning": "Simplify loop"}}
+
+    CRITICAL OUTPUT RULES:
+    - Output a JSON ARRAY: [{{...}}] or [{{...}}, {{...}}] for multiple actions
+    - You can mix pragma and code_replace actions in the same array
+    - If NO modifications needed, output an empty array: []
+    - DO NOT include any explanatory text, markdown, or code fences
+    - Output ONLY the JSON array, nothing else
+    
+    """
+
+    response = prompt
+    
     return {}
 
 
 # Node: finalize
 def finalize(state: VectorizationState):
+    function_drafts = state["function_drafts"]
+
+    final_draft = None
+    
+    for i in range(len(function_drafts)):
+        if function_drafts[i].compile_success and function_drafts[i].vectorization_success:
+            final_draft = function_drafts[i]
+            break
+
+    if final_draft is None:
+        final_draft = function_drafts[0]
+
+    # Apply the function draft to the function
+
     return {}
 
 

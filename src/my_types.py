@@ -34,7 +34,7 @@ class FunctionInfo(TypedDict):
     end_line: int
 
 
-class FunctionDraft(TypedDict):
+class FunctionDraft:
     compile_success: bool
     dead_end: bool
     vectorization_success: bool
