@@ -36,7 +36,6 @@ def compile_code(state: VectorizationState):
     relevant_remark_files: List[str] = match_remark_files(current_file, all_remark_files)
     relevant_remarks: List[str] = []
 
-    # TODO(akash): optimization remarks need to be filtered by the function we are working on
     for remark_file in relevant_remark_files:
         relevant_remarks.append(filter_remarks_by_function(remark_file,
                                                            cur_function_name))

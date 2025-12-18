@@ -3,7 +3,7 @@ from typing import List
 import re
 import os
 import fnmatch
-from my_types import FunctionInfo, FunctionDraft, VectorizationState
+from my_types import FunctionInfo
 
 
 def extract_file_context(file_content: str) -> str:
@@ -183,6 +183,7 @@ def find_target_files(directory: str) -> List[str]:
     """
     return find_files_with_ext(directory, [".h", ".c", ".cpp", ".hxx", ".hpp"])
 
+
 def match_remark_files(target_file: str, remark_files: List[str]) -> List[str]:
     """
     Find remark files corresponding to a target source file.
@@ -206,6 +207,7 @@ def match_remark_files(target_file: str, remark_files: List[str]) -> List[str]:
         if fnmatch.fnmatch(yaml_basename, pattern):
             matching.append(remark_file)
     return matching
+
 
 def filter_vectorize_remarks(yaml_file_path: str) -> str:
     """
