@@ -176,9 +176,7 @@ YOUR OUTPUT:
             function_name=cur_function_name
         )
 
-        # TODO(akash): Properly parse the JSON object output of the LLM
-        # Make it something that I can return to update the corresponding
-        # function_draft in function_drafts in VectorizationState properly.
+        # TODO(akash): Parse reviewer agent's output. 
         new_function_draft = cur_function_draft
         function_drafts[current_iteration] = new_function_draft
         
@@ -251,7 +249,7 @@ YOUR OUTPUT:
         function_name=function_drafts[0].modified_function_text["name"]
     )
 
-    # TODO(akash). Write a helper function that takes the result, gets the 'i' field, and stores it in manager_chosen_i. 
+    # TODO(akash). Parse manager agent's output.
     
     return {
         "manager_chosen_i": 0
@@ -347,7 +345,8 @@ CRITICAL OUTPUT RULES:
         function_name=current_function_info["name"]
     )
 
-    # TODO(akash). Parse the array and apply the modifications. There are some helpers in modify_code.py that can give you some inspiration for that.
+    # TODO(akash). Parse engineer agent's outputs into an array of CodeReplaceAction and PragmaAction objects
+    # TODO(akash): Write the new function text to the file. 
     new_func_info = current_function_info
     current_iteration = state["current_iteration"]
     function_drafts[current_iteration] = FunctionDraft(new_func_info)
@@ -370,7 +369,7 @@ def finalize(state: VectorizationState):
     if final_draft is None:
         final_draft = function_drafts[0]
 
-    # TODO(akash): Apply the function draft to the function in the file
+    # TODO(akash): Write the function draft to the function to the file
 
     return {}
 
