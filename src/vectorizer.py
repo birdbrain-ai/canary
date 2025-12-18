@@ -33,9 +33,12 @@ def compile_code(state: VectorizationState):
     for remark_file in relevant_remark_files:
         relevant_remarks.append(filter_vectorize_remarks(remark_file))
 
+    # TODO(akash): optimization remarks need to be filtered by the function we are working on
+        
     os.chdir(cur_working_dir)
 
     return {
+        # TODO(akash): this is lazy. we need to extract the relevant parts from stderr for this to be effective
         "compiler_feedback": result.stderr,
         "optimization_remarks": "\n".join(relevant_remarks)
     }
@@ -57,7 +60,7 @@ def run_code(state: VectorizationState):
     result = subprocess.run(
         run_command,
         shell=True,
-        capture_output=False,  # Let output go to stdout/stderr
+        capture_output=False,
         text=True,
     )
 
@@ -80,7 +83,10 @@ def reviewer(state: VectorizationState):
     compiler_feedback = state["compiler_feedback"]
     optimization_remarks = state["optimization_remarks"]
 
+    # TODO(akash): compile_success, vectorization_success fields' values should be determined deterministically, no need for LLM call
+    
     if reviewer_feedback == "":
+        # TODO(akash): review the prompt - I think the JSON output format is wrong
         prompt = """You are reviewing THIS FUNCTION for opportunities to autovectorize it.
 
         {cur_function_info.full_text}
@@ -177,7 +183,7 @@ def increment(state: VectorizationState):
 def manager(state: VectorizationState):
     function_drafts = state["function_drafts"]
     make_command = state["make_command"]
-
+    # TODO(akash): revise the way 'function_drafts' is printed - it's currently very lazy
     prompt = """Given a few drafts of the same function, pick the function that is most likely to be autovectorized by the compiler.
 
     The command that this function will be compiled with is:
@@ -230,6 +236,7 @@ def engineer(state: VectorizationState):
     current_function_info = current_function_draft.modified_function_text
     current_function_body = current_function_info["full_text"]
 
+    # TODO(akash): review the prompt
     prompt = """Your task is to take a function and modify it to make it easier to autovectorize.
 
     The FUNCTION is:
@@ -319,7 +326,7 @@ def finalize(state: VectorizationState):
     if final_draft is None:
         final_draft = function_drafts[0]
 
-    # Apply the function draft to the function in the file
+    # TODO(akash): Apply the function draft to the function in the file
 
     return {}
 
