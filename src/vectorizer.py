@@ -84,20 +84,32 @@ def run_code(state: VectorizationState):
 def reviewer(state: VectorizationState):
     function_drafts = state["function_drafts"]
     current_iteration = state["current_iteration"]
-    cur_function_info = function_drafts[current_iteration].modified_function_text
+    cur_function_draft = function_drafts[current_iteration]
+    cur_function_info = cur_function_draft.modified_function_text
     reviewer_feedback = function_drafts[current_iteration].reviewer_feedback
     make_command = state["make_command"]
     program_slice = state["program_slice"]
     compiler_feedback = state["compiler_feedback"]
     optimization_remarks = state["optimization_remarks"]
 
-    # TODO(akash): compile_success, vectorization_success fields' values should be determined deterministically, no need for LLM call
+    compile_success = "error:" in compiler_feedback
+    if compile_success:
+        compile_success_str = "The function did successfully compile."
+        cur_function_draft.compile_success = True
+    else:
+        return {}
+        
+        
+    vectorization_success = "!Passed" in optimization_remarks
+    cur_function_draft.vectorization_success = vectorization_success
+    if vectorization_success:
+        cur_function_draft.dead_end = False
     
     if reviewer_feedback == "":
         # TODO(akash): review the prompt - I think the JSON output format is wrong
-        prompt = """You are reviewing THIS FUNCTION for opportunities to autovectorize it.
+        prompt = f"""You are reviewing THIS FUNCTION for opportunities to autovectorize it.
 
-        {cur_function_info.full_text}
+        {cur_function_info["full_text"]}
 
         The function is compiled with Clang, using the following command: {make_command}
 
@@ -109,8 +121,10 @@ def reviewer(state: VectorizationState):
 
         Second, COMPILER FEEDBACK:
 
-        {copmiler_feedback}
+        {compiler_feedback}
 
+        {compile_success_str}
+        
         Third, OPTIMIZATION REMARKS.
 
         {optimization_remarks}
@@ -118,44 +132,32 @@ def reviewer(state: VectorizationState):
         You MUST return a JSON object in this format:
 
         ```
-        {
-          "compile_success": bool
+        {{
           "dead_end": bool
-          "vectorization_success": bool
           "reviewer_feedback": str
-        }
+        }}
         ```
         
         RULES:
-        - If the file did not compile, you must set the compile_success field to false, the dead_end field to false, and vectorization_success field to false, and reviewer_feedback to the empty string "". Otherwise, you must set the compile_success field to true.
         - If the function was already autovectorized, you must set the dead_end field to false, and the vectorization_success field to true.
         - You must set 'dead_end' to false is the function is a useful starting point for autovectorization.
         - Fill out the reviewer_feedback field to include future directions to modify the function in order to autovectorize it.
 
         EXAMPLE OUTPUTS:
-        1. 
-        {
-          "compile_success": true,
+        {{
           "dead_end": false,
-          "vectorization_success": true,
           "reviewer_feedback": "This function is already fully autovectorized. No further work is needed." 
-        }
+        }}
 
-        2.
-        {
-          "compile_success": false,
+        {{
           "dead_end": true,
-          "vectorization_success": false,
           "reviewer_feedback": "" 
-        }
+        }}
 
-        3.
-        {
-          "compile_success": true,
+        {{
           "dead_end": true,
-          "vectorization_success": false,
           "reviewer_feedback": "Optimization remarks for this function suggest that a non-reduction value in the loop body is used outside the loop. Compiler feedback indicates that this function could be autovectorized if we make a copy of the variable 'a'. Suggestion: Make a copy of the variable 'a'."
-        }
+        }}
 
         YOUR OUTPUT:
         
@@ -166,7 +168,9 @@ def reviewer(state: VectorizationState):
         # TODO(akash): Properly parse the JSON object output of the LLM
         # Make it something that I can return to update the corresponding
         # function_draft in function_drafts in VectorizationState properly.
-
+        new_function_draft = cur_function_draft
+        function_drafts[current_iteration] = new_function_draft
+        
         return {
             "function_drafts": function_drafts
         }
