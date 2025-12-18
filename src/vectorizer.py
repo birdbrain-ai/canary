@@ -247,7 +247,6 @@ def engineer(state: VectorizationState):
     current_function_info = current_function_draft.modified_function_text
     current_function_body = current_function_info["full_text"]
 
-    # TODO(akash): review the prompt
     prompt = f"""Your task is to take a function and modify it to make it easier to autovectorize.
 
     The FUNCTION is:
