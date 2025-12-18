@@ -8,6 +8,7 @@ import argparse
 from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
 from typing import List
 from my_types import FunctionInfo, FunctionDraft, VectorizationState
+from logger import LLMLogger
 
 
 # Node: compile_code
@@ -86,13 +87,14 @@ def reviewer(state: VectorizationState):
     current_iteration = state["current_iteration"]
     cur_function_draft = function_drafts[current_iteration]
     cur_function_info = cur_function_draft.modified_function_text
+    cur_function_name = cur_function_info["name"]
     reviewer_feedback = function_drafts[current_iteration].reviewer_feedback
     make_command = state["make_command"]
     program_slice = state["program_slice"]
     compiler_feedback = state["compiler_feedback"]
     optimization_remarks = state["optimization_remarks"]
 
-    compile_success = "error:" in compiler_feedback
+    compile_success = "error:" not in compiler_feedback
     if compile_success:
         compile_success_str = "The function did successfully compile."
         cur_function_draft.compile_success = True
@@ -164,6 +166,16 @@ def reviewer(state: VectorizationState):
 
         output = prompt
 
+        logger = LLMLogger(state["log_dir"])
+        logger.log_llm_call(
+            iteration=current_iteration,
+            file_path=state["file_path"],
+            call_type="reviewer",
+            prompt=prompt,
+            response=output, # Replace with actual LLM output when available
+            function_name=cur_function_name
+        )
+
         # TODO(akash): Properly parse the JSON object output of the LLM
         # Make it something that I can return to update the corresponding
         # function_draft in function_drafts in VectorizationState properly.
@@ -227,6 +239,17 @@ def manager(state: VectorizationState):
     """
 
     result = prompt
+
+    current_iteration = state["current_iteration"]
+    logger = LLMLogger(state["log_dir"])
+    logger.log_llm_call(
+        iteration=current_iteration,
+        file_path=state["file_path"],
+        call_type="manager",
+        prompt=prompt,
+        response=result,
+        function_name=None # Manager operates on all drafts, so no specific function context in the same way, or generic
+    )
 
     # TODO(akash). Write a helper function that takes the result, gets the 'i' field, and stores it in manager_chosen_i. 
     
@@ -312,6 +335,17 @@ def engineer(state: VectorizationState):
     
     """
     response = prompt
+
+    current_iteration = state["current_iteration"]
+    logger = LLMLogger(state["log_dir"])
+    logger.log_llm_call(
+        iteration=current_iteration,
+        file_path=state["file_path"],
+        call_type="engineer",
+        prompt=prompt,
+        response=response,
+        function_name=current_function_info["name"]
+    )
 
     # TODO(akash). Parse the array and apply the modifications. There are some helpers in modify_code.py that can give you some inspiration for that.
     new_func_info = current_function_info
@@ -438,6 +472,7 @@ def vectorize_benchmark(benchmark_dir: str,
                 function_drafts={
                     0: initial_function_draft
                 },
+                log_dir=os.path.join(current_dir, f"{benchmark_name}_logs")
             )
 
             # Pass it to LangGraph workflow: Compile -> Run -> Reviewer -> Manager -> Engineer

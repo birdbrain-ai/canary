@@ -64,3 +64,4 @@ class VectorizationState(TypedDict):
     manager_chosen_i: int
 
     function_drafts: Dict[int, FunctionDraft]
+    log_dir: str
