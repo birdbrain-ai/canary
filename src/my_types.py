@@ -41,6 +41,13 @@ class FunctionDraft:
     reviewer_feedback: str
     modified_function_text: FunctionInfo
 
+    def __init__(self, function_info):
+        self.compile_success = False
+        self.dead_end = False
+        self.vectorization_success = False
+        self.reviewer_feedback = ""
+        self.modified_function_text = function_info
+
 
 class VectorizationState(TypedDict):
     bench_path: str # const
