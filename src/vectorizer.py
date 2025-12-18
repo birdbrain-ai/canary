@@ -196,7 +196,7 @@ def manager(state: VectorizationState):
     function_drafts = state["function_drafts"]
     make_command = state["make_command"]
     # TODO(akash): revise the way 'function_drafts' is printed - it's currently very lazy
-    prompt = """Given a few drafts of the same function, pick the function that is most likely to be autovectorized by the compiler.
+    prompt = f"""Given a few drafts of the same function, pick the function that is most likely to be autovectorized by the compiler.
 
     The command that this function will be compiled with is:
 
@@ -209,18 +209,18 @@ def manager(state: VectorizationState):
     OUTPUT RULES:
     Your output MUST be a JSON object in the following format.
     ```
-    {
+    {{
       i: int,
       explanation: str,
-    }
+    }}
     ```
     
     EXAMPLE OUTPUT:
     ```
-    {
+    {{
       i: 2,
       explanation: It was the only function draft that was successfully autovectorized. This is a good starting point for further autovectorization attempts.
-    }
+    }}
     ```
 
     YOUR OUTPUT:
@@ -249,13 +249,13 @@ def engineer(state: VectorizationState):
     current_function_body = current_function_info["full_text"]
 
     # TODO(akash): review the prompt
-    prompt = """Your task is to take a function and modify it to make it easier to autovectorize.
+    prompt = f"""Your task is to take a function and modify it to make it easier to autovectorize.
 
     The FUNCTION is:
 
     {current_function_body}
 
-    It starts at {current_function_info.start_line} and ends at {current_function_info.end_line}
+    It starts at {current_function_info["start_line"]} and ends at {current_function_info["end_line"]}
     
     The surrounding context is:
 
