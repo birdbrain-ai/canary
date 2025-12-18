@@ -110,58 +110,58 @@ def reviewer(state: VectorizationState):
     if reviewer_feedback == "":
         prompt = f"""You are reviewing THIS FUNCTION for opportunities to autovectorize it.
 
-        {cur_function_info["full_text"]}
+{cur_function_info["full_text"]}
 
         The function is compiled with Clang, using the following command: {make_command}
 
         You have access to some information to help.
 
-        First, the PROGRAM SLICE:
+First, the PROGRAM
 
-        {program_slice}
+{program_slice}
 
-        Second, COMPILER FEEDBACK:
+Second, COMPILER FEEDBACK:
 
-        {compiler_feedback}
+{compiler_feedback}
 
-        {compile_success_str}
+{compile_success_str}
         
-        Third, OPTIMIZATION REMARKS.
+Third, OPTIMIZATION REMARKS.
 
-        {optimization_remarks}
+{optimization_remarks}
 
-        You MUST return a JSON object in this format:
+You MUST return a JSON object in this format:
 
-        ```
-        {{
-          "dead_end": bool
-          "reviewer_feedback": str
-        }}
-        ```
+```
+{{
+  "dead_end": bool
+  "reviewer_feedback": str
+}}
+```
         
-        RULES:
-        - If the function was already autovectorized, you must set the dead_end field to false, and the vectorization_success field to true.
-        - You must set 'dead_end' to false is the function is a useful starting point for autovectorization.
-        - Fill out the reviewer_feedback field to include future directions to modify the function in order to autovectorize it.
+RULES:
+- If the function was already autovectorized, you must set the dead_end field to false, and the vectorization_success field to true.
+- You must set 'dead_end' to false is the function is a useful starting point for autovectorization.
+- Fill out the reviewer_feedback field to include future directions to modify the function in order to autovectorize it.
 
-        EXAMPLE OUTPUTS:
-        {{
-          "dead_end": false,
-          "reviewer_feedback": "This function is already fully autovectorized. No further work is needed." 
-        }}
+EXAMPLE OUTPUTS:
+{{
+  "dead_end": false,
+  "reviewer_feedback": "This function is already fully autovectorized. No further work is needed." 
+}}
 
-        {{
-          "dead_end": true,
-          "reviewer_feedback": "" 
-        }}
+{{
+  "dead_end": true,
+  "reviewer_feedback": "" 
+}}
 
-        {{
-          "dead_end": true,
-          "reviewer_feedback": "Optimization remarks for this function suggest that a non-reduction value in the loop body is used outside the loop. Compiler feedback indicates that this function could be autovectorized if we make a copy of the variable 'a'. Suggestion: Make a copy of the variable 'a'."
-        }}
+{{
+  "dead_end": true,
+  "reviewer_feedback": "Optimization remarks for this function suggest that a non-reduction value in the loop body is used outside the loop. Compiler feedback indicates that this function could be autovectorized if we make a copy of the variable 'a'. Suggestion: Make a copy of the variable 'a'."
+}}
 
-        YOUR OUTPUT:
-        
+YOUR OUTPUT:
+
         """
 
         output = prompt
@@ -209,32 +209,32 @@ def manager(state: VectorizationState):
     # TODO(akash): revise the way 'function_drafts' is printed - it's currently very lazy
     prompt = f"""Given a few drafts of the same function, pick the function that is most likely to be autovectorized by the compiler.
 
-    The command that this function will be compiled with is:
+The command that this function will be compiled with is:
 
-    {make_command}
+{make_command}
 
-    The FUNCTION DRAFTS are in this JSON object:
+The FUNCTION DRAFTS are in this JSON object:
 
-    {function_drafts}
+{function_drafts}
 
-    OUTPUT RULES:
-    Your output MUST be a JSON object in the following format.
-    ```
-    {{
-      i: int,
-      explanation: str,
-    }}
-    ```
-    
-    EXAMPLE OUTPUT:
-    ```
-    {{
-      i: 2,
-      explanation: It was the only function draft that was successfully autovectorized. This is a good starting point for further autovectorization attempts.
-    }}
-    ```
+OUTPUT RULES:
+Your output MUST be a JSON object in the following format.
+```
+{{
+  i: int,
+  explanation: str,
+}}
+```
 
-    YOUR OUTPUT:
+EXAMPLE OUTPUT:
+```
+{{
+  i: 2,
+  explanation: It was the only function draft that was successfully autovectorized. This is a good starting point for further autovectorization attempts.
+}}
+```
+
+YOUR OUTPUT:
     
     """
 
@@ -272,66 +272,66 @@ def engineer(state: VectorizationState):
 
     prompt = f"""Your task is to take a function and modify it to make it easier to autovectorize.
 
-    The FUNCTION is:
+The FUNCTION is:
 
-    {current_function_body}
+{current_function_body}
 
-    It starts at {current_function_info["start_line"]} and ends at {current_function_info["end_line"]}
-    
-    The surrounding context is:
+It starts at {current_function_info["start_line"]} and ends at {current_function_info["end_line"]}
 
-    {program_slice}
+The surrounding context is:
 
-    It is compiled with Clang, using the following command:
+{program_slice}
 
-    {make_command}
+It is compiled with Clang, using the following command:
 
-    Please use SUGGESTIONS FROM A REVIEWER when modifying the function.
+{make_command}
 
-    {reviewer_feedback}
+Please use SUGGESTIONS FROM A REVIEWER when modifying the function.
 
-    You have two options:
-    
-    1. PRAGMA ACTIONS: Suggest pragmas for FOR LOOPS where vectorization still failed
-   - You may suggest: "vectorize", "interleave", or "vectorize_width"
-   - Be conservative - only suggest if you're confident it will help
+{reviewer_feedback}
 
-    2. CODE REPLACE: Make targeted code changes:
-   - Fix specific issues identified in optimization remarks
-   - Add temporaries, hoist computations, break dependencies
-   - Avoid making changes that alter the meaning of the function
+You have two options:
 
-    OPTION 1 - PRAGMA ACTIONS (for simple vectorization hints):
-    For each loop that needs a pragma, create a JSON object:
-    {{
-      "action_type": "pragma",
-      "line_number": <line number of the 'for' statement>,
-      "pragma_type": "vectorize" OR "interleave" OR "vectorize_width",
-      "width": <number (only if pragma_type is vectorize_width), otherwise null>,
-      "reasoning": "<brief explanation>"
-    }}
+1. PRAGMA ACTIONS: Suggest pragmas for FOR LOOPS where vectorization still failed
+- You may suggest: "vectorize", "interleave", or "vectorize_width"
+- Be conservative - only suggest if you're confident it will help
 
-    OPTION 2 - CODE REPLACE (for targeted code changes):
-    For each code change, create a JSON object:
-    {{
-      "action_type": "code_replace",
-      "start_line": <start line number (0-indexed)>,
-      "end_line": <end line number (0-indexed, inclusive)>,
-      "new_code": "<replacement code (can be multi-line)>",
-      "reasoning": "<brief explanation>"
-    }}
+2. CODE REPLACE: Make targeted code changes:
+- Fix specific issues identified in optimization remarks
+- Add temporaries, hoist computations, break dependencies
+- Avoid making changes that alter the meaning of the function
 
-    Examples:
-    - Add variable: {{"action_type": "code_replace", "start_line": 0, "end_line": 0, "new_code": "int temp = 0;", "reasoning": "Add local temporary"}}
-    - Replace line: {{"action_type": "code_replace", "start_line": 5, "end_line": 5, "new_code": "result[i] = a[i] * factor;", "reasoning": "Use hoisted variable"}}
-    - Multi-line: {{"action_type": "code_replace", "start_line": 3, "end_line": 5, "new_code": "for (int i = 0; i < n; i++) {{\n    output[i] = input[i];\n}}", "reasoning": "Simplify loop"}}
+OPTION 1 - PRAGMA ACTIONS (for simple vectorization hints):
+For each loop that needs a pragma, create a JSON object:
+{{
+  "action_type": "pragma",
+  "line_number": <line number of the 'for' statement>,
+  "pragma_type": "vectorize" OR "interleave" OR "vectorize_width",
+  "width": <number (only if pragma_type is vectorize_width), otherwise null>,
+  "reasoning": "<brief explanation>"
+}}
 
-    CRITICAL OUTPUT RULES:
-    - Output a JSON ARRAY: [{{...}}] or [{{...}}, {{...}}] for multiple actions
-    - You can mix pragma and code_replace actions in the same array
-    - If NO modifications needed, output an empty array: []
-    - DO NOT include any explanatory text, markdown, or code fences
-    - Output ONLY the JSON array, nothing else
+OPTION 2 - CODE REPLACE (for targeted code changes):
+For each code change, create a JSON object:
+{{
+  "action_type": "code_replace",
+  "start_line": <start line number (0-indexed)>,
+  "end_line": <end line number (0-indexed, inclusive)>,
+  "new_code": "<replacement code (can be multi-line)>",
+  "reasoning": "<brief explanation>"
+}}
+
+Examples:
+- Add variable: {{"action_type": "code_replace", "start_line": 0, "end_line": 0, "new_code": "int temp = 0;", "reasoning": "Add local temporary"}}
+- Replace line: {{"action_type": "code_replace", "start_line": 5, "end_line": 5, "new_code": "result[i] = a[i] * factor;", "reasoning": "Use hoisted variable"}}
+- Multi-line: {{"action_type": "code_replace", "start_line": 3, "end_line": 5, "new_code": "for (int i = 0; i < n; i++) {{\n    output[i] = input[i];\n}}", "reasoning": "Simplify loop"}}
+
+CRITICAL OUTPUT RULES:
+- Output a JSON ARRAY: [{{...}}] or [{{...}}, {{...}}] for multiple actions
+- You can mix pragma and code_replace actions in the same array
+- If NO modifications needed, output an empty array: []
+- DO NOT include any explanatory text, markdown, or code fences
+- Output ONLY the JSON array, nothing else
     
     """
     response = prompt
