@@ -55,9 +55,6 @@ class VectorizationState(TypedDict):
     make_command: str # const
     run_command: str # const
 
-    raw_function: FunctionInfo
-    start_line: int
-    end_line: int
     program_slice: str # const
     compiler_feedback: str
     optimization_remarks: str

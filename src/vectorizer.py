@@ -76,10 +76,9 @@ def run_code(state: VectorizationState):
 def reviewer(state: VectorizationState):
     function_drafts = state["function_drafts"]
     current_iteration = state["current_iteration"]
+    cur_function_info = function_drafts[current_iteration].modified_function_text
     reviewer_feedback = function_drafts[current_iteration].reviewer_feedback
     make_command = state["make_command"]
-    
-    raw_function = state["raw_function"]
     program_slice = state["program_slice"]
     compiler_feedback = state["compiler_feedback"]
     optimization_remarks = state["optimization_remarks"]
@@ -87,7 +86,7 @@ def reviewer(state: VectorizationState):
     if reviewer_feedback == "":
         prompt = """You are reviewing THIS FUNCTION for opportunities to autovectorize it.
 
-        {raw_function.full_text}
+        {cur_function_info.full_text}
 
         The function is compiled with Clang, using the following command: {make_command}
 
@@ -417,9 +416,9 @@ def vectorize_benchmark(benchmark_dir: str,
                 make_command=make_command,
                 run_command=run_command,
                 
-                raw_function=function,
-                start_line=function["start_line"],
-                end_line=function["end_line"],
+                # raw_function=function,
+                # start_line=function["start_line"],
+                # end_line=function["end_line"],
                 program_slice=program_slice,
                 compiler_feedback="",
                 optimization_remarks="",
