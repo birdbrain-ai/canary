@@ -9,7 +9,9 @@ from more_helpers import extract_functions, find_files_with_ext, find_target_fil
 from typing import List
 from my_types import FunctionInfo, FunctionDraft, VectorizationState
 from logger import LLMLogger
-
+import json
+from modify_code import extract_json_from_response, apply_pragma, apply_code_replace, PragmaAction, CodeReplaceAction
+from vectorization_state import llm
 
 # Node: compile_code
 def compile_code(state: VectorizationState):
@@ -164,7 +166,11 @@ YOUR OUTPUT:
 
         """
 
-        output = prompt
+        try:
+            output = llm.invoke(prompt).content
+        except Exception as e:
+            print(f"LLM call failed: {e}")
+            output = '{"dead_end": false, "reviewer_feedback": "LLM failed, proceeding with dummy feedback."}'
 
         logger = LLMLogger(state["log_dir"])
         logger.log_llm_call(
@@ -177,6 +183,23 @@ YOUR OUTPUT:
         )
 
         # TODO(akash): Parse reviewer agent's output. 
+        try:
+            cleaned_response = extract_json_from_response(output)
+            parsed = json.loads(cleaned_response)
+            
+            cur_function_draft.dead_end = parsed.get("dead_end", False)
+            cur_function_draft.reviewer_feedback = parsed.get("reviewer_feedback", "")
+            
+            # If reviewer says it's already vectorized (dead_end=False implied or explicit?),
+            # the prompt rules say: "If the function was already autovectorized, you must set the dead_end field to false"
+            # So rely on their dead_end judgment.
+            
+        except Exception as e:
+            print(f"Failed to parse reviewer output: {e}")
+            # Default to not a dead end so we try again? Or dead end?
+            # Let's assume continuation if parsing fails but maybe with warning
+            pass
+
         new_function_draft = cur_function_draft
         function_drafts[current_iteration] = new_function_draft
         
@@ -236,7 +259,11 @@ YOUR OUTPUT:
     
     """
 
-    result = prompt
+    try:
+        result = llm.invoke(prompt).content
+    except Exception as e:
+        print(f"LLM call failed: {e}")
+        result = '{"i": 0, "explanation": "LLM failed, defaulting to 0."}'
 
     current_iteration = state["current_iteration"]
     logger = LLMLogger(state["log_dir"])
@@ -250,9 +277,18 @@ YOUR OUTPUT:
     )
 
     # TODO(akash). Parse manager agent's output.
+    manager_chosen_i = 0
+    try:
+        cleaned_response = extract_json_from_response(result)
+        parsed = json.loads(cleaned_response)
+        manager_chosen_i = parsed.get("i", 0)
+    except Exception as e:
+        print(f"Failed to parse manager output: {e}")
+        # Default to 0? Or keeps previous? 0 is safe as it always exists
+        pass
     
     return {
-        "manager_chosen_i": 0
+        "manager_chosen_i": manager_chosen_i
     }
 
 
@@ -332,7 +368,11 @@ CRITICAL OUTPUT RULES:
 - Output ONLY the JSON array, nothing else
     
     """
-    response = prompt
+    try:
+        response = llm.invoke(prompt).content
+    except Exception as e:
+        print(f"LLM call failed: {e}")
+        response = '[]'
 
     current_iteration = state["current_iteration"]
     logger = LLMLogger(state["log_dir"])
@@ -348,6 +388,85 @@ CRITICAL OUTPUT RULES:
     # TODO(akash). Parse engineer agent's outputs into an array of CodeReplaceAction and PragmaAction objects
     # TODO(akash): Write the new function text to the file. 
     new_func_info = current_function_info
+    
+    try:
+        cleaned_response = extract_json_from_response(response)
+        # Handle cases where LLM returns a single object instead of a list
+        parsed = json.loads(cleaned_response)
+        actions = []
+        if isinstance(parsed, list):
+            actions = parsed
+        elif isinstance(parsed, dict):
+            actions = [parsed]
+            
+        if actions:
+            # Separate pragma and code_replace actions
+            pragma_actions = [a for a in actions if a.get('action_type', 'pragma') == 'pragma']
+            code_replace_actions = [a for a in actions if a.get('action_type') == 'code_replace']
+            
+            modified_body = current_function_body
+            
+            # Apply code_replace actions first (in reverse order to preserve line numbers)
+            if code_replace_actions:
+                actions_sorted = sorted(code_replace_actions, key=lambda a: a.get('start_line', 0), reverse=True)
+                for action in actions_sorted:
+                    modified_body = apply_code_replace(modified_body, action)
+            
+            # Then apply pragma actions (in reverse order to preserve line numbers)
+            if pragma_actions:
+                actions_sorted = sorted(pragma_actions, key=lambda a: a.get('line_number', 0), reverse=True)
+                for action in actions_sorted:
+                    modified_body = apply_pragma(modified_body, action)
+            
+            # Update the file on disk
+            with open(state["file_path"], 'r') as f:
+                all_lines = f.readlines()
+            
+            start_line = current_function_info["start_line"]
+            end_line = current_function_info["end_line"]
+            
+            # Replace function lines
+            # Note: modified_body is a string, split lines
+            new_lines = modified_body.splitlines(keepends=True)
+            # Ensure new_lines ends with newline if the original last line did (or just consistent handling)
+            # splitlines(keepends=True) keeps \n
+            
+            # Splicing:
+            # all_lines[start_line : end_line + 1] -> replaced by new_lines
+            
+            # Be careful: end_line is inclusive.
+            
+            # If start_line or end_line are out of bounds (shouldn't be), we have a problem.
+            if start_line >= 0 and end_line < len(all_lines):
+                 # Replace
+                 all_lines[start_line : end_line + 1] = [l if l.endswith('\n') else l + '\n' for l in new_lines]
+                 # If original file didn't end with newline on last line, this might add one. Usually fine in C++.
+                 
+                 # Write back
+                 with open(state["file_path"], 'w') as f:
+                     f.writelines(all_lines)
+                 
+                 # Update new_func_info
+                 new_func_info = current_function_info.copy()
+                 new_func_info["full_text"] = modified_body
+                 new_func_info["body"] = modified_body # Assuming body~full_text in draft context or do we need to strip signature?
+                 # Actually, current_function_body = current_function_info["full_text"] in engineer node.
+                 # So we modified full_text.
+                 # Body field might be inconsistent now if we don't update it, but downstream uses full_text mainly?
+                 
+                 # Recalculate end_line
+                 new_length = len(new_lines)
+                 new_end_line = start_line + new_length - 1
+                 new_func_info["end_line"] = new_end_line
+                 
+            else:
+                 print(f"Start/End lines out of bounds: {start_line}-{end_line} vs {len(all_lines)}")
+
+    except Exception as e:
+        print(f"Failed to apply engineer modifications: {e}")
+        import traceback
+        traceback.print_exc()
+
     current_iteration = state["current_iteration"]
     function_drafts[current_iteration] = FunctionDraft(new_func_info)
     return {
@@ -370,6 +489,37 @@ def finalize(state: VectorizationState):
         final_draft = function_drafts[0]
 
     # TODO(akash): Write the function draft to the function to the file
+    
+    # If the chosen draft is not the one currently on disk (current_iteration),
+    # we need to restore the file to the chosen draft state.
+    current_iteration = state["current_iteration"]
+    current_draft = function_drafts[current_iteration]
+    
+    if final_draft != current_draft:
+        print(f"Restoring file to best draft (Iteration {next(k for k,v in function_drafts.items() if v == final_draft)})")
+        try:
+            # We assume start_line hasn't changed (we only modified inside the function)
+            # The current file state matches current_draft
+            start_line = current_draft.modified_function_text["start_line"]
+            end_line = current_draft.modified_function_text["end_line"]
+            
+            # The content we want to put back
+            best_content = final_draft.modified_function_text["full_text"]
+            
+            with open(state["file_path"], 'r') as f:
+                all_lines = f.readlines()
+                
+            if start_line >= 0 and end_line < len(all_lines):
+                 new_lines = best_content.splitlines(keepends=True)
+                 all_lines[start_line : end_line + 1] = [l if l.endswith('\n') else l + '\n' for l in new_lines]
+                 
+                 with open(state["file_path"], 'w') as f:
+                     f.writelines(all_lines)
+            else:
+                print(f"Error restoring file: invalid lines {start_line}-{end_line}")
+                
+        except Exception as e:
+            print(f"Failed to restore final draft: {e}")
 
     return {}
 
