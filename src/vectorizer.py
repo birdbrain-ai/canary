@@ -5,9 +5,9 @@ import os
 import subprocess
 import shutil
 import argparse
-from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_vectorize_remarks
+from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function
 from typing import List
-from my_types import FunctionInfo, FunctionDraft, VectorizationState, PragmaAction, CodeReplaceAction
+from my_types import FunctionInfo, FunctionDraft, VectorizationState
 
 
 # Node: compile_code
@@ -16,6 +16,12 @@ def compile_code(state: VectorizationState):
     cur_working_dir = os.getcwd()
     make_command = state["make_command"]
     current_file = state["file_path"]
+
+    current_iteration = state["current_iteration"]
+    function_drafts = state["function_drafts"]
+    cur_function_draft = function_drafts[current_iteration]
+    cur_function_info = cur_function_draft.modified_function_text
+    cur_function_name = cur_function_info["name"]
 
     os.chdir(bench_path)
 
@@ -30,10 +36,10 @@ def compile_code(state: VectorizationState):
     relevant_remark_files: List[str] = match_remark_files(current_file, all_remark_files)
     relevant_remarks: List[str] = []
 
-    for remark_file in relevant_remark_files:
-        relevant_remarks.append(filter_vectorize_remarks(remark_file))
-
     # TODO(akash): optimization remarks need to be filtered by the function we are working on
+    for remark_file in relevant_remark_files:
+        relevant_remarks.append(filter_remarks_by_function(remark_file,
+                                                           cur_function_name))
         
     os.chdir(cur_working_dir)
 
@@ -418,9 +424,6 @@ def vectorize_benchmark(benchmark_dir: str,
                 make_command=make_command,
                 run_command=run_command,
                 
-                # raw_function=function,
-                # start_line=function["start_line"],
-                # end_line=function["end_line"],
                 program_slice=program_slice,
                 compiler_feedback="",
                 optimization_remarks="",

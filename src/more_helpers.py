@@ -234,3 +234,133 @@ def filter_vectorize_remarks(yaml_file_path: str) -> str:
     except Exception as e:
         print(f"⚠ Warning: Could not filter remarks for {yaml_file_path}: {e}")
         return ""
+
+
+def filter_remarks_by_function(yaml_file_path: str, func_name: str) -> str:
+    """
+    Filter YAML optimization remarks to only include entries for a specific function.
+    Uses yq to properly parse YAML and match against both mangled and demangled function names.
+    
+    Args:
+        yaml_file_path: Path to .opt.yaml file
+        func_name: Function name to filter for (e.g., "vecAdd")
+    
+    Returns:
+        Filtered YAML content as string containing complete YAML documents,
+        or empty string if no matches or filtering fails
+    """
+    try:
+        # First, filter for loop-vectorize pass
+        result = subprocess.run(
+            ["yq", "select(.Pass == \"loop-vectorize\")", yaml_file_path],
+            capture_output=True,
+            text=True,
+        )
+        
+        if result.returncode != 0 or not result.stdout.strip():
+            return ""
+        
+        # Now filter by function name
+        # We need to check if func_name appears in the Function field
+        # The Function field contains mangled names, so we need to:
+        # 1. Try exact match with mangled name
+        # 2. Try substring match (func_name in demangled version)
+        
+        # Use yq to select documents where Function field contains our function name
+        # This works because demangled names typically contain the original function name
+        yq_filter = f'select(.Function and (.Function | test("{re.escape(func_name)}")))'
+        
+        result = subprocess.run(
+            ["yq", yq_filter],
+            input=result.stdout,
+            capture_output=True,
+            text=True,
+        )
+        
+        if result.returncode == 0:
+            # If direct match didn't work, try demangling approach
+            if not result.stdout.strip():
+                # Fall back to manual demangling check
+                return filter_remarks_by_function_with_demangle(result.stdout, func_name)
+            return result.stdout
+        else:
+            print(f"⚠ Warning: yq function filter failed for {yaml_file_path}")
+            return ""
+            
+    except Exception as e:
+        print(f"⚠ Warning: Could not filter remarks by function for {yaml_file_path}: {e}")
+        return ""
+
+
+def filter_remarks_by_function_with_demangle(yaml_content: str, func_name: str) -> str:
+    """
+    Filter YAML remarks by demangling function names.
+    Fallback when direct yq filtering doesn't work.
+    
+    Args:
+        yaml_content: YAML content (already filtered by pass)
+        func_name: Function name to match
+    
+    Returns:
+        Filtered YAML documents as string
+    """
+    try:
+        # Parse YAML documents
+        import yaml
+        
+        documents = list(yaml.safe_load_all(yaml_content))
+        matching_docs = []
+        
+        for doc in documents:
+            if doc and 'Function' in doc:
+                mangled = doc['Function']
+                demangled = demangle_function_name(mangled)
+                
+                # Check if func_name appears in demangled name
+                if func_name in demangled:
+                    matching_docs.append(doc)
+        
+        if not matching_docs:
+            return ""
+        
+        # Convert back to YAML
+        result = ""
+        for doc in matching_docs:
+            result += "---\n"
+            result += yaml.dump(doc, default_flow_style=False)
+            result += "...\n"
+        
+        return result
+        
+    except Exception as e:
+        print(f"⚠ Warning: Demangle-based filtering failed: {e}")
+        return ""
+
+
+def demangle_function_name(mangled: str) -> str:
+    """
+    Demangle a C++ function name using c++filt.
+
+    Args:
+        mangled: Mangled function name (e.g., _Z6vecAddPKfS0_Pfm)
+
+    Returns:
+        Demangled function name (e.g., vecAdd(float const*, float const*, float*, unsigned long))
+        or original if demangling fails
+    """
+    try:
+        result = subprocess.run(
+            ["c++filt", mangled],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            demangled = result.stdout.strip()
+            # Extract just the function name (before opening paren)
+            if '(' in demangled:
+                return demangled.split('(')[0]
+            return demangled
+        return mangled
+    except Exception:
+        return mangled
