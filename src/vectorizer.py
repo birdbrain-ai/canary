@@ -7,7 +7,7 @@ import shutil
 import argparse
 from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_vectorize_remarks
 from typing import List
-from my_types import FunctionInfo, VectorizationState
+from my_types import FunctionInfo, FunctionDraft, VectorizationState, PragmaAction, CodeReplaceAction
 
 
 # Node: compile_code
@@ -153,16 +153,16 @@ def reviewer(state: VectorizationState):
 
         output = prompt
 
-        print(output)
-
         # TODO(akash): Properly parse the JSON object output of the LLM
         # Make it something that I can return to update the corresponding
-        # function_draft in VectorizationState properly.
-        # See 'parse_reviewer_output'
+        # function_draft in function_drafts in VectorizationState properly.
 
-        return {}
+        return {
+            "function_drafts": function_drafts
+        }
 
     return {}
+
 
 # Node: reviewer: parse output
 def parse_reviewer_output(output):
@@ -217,15 +217,19 @@ def manager(state: VectorizationState):
 
     # TODO(akash). Write a helper function that takes the result, gets the 'i' field, and stores it in manager_chosen_i. 
     
-    return {}
+    return {
+        "manager_chosen_i": 0
+    }
 
 
 # Node: engineer
 def engineer(state: VectorizationState):
     program_slice = state["program_slice"]
     make_command = state["make_command"]
-    current_iteration = state["current_iteration"]
-    current_function_draft = state["function_drafts"][current_iteration]
+
+    manager_chosen_i = state["manager_chosen_i"]
+    function_drafts = state["function_drafts"]
+    current_function_draft = function_drafts[manager_chosen_i]
     reviewer_feedback = current_function_draft.reviewer_feedback
     current_function_info = current_function_draft.modified_function_text
     current_function_body = current_function_info["full_text"]
@@ -236,6 +240,8 @@ def engineer(state: VectorizationState):
 
     {current_function_body}
 
+    It starts at {current_function_info.start_line} and ends at {current_function_info.end_line}
+    
     The surrounding context is:
 
     {program_slice}
@@ -292,12 +298,17 @@ def engineer(state: VectorizationState):
     - Output ONLY the JSON array, nothing else
     
     """
-
     response = prompt
 
-    # TODO(akash). Parse the array and apply the modifications. There are some helpers in modify_code.py that can give you some inspiration for that.  
-    
-    return {}
+    # TODO(akash). Parse the array and apply the modifications. There are some helpers in modify_code.py that can give you some inspiration for that.
+    new_func_info = current_function_info
+    current_iteration = state["current_iteration"]
+    function_drafts[current_iteration] = FunctionDraft(
+        new_func_info
+    )
+    return {
+        "function_drafts": function_drafts
+    }
 
 
 # Node: finalize
@@ -314,7 +325,7 @@ def finalize(state: VectorizationState):
     if final_draft is None:
         final_draft = function_drafts[0]
 
-    # Apply the function draft to the function
+    # Apply the function draft to the function in the file
 
     return {}
 
@@ -399,6 +410,7 @@ def vectorize_benchmark(benchmark_dir: str,
 
         for function in functions:
             # Construct an initial state
+            initial_function_draft: FunctionDraft = FunctionDraft(function)
             initial_state = VectorizationState(
                 bench_path=opt_dir,
                 file_path=current_file,
@@ -415,7 +427,9 @@ def vectorize_benchmark(benchmark_dir: str,
                 current_iteration=0,
                 max_iterations=max_iterations,
                 manager_chosen_i=0,
-                function_drafts={},
+                function_drafts={
+                    0: initial_function_draft
+                },
             )
 
             # Pass it to LangGraph workflow: Compile -> Run -> Reviewer -> Manager -> Engineer
