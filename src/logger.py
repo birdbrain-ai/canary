@@ -91,8 +91,6 @@ class LLMLogger:
         if function_name is None:
             if call_type == "file_context":
                 return 0
-            elif call_type == "manager":
-                return 4
         # Function-level calls
         else:
             if call_type == "summarize_context":
@@ -103,6 +101,8 @@ class LLMLogger:
                 return 2
             elif call_type == "reviewer":
                 return 3
+            elif call_type == "manager":
+                return 4
             elif call_type == "engineer":
                 return 5
         return 99  # Unknown

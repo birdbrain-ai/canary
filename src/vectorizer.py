@@ -248,7 +248,7 @@ YOUR OUTPUT:
         call_type="manager",
         prompt=prompt,
         response=result,
-        function_name=None # Manager operates on all drafts, so no specific function context in the same way, or generic
+        function_name=function_drafts[0].modified_function_text["name"]
     )
 
     # TODO(akash). Write a helper function that takes the result, gets the 'i' field, and stores it in manager_chosen_i. 
