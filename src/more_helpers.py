@@ -8,7 +8,8 @@ from my_types import FunctionInfo
 
 def extract_file_context(file_content: str) -> str:
     """
-    Extract relevant context from file (structs, classes, globals, typedefs, enums).
+    Extract relevant context from file (structs, classes, globals, typedefs,
+    enums).
     These provide context for understanding what functions operate on.
 
     Args:
@@ -39,12 +40,16 @@ def extract_file_context(file_content: str) -> str:
             continue
 
         # Capture context: struct, class, typedef, enum, global variables
-        if any(stripped.startswith(keyword) for keyword in ['struct', 'class', 'typedef', 'enum', 'using']):
+        if any(stripped.startswith(keyword) for keyword in ['struct', 'class',
+                                                            'typedef', 'enum', 'using']):
             context_lines.append(line)
         # Capture global variable declarations (simple heuristic: type name = or type name;)
-        elif ';' in stripped and not stripped.startswith('for') and not stripped.startswith('if') and not stripped.startswith('while'):
+        elif ';' in stripped and not stripped.startswith('for') \
+             and not stripped.startswith('if') \
+             and not stripped.startswith('while'):
             # Rough heuristic for global vars
-            if ' ' in stripped and not '{' in stripped and not stripped.startswith('return'):
+            if ' ' in stripped and '{' not in stripped \
+               and not stripped.startswith('return'):
                 context_lines.append(line)
 
     return '\n'.join(context_lines)

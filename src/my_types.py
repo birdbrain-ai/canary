@@ -43,7 +43,7 @@ class FunctionDraft:
 
     def __init__(self, function_info):
         self.compile_success = False
-        self.dead_end = False
+        self.dead_end = True
         self.vectorization_success = False
         self.reviewer_feedback = ""
         self.modified_function_text = function_info

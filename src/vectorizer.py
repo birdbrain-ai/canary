@@ -40,12 +40,13 @@ def compile_code(state: VectorizationState):
         relevant_remarks.append(filter_remarks_by_function(remark_file,
                                                            cur_function_name))
 
+    # TODO(akash): obviously just replace this with a compiler option instead of filtering it manually
+    # Just make the compiler only output warnings and errors instead of an insane quantity of notes...
     compilation_feedback = extract_compilation_errors(result.stderr)
         
     os.chdir(cur_working_dir)
 
     return {
-        # TODO(akash): this is lazy. we need to extract the relevant parts from stderr for this to be effective
         "compiler_feedback": compilation_feedback,
         "optimization_remarks": "\n".join(relevant_remarks)
     }
