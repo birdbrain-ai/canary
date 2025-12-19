@@ -14,6 +14,9 @@ from mock_llm import MockLLM
 
 # Node: compile_code
 def compile_code(state: VectorizationState):
+    logger = LLMLogger(state["log_dir"])
+    logger.log_state(state, "compile_code", "before")
+    
     bench_path = state["bench_path"]
     cur_working_dir = os.getcwd()
     make_command = state["make_command"]
@@ -48,18 +51,28 @@ def compile_code(state: VectorizationState):
         
     os.chdir(cur_working_dir)
 
-    return {
+    result_dict = {
         "compiler_feedback": compilation_feedback,
         "optimization_remarks": "\n".join(relevant_remarks)
     }
+    
+    after_state = state.copy()
+    after_state.update(result_dict)
+    logger.log_state(after_state, "compile_code", "after")
+    
+    return result_dict
 
 
 # Node: run_code
 def run_code(state: VectorizationState):
+    logger = LLMLogger(state["log_dir"])
+    logger.log_state(state, "run_code", "before")
+    
     run_command = state['run_command']
 
     if not run_command:
         print("No run command provided")
+        logger.log_state(state, "run_code", "after")
         return {}
 
     bench_path = state['bench_path']
@@ -79,11 +92,15 @@ def run_code(state: VectorizationState):
     
     os.chdir(cur_working_dir)
     
+    logger.log_state(state, "run_code", "after")
     return {}
 
 
 # Node: reviewer
 def reviewer(state: VectorizationState):
+    logger = LLMLogger(state["log_dir"])
+    logger.log_state(state, "reviewer", "before")
+    
     function_drafts = state["function_drafts"]
     current_iteration = state["current_iteration"]
     cur_function_draft = function_drafts[current_iteration]
@@ -100,6 +117,7 @@ def reviewer(state: VectorizationState):
         compile_success_str = "The function did successfully compile."
         cur_function_draft.compile_success = True
     else:
+        logger.log_state(state, "reviewer", "after")
         return {}
         
         
@@ -171,7 +189,6 @@ YOUR OUTPUT:
             mock = MockLLM()
             output = mock.generate(prompt, "reviewer")
 
-        logger = LLMLogger(state["log_dir"])
         logger.log_llm_call(
             iteration=current_iteration,
             file_path=state["file_path"],
@@ -185,10 +202,17 @@ YOUR OUTPUT:
         new_function_draft = cur_function_draft
         function_drafts[current_iteration] = new_function_draft
         
-        return {
+        result_dict = {
             "function_drafts": function_drafts
         }
+        
+        after_state = state.copy()
+        after_state.update(result_dict)
+        logger.log_state(after_state, "reviewer", "after")
+        
+        return result_dict
 
+    logger.log_state(state, "reviewer", "after")
     return {}
 
 
@@ -199,14 +223,26 @@ def parse_reviewer_output(output):
 
 # Node: increment
 def increment(state: VectorizationState):
+    logger = LLMLogger(state["log_dir"])
+    logger.log_state(state, "increment", "before")
+    
     current_iteration = state["current_iteration"]
-    return {
+    result_dict = {
         "current_iteration": current_iteration + 1
     }
+    
+    after_state = state.copy()
+    after_state.update(result_dict)
+    logger.log_state(after_state, "increment", "after")
+    
+    return result_dict
 
 
 # Node: manager
 def manager(state: VectorizationState):
+    logger = LLMLogger(state["log_dir"])
+    logger.log_state(state, "manager", "before")
+    
     function_drafts = state["function_drafts"]
     make_command = state["make_command"]
     # TODO(akash): revise the way 'function_drafts' is printed - it's currently very lazy
@@ -248,7 +284,6 @@ YOUR OUTPUT:
         result = mock.generate(prompt, "manager")
 
     current_iteration = state["current_iteration"]
-    logger = LLMLogger(state["log_dir"])
     logger.log_llm_call(
         iteration=current_iteration,
         file_path=state["file_path"],
@@ -260,13 +295,22 @@ YOUR OUTPUT:
 
     # TODO(akash). Parse manager agent's output.
     
-    return {
+    result_dict = {
         "manager_chosen_i": 0
     }
+    
+    after_state = state.copy()
+    after_state.update(result_dict)
+    logger.log_state(after_state, "manager", "after")
+    
+    return result_dict
 
 
 # Node: engineer
 def engineer(state: VectorizationState):
+    logger = LLMLogger(state["log_dir"])
+    logger.log_state(state, "engineer", "before")
+    
     program_slice = state["program_slice"]
     make_command = state["make_command"]
 
@@ -331,7 +375,7 @@ For each code change, create a JSON object:
 Examples:
 - Add variable: {{"action_type": "code_replace", "start_line": 0, "end_line": 0, "new_code": "int temp = 0;", "reasoning": "Add local temporary"}}
 - Replace line: {{"action_type": "code_replace", "start_line": 5, "end_line": 5, "new_code": "result[i] = a[i] * factor;", "reasoning": "Use hoisted variable"}}
-- Multi-line: {{"action_type": "code_replace", "start_line": 3, "end_line": 5, "new_code": "for (int i = 0; i < n; i++) {{\n    output[i] = input[i];\n}}", "reasoning": "Simplify loop"}}
+- Multi-line: {{"action_type": "code_replace", "start_line": 3, "end_line": 5, "new_code": "for (int i = 0; i < n; i++) {{\\n    output[i] = input[i];\\n}}", "reasoning": "Simplify loop"}}
 
 CRITICAL OUTPUT RULES:
 - Output a JSON ARRAY: [{{...}}] or [{{...}}, {{...}}] for multiple actions
@@ -348,7 +392,6 @@ CRITICAL OUTPUT RULES:
         response = mock.generate(prompt, "engineer")
 
     current_iteration = state["current_iteration"]
-    logger = LLMLogger(state["log_dir"])
     logger.log_llm_call(
         iteration=current_iteration,
         file_path=state["file_path"],
@@ -363,13 +406,23 @@ CRITICAL OUTPUT RULES:
     new_func_info = current_function_info
     current_iteration = state["current_iteration"]
     function_drafts[current_iteration] = FunctionDraft(new_func_info)
-    return {
+    
+    result_dict = {
         "function_drafts": function_drafts
     }
+    
+    after_state = state.copy()
+    after_state.update(result_dict)
+    logger.log_state(after_state, "engineer", "after")
+    
+    return result_dict
 
 
 # Node: finalize
 def finalize(state: VectorizationState):
+    logger = LLMLogger(state["log_dir"])
+    logger.log_state(state, "finalize", "before")
+    
     function_drafts = state["function_drafts"]
 
     final_draft = None
@@ -384,6 +437,7 @@ def finalize(state: VectorizationState):
 
     # TODO(akash): Write the function draft to the function to the file
 
+    logger.log_state(state, "finalize", "after")
     return {}
 
 

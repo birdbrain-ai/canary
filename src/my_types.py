@@ -48,6 +48,15 @@ class FunctionDraft:
         self.reviewer_feedback = ""
         self.modified_function_text = function_info
 
+    def to_dict(self):
+        return {
+            "compile_success": self.compile_success,
+            "dead_end": self.dead_end,
+            "vectorization_success": self.vectorization_success,
+            "reviewer_feedback": self.reviewer_feedback,
+            "modified_function_text": self.modified_function_text
+        }
+
 
 class VectorizationState(TypedDict):
     bench_path: str # const
