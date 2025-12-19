@@ -28,8 +28,8 @@ class MockLLM:
         elif call_type == "manager":
             return """
 {
-  "i": 0,
-  "explanation": "Mock manager choice: Draft 0 seems most promising based on heuristics."
+  "i": 1,
+  "explanation": "Mock manager choice: Draft 1 seems most promising based on heuristics."
 }
 """
         elif call_type == "engineer":
