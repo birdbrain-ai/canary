@@ -858,6 +858,8 @@ CRITICAL OUTPUT RULES:
         print(f"✅ Engineer suggested {len(actions)} action(s)")
         # Apply actions to create modified function
         new_func_info = apply_actions_to_function(current_function_info, actions)
+
+    # TODO(akash): write the new_func_info to file
     
     # Create new function draft with modified function
     current_iteration = state["current_iteration"]
