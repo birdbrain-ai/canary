@@ -38,6 +38,7 @@ env/
 # Benchmark artifacts
 *_base/
 *_AI_*/
+*_logs/
 
 # Optimization remarks
 *.opt.yaml
