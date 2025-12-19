@@ -3,10 +3,11 @@ from typing import TypedDict, Dict
 from langchain_openai import ChatOpenAI
 
 
-# llm = ChatOpenAI(
-#     model="Qwen/Qwen2.5-Coder-7B-Instruct", 
-#     base_url="http://localhost:8000/v1",
-# )
+llm = ChatOpenAI(
+    model="Qwen/Qwen2.5-Coder-7B-Instruct", 
+    api_key="",
+    base_url="http://localhost:8000/v1",
+)
 
 
 class PragmaAction(TypedDict):
