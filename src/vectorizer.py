@@ -117,9 +117,8 @@ def reviewer(state: VectorizationState):
         compile_success_str = "The function did successfully compile."
         cur_function_draft.compile_success = True
     else:
-        logger.log_state(state, "reviewer", "after")
-        return {}
-        
+        compile_success_str = "The function FAILED to compile with the provided feedback below."
+        cur_function_draft.compile_success = False
         
     vectorization_success = "!Passed" in optimization_remarks
     cur_function_draft.vectorization_success = vectorization_success
@@ -604,58 +603,72 @@ def parse_engineer_output(output: str) -> list[PragmaAction | CodeReplaceAction]
         action_type = action.get("action_type")
         
         if action_type == "pragma":
-            # Validate pragma action fields
-            required = ["action_type", "line_number", "pragma_type", "reasoning"]
-            missing = [f for f in required if f not in action]
-            if missing:
-                print(f"⚠️  PragmaAction {i} missing fields: {missing}")
-                return None
-            
-            # Validate pragma_type
-            valid_pragma_types = ["vectorize", "interleave", "vectorize_width"]
-            if action["pragma_type"] not in valid_pragma_types:
-                print(f"⚠️  Invalid pragma_type in action {i}: {action['pragma_type']}")
-                return None
-            
-            try:
-                pragma_action: PragmaAction = {
-                    "action_type": "pragma",
-                    "line_number": int(action["line_number"]),
-                    "pragma_type": action["pragma_type"],
-                    "width": int(action["width"]) if action.get("width") is not None else None,
-                    "reasoning": str(action["reasoning"])
-                }
-                actions.append(pragma_action)
-            except (ValueError, TypeError) as e:
-                print(f"⚠️  Failed to convert PragmaAction {i} fields: {e}")
-                return None
-            
+            validated_action = validate_and_cast_pragma_action(action, i)
         elif action_type == "code_replace":
-            # Validate code_replace action fields
-            required = ["action_type", "start_line", "end_line", "new_code", "reasoning"]
-            missing = [f for f in required if f not in action]
-            if missing:
-                print(f"⚠️  CodeReplaceAction {i} missing fields: {missing}")
-                return None
-            
-            try:
-                code_action: CodeReplaceAction = {
-                    "action_type": "code_replace",
-                    "start_line": int(action["start_line"]),
-                    "end_line": int(action["end_line"]),
-                    "new_code": str(action["new_code"]),
-                    "reasoning": str(action["reasoning"])
-                }
-                actions.append(code_action)
-            except (ValueError, TypeError) as e:
-                print(f"⚠️  Failed to convert CodeReplaceAction {i} fields: {e}")
-                return None
-            
+            validated_action = validate_and_cast_code_replace_action(action, i)
         else:
             print(f"⚠️  Unknown action_type in action {i}: {action_type}")
             return None
+        
+        if validated_action is None:
+            return None
+        
+        actions.append(validated_action)
     
     return actions
+
+
+# Helper: Write function to file
+def write_function_to_file(
+    file_path: str,
+    function_info: FunctionInfo,
+    replace_start: int | None = None,
+    replace_end: int | None = None
+) -> bool:
+    """
+    Write a modified function back to its source file.
+    
+    Args:
+        file_path: Absolute path to the source file
+        function_info: FunctionInfo with modified full_text to write
+        replace_start: Start line to replace (0-indexed). If None, use function_info["start_line"]
+        replace_end: End line to replace (0-indexed). If None, use function_info["end_line"]
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Read the entire file
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Determine range to replace
+        start = replace_start if replace_start is not None else function_info["start_line"]
+        end = replace_end if replace_end is not None else function_info["end_line"]
+        
+        # Validate line numbers
+        if start < 0 or end >= len(lines) or start > end:
+            print(f"⚠️  Invalid line range {start}-{end} for file with {len(lines)} lines")
+            return False
+        
+        # Replace the function lines with the modified function
+        modified_function_lines = function_info["full_text"].splitlines(keepends=True)
+        # Ensure the last line has a newline if it's not the end of the file
+        if modified_function_lines and not modified_function_lines[-1].endswith('\n'):
+            modified_function_lines[-1] += '\n'
+        
+        # Replace the old function with the new one
+        new_lines = lines[:start] + modified_function_lines + lines[end+1:]
+        
+        # Write back to file
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.writelines(new_lines)
+        
+        return True
+        
+    except IOError as e:
+        print(f"⚠️  Failed to write function to {file_path}: {e}")
+        return False
 
 
 # Node: engineer: apply actions to function
@@ -736,6 +749,11 @@ def apply_actions_to_function(
     # Reconstruct the function text
     modified_full_text = "\n".join(lines)
     
+    # Calculate new end_line based on number of lines in modified text
+    # Note: start_line is 0-indexed relative to the file
+    new_num_lines = len(modified_full_text.splitlines())
+    new_end_line = function_info["start_line"] + new_num_lines - 1
+    
     # Create modified function info
     modified_info: FunctionInfo = {
         "name": function_info["name"],
@@ -743,7 +761,7 @@ def apply_actions_to_function(
         "body": modified_full_text,  # Update body as well
         "full_text": modified_full_text,
         "start_line": function_info["start_line"],
-        "end_line": function_info["end_line"]
+        "end_line": new_end_line
     }
     
     return modified_info
@@ -859,7 +877,20 @@ CRITICAL OUTPUT RULES:
         # Apply actions to create modified function
         new_func_info = apply_actions_to_function(current_function_info, actions)
 
-    # TODO(akash): write the new_func_info to file
+    # Write the modified function back to the file
+    file_path = state["file_path"]
+    if new_func_info != current_function_info:
+        # Use current_function_info's coordinates for replacement
+        success = write_function_to_file(
+            file_path, 
+            new_func_info,
+            replace_start=current_function_info["start_line"],
+            replace_end=current_function_info["end_line"]
+        )
+        if success:
+            print(f"✅ Wrote modified function to {file_path}")
+        else:
+            print(f"⚠️  Failed to write function to file, continuing anyway")
     
     # Create new function draft with modified function
     current_iteration = state["current_iteration"]
@@ -884,19 +915,47 @@ def finalize(state: VectorizationState):
     function_drafts = state["function_drafts"]
 
     final_draft = None
-    
-    for i in range(len(function_drafts)):
+
+    the_thing_i_want_to_return = 0
+    # Find the best draft
+    # Priority 1: First draft that is both compiled and vectorized
+    for i in range(len(function_drafts) - 1, -1, -1):
         if function_drafts[i].compile_success and function_drafts[i].vectorization_success:
             final_draft = function_drafts[i]
+            the_thing_i_want_to_return = i
             break
 
+    # Priority 2: Fall back to draft 0
     if final_draft is None:
         final_draft = function_drafts[0]
+        the_thing_i_want_to_return = 0
 
-    # TODO(akash): Write the function draft to the function to the file
+    # Write the final function draft to the file
+    file_path = state["file_path"]
+    final_function_info = final_draft.modified_function_text
+    
+    # Replace the range occupied by the LAST draft that was written to the file
+    last_iteration = max(function_drafts.keys())
+    last_draft_info = function_drafts[last_iteration].modified_function_text
+    
+    success = write_function_to_file(
+        file_path, 
+        final_function_info,
+        replace_start=last_draft_info["start_line"],
+        replace_end=last_draft_info["end_line"]
+    )
+    
+    if success:
+        print(f"✅ Finalized and wrote function '{final_function_info['name']}' to {file_path}")
+        if final_draft.vectorization_success:
+            print(f"🎉 Function was successfully vectorized!")
+    else:
+        print(f"⚠️  Failed to write final function to file")
 
     logger.log_state(state, "finalize", "after")
-    return {}
+    return {
+        "manager_chosen_i": the_thing_i_want_to_return
+    }
 
 
 # Decision point: should_continue
@@ -964,6 +1023,8 @@ def vectorize_benchmark(benchmark_dir: str,
     print(f"{'='*60}\n")
 
     print(f"Copying {benchmark_dir}")
+    if os.path.exists(opt_dir):
+        shutil.rmtree(opt_dir)
     shutil.copytree(abs_benchmark_dir, opt_dir)
     print(f"{'='*60}\n")
 
@@ -972,13 +1033,29 @@ def vectorize_benchmark(benchmark_dir: str,
     
     target_files = find_target_files(opt_dir)
     for current_file in target_files:
+        # Initial read to find out how many functions we have
         loader = TextLoader(current_file, encoding='utf-8')
         document = loader.load()
-        code: str = document[0].page_content
-        program_slice: str = extract_file_context(code)
-        functions: List[FunctionInfo] = extract_functions(code)
+        initial_code: str = document[0].page_content
+        initial_functions: List[FunctionInfo] = extract_functions(initial_code)
+        num_functions = len(initial_functions)
 
-        for function in functions:
+        for func_idx in range(num_functions):
+            # Re-read the file every time to get updated line numbers if it was modified
+            loader = TextLoader(current_file, encoding='utf-8')
+            document = loader.load()
+            code: str = document[0].page_content
+            
+            # Re-extract context and functions to handle line number shifts
+            program_slice: str = extract_file_context(code)
+            functions: List[FunctionInfo] = extract_functions(code)
+            
+            if func_idx >= len(functions):
+                print(f"⚠️  Warning: Expected {num_functions} functions but found {len(functions)} in {current_file} at index {func_idx}")
+                continue
+
+            function = functions[func_idx]
+            
             # Construct an initial state
             initial_function_draft: FunctionDraft = FunctionDraft(function)
             initial_state = VectorizationState(
@@ -1002,7 +1079,10 @@ def vectorize_benchmark(benchmark_dir: str,
             )
 
             # Pass it to LangGraph workflow: Compile -> Run -> Reviewer -> Manager -> Engineer
+            print(f"🚀 Starting vectorization workflow for function: {function['name']} in {os.path.basename(current_file)}")
             final_state = vectorization_graph.invoke(initial_state)
+
+    return {"success": True}
 
 
 if __name__ == "__main__":
