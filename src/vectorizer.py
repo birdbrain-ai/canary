@@ -424,7 +424,7 @@ OUTPUT RULES:
 EXAMPLE OUTPUT:
 ```
 {{
-  "i": 2,
+  "i": {state["current_iteration"] - 1},
   "explanation": "It was the only function draft that was successfully autovectorized. This is a good starting point for further autovectorization attempts."
 }}
 ```
