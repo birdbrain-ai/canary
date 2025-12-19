@@ -9,6 +9,7 @@ from more_helpers import extract_functions, find_files_with_ext, find_target_fil
 from typing import List
 from my_types import FunctionInfo, FunctionDraft, VectorizationState
 from logger import LLMLogger
+from mock_llm import MockLLM
 
 
 # Node: compile_code
@@ -165,6 +166,10 @@ YOUR OUTPUT:
         """
 
         output = prompt
+        
+        if state.get("use_mock_llm", False):
+            mock = MockLLM()
+            output = mock.generate(prompt, "reviewer")
 
         logger = LLMLogger(state["log_dir"])
         logger.log_llm_call(
@@ -237,6 +242,10 @@ YOUR OUTPUT:
     """
 
     result = prompt
+    
+    if state.get("use_mock_llm", False):
+        mock = MockLLM()
+        result = mock.generate(prompt, "manager")
 
     current_iteration = state["current_iteration"]
     logger = LLMLogger(state["log_dir"])
@@ -334,6 +343,10 @@ CRITICAL OUTPUT RULES:
     """
     response = prompt
 
+    if state.get("use_mock_llm", False):
+        mock = MockLLM()
+        response = mock.generate(prompt, "engineer")
+
     current_iteration = state["current_iteration"]
     logger = LLMLogger(state["log_dir"])
     logger.log_llm_call(
@@ -418,7 +431,8 @@ def create_vectorization_graph():
 def vectorize_benchmark(benchmark_dir: str,
                         make_command: str,
                         max_iterations: int,
-                        run_command: str):
+                        run_command: str,
+                        mock: bool = False):
 
     abs_benchmark_dir = os.path.abspath(benchmark_dir)
     benchmark_name = os.path.basename(abs_benchmark_dir)
@@ -471,7 +485,8 @@ def vectorize_benchmark(benchmark_dir: str,
                 function_drafts={
                     0: initial_function_draft
                 },
-                log_dir=os.path.join(current_dir, f"{benchmark_name}_logs")
+                log_dir=os.path.join(current_dir, f"{benchmark_name}_logs"),
+                use_mock_llm=mock
             )
 
             # Pass it to LangGraph workflow: Compile -> Run -> Reviewer -> Manager -> Engineer
@@ -520,6 +535,12 @@ Examples:
         help="Number of iterative refinement passes (default: 3)"
     )
 
+    parser.add_argument(
+        "--mock",
+        action="store_true",
+        help="Use mock LLM responses for testing"
+    )
+
     args = parser.parse_args()
 
     # Determine mode based on path type
@@ -534,7 +555,8 @@ Examples:
             args.path,
             args.make_command,
             max_iterations=args.iterations,
-            run_command=args.run_command
+            run_command=args.run_command,
+            mock=args.mock
         )
     else:
         print(f"✗ Error: Directory not found: {args.path}")
