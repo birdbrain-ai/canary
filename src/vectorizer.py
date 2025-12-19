@@ -365,10 +365,18 @@ YOUR OUTPUT:
         function_name=function_drafts[0].modified_function_text["name"]
     )
 
-    # TODO(akash). Parse manager agent's output, and update vectorization state. 
+    # Parse manager agent's output and update vectorization state
+    parsed = parse_manager_output(result)
+    
+    if parsed:
+        chosen_index = parsed.get("i", 0)
+        # print(f"✅ Manager chose draft {chosen_index}: {parsed.get('explanation', 'No explanation')}")
+    else:
+        print("⚠️  Failed to parse manager output, defaulting to draft 0")
+        chosen_index = 0
     
     result_dict = {
-        "manager_chosen_i": 0
+        "manager_chosen_i": chosen_index
     }
     
     after_state = state.copy()
@@ -376,6 +384,56 @@ YOUR OUTPUT:
     logger.log_state(after_state, "manager", "after")
     
     return result_dict
+
+
+# Node: manager: parse output
+def parse_manager_output(output: str) -> dict | None:
+    """
+    Parse the manager LLM output to extract the chosen draft index.
+    
+    Expected format:
+    {
+      "i": int,
+      "explanation": str
+    }
+    
+    Returns:
+        dict with 'i' and 'explanation' keys, or None if parsing fails
+    """
+    import json
+    import re
+    
+    # Try to extract JSON from the output
+    # First, try to find JSON in code blocks
+    json_match = re.search(r'```(?:json)?\\s*({[^`]+})\\s*```', output, re.DOTALL)
+    if json_match:
+        json_str = json_match.group(1)
+    else:
+        # Try to find raw JSON object
+        json_match = re.search(r'{[^{}]*"i"[^{}]*"explanation"[^{}]*}', output, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(0)
+        else:
+            # Last resort: assume the entire output is JSON
+            json_str = output.strip()
+    
+    try:
+        parsed = json.loads(json_str)
+        
+        # Validate required fields
+        if "i" in parsed and "explanation" in parsed:
+            return {
+                "i": int(parsed["i"]),
+                "explanation": str(parsed["explanation"])
+            }
+        else:
+            print(f"⚠️  Missing required fields in manager output: {parsed}")
+            return None
+            
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"⚠️  Failed to parse manager JSON: {e}")
+        print(f"    Output was: {output[:200]}...")
+        return None
 
 
 # Node: engineer
