@@ -7,7 +7,7 @@ import shutil
 import argparse
 from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
 from typing import List
-from my_types import FunctionInfo, FunctionDraft, VectorizationState, PragmaAction, CodeReplaceAction
+from my_types import llm, FunctionInfo, FunctionDraft, VectorizationState, PragmaAction, CodeReplaceAction
 from logger import LLMLogger
 from mock_llm import MockLLM
 
@@ -182,7 +182,7 @@ YOUR OUTPUT:
 
         """
 
-        output = prompt
+        output: str = llm.invoke(prompt)
         
         if state.get("use_mock_llm", False):
             mock = MockLLM()
@@ -431,7 +431,7 @@ YOUR OUTPUT:
     
     """
 
-    result = prompt
+    result: str = llm.invoke(prompt)
     
     if state.get("use_mock_llm", False):
         mock = MockLLM()
@@ -847,7 +847,7 @@ CRITICAL OUTPUT RULES:
 - Output ONLY the JSON array, nothing else
     
     """
-    response = prompt
+    response:str = llm.invoke(prompt)
 
     if state.get("use_mock_llm", False):
         mock = MockLLM()
