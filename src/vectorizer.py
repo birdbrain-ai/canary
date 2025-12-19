@@ -785,13 +785,18 @@ def engineer(state: VectorizationState):
     current_function_info = current_function_draft.modified_function_text
     current_function_body = current_function_info["full_text"]
 
+    # Add line numbers to function body for clarity
+    numbered_function_body = "\n".join(
+        f"{i}: {line}" for i, line in enumerate(current_function_body.split("\n"))
+    )
+
     prompt = f"""Your task is to take a function and modify it to make it easier to autovectorize.
 
-The FUNCTION is:
+The FUNCTION is (with line numbers):
 
-{current_function_body}
+{numbered_function_body}
 
-It starts at {current_function_info["start_line"]} and ends at {current_function_info["end_line"]}
+(This function starts at line {current_function_info["start_line"]} in the original file)
 
 The surrounding context is:
 
@@ -820,7 +825,7 @@ OPTION 1 - PRAGMA ACTIONS (for simple vectorization hints):
 For each loop that needs a pragma, create a JSON object:
 {{
   "action_type": "pragma",
-  "line_number": <line number of the 'for' statement>,
+  "line_number": <line number from the numbered function above>,
   "pragma_type": "vectorize" OR "interleave" OR "vectorize_width",
   "width": <number (only if pragma_type is vectorize_width), otherwise null>,
   "reasoning": "<brief explanation>"
@@ -830,8 +835,8 @@ OPTION 2 - CODE REPLACE (for targeted code changes):
 For each code change, create a JSON object:
 {{
   "action_type": "code_replace",
-  "start_line": <start line number (0-indexed)>,
-  "end_line": <end line number (0-indexed, inclusive)>,
+  "start_line": <start line number from the numbered function above>,
+  "end_line": <end line number from the numbered function above (inclusive)>,
   "new_code": "<replacement code (can be multi-line)>",
   "reasoning": "<brief explanation>"
 }}
