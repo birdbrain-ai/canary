@@ -418,7 +418,7 @@ OUTPUT RULES:
   "explanation": str,
 }}
 ```
-- Your output i must be the identifier for one of the function drafts. It cannot be less than 0, and it cannot be greater than the id of the last function draft. 
+- Your output i must be in the valid range: 0 <= i < {state["current_iteration"]}. This means i can be between 0 and {state["current_iteration"] - 1} (inclusive). DO NOT output any value outside this range. 
 
 
 EXAMPLE OUTPUT:
