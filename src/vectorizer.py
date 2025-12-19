@@ -414,8 +414,8 @@ OUTPUT RULES:
 - Your output MUST be a JSON object in the following format.
 ```
 {{
-  i: int,
-  explanation: str,
+  "i": int,
+  "explanation": str,
 }}
 ```
 - Your output i must be the identifier for one of the function drafts. It cannot be less than 0, and it cannot be greater than the id of the last function draft. 
@@ -424,8 +424,8 @@ OUTPUT RULES:
 EXAMPLE OUTPUT:
 ```
 {{
-  i: 2,
-  explanation: It was the only function draft that was successfully autovectorized. This is a good starting point for further autovectorization attempts.
+  "i": 2,
+  "explanation": "It was the only function draft that was successfully autovectorized. This is a good starting point for further autovectorization attempts."
 }}
 ```
 
