@@ -225,6 +225,70 @@ YOUR OUTPUT:
     return {}
 
 
+# Generic JSON parser for LLM outputs
+def parse_llm_json_output(
+    output: str,
+    required_fields: dict[str, type],
+    agent_name: str = "LLM"
+) -> dict | None:
+    """
+    Generic JSON parser for LLM outputs.
+    
+    Args:
+        output: Raw LLM output string
+        required_fields: Dict mapping field names to their expected types
+                        e.g., {"dead_end": bool, "reviewer_feedback": str}
+        agent_name: Name of the agent for error messages
+    
+    Returns:
+        Parsed and validated dict, or None if parsing fails
+    """
+    import json
+    import re
+    
+    # Try to extract JSON from the output
+    # First, try to find JSON in code blocks
+    json_match = re.search(r'```(?:json)?\s*({[^`]+})\s*```', output, re.DOTALL)
+    if json_match:
+        json_str = json_match.group(1)
+    else:
+        # Try to find raw JSON object with any of the required fields
+        # Build a pattern that looks for any required field
+        field_names = '|'.join(re.escape(f'"{field}"') for field in required_fields.keys())
+        pattern = rf'{{[^{{}}]*(?:{field_names})[^{{}}]*}}'
+        json_match = re.search(pattern, output, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(0)
+        else:
+            # Last resort: assume the entire output is JSON
+            json_str = output.strip()
+    
+    try:
+        parsed = json.loads(json_str)
+        
+        # Validate required fields
+        missing_fields = [field for field in required_fields if field not in parsed]
+        if missing_fields:
+            print(f"⚠️  Missing required fields in {agent_name} output: {missing_fields}")
+            return None
+        
+        # Type-cast fields according to required_fields
+        result = {}
+        for field, expected_type in required_fields.items():
+            try:
+                result[field] = expected_type(parsed[field])
+            except (ValueError, TypeError) as e:
+                print(f"⚠️  Failed to convert {field} to {expected_type.__name__} in {agent_name} output: {e}")
+                return None
+        
+        return result
+            
+    except json.JSONDecodeError as e:
+        print(f"⚠️  Failed to parse {agent_name} JSON: {e}")
+        print(f"    Output was: {output[:200]}...")
+        return None
+
+
 # Node: reviewer: parse output
 def parse_reviewer_output(output: str) -> dict | None:
     """
@@ -239,40 +303,11 @@ def parse_reviewer_output(output: str) -> dict | None:
     Returns:
         dict with 'dead_end' and 'reviewer_feedback' keys, or None if parsing fails
     """
-    import json
-    import re
-    
-    # Try to extract JSON from the output
-    # First, try to find JSON in code blocks
-    json_match = re.search(r'```(?:json)?\s*({[^`]+})\s*```', output, re.DOTALL)
-    if json_match:
-        json_str = json_match.group(1)
-    else:
-        # Try to find raw JSON object
-        json_match = re.search(r'{[^{}]*"dead_end"[^{}]*"reviewer_feedback"[^{}]*}', output, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(0)
-        else:
-            # Last resort: assume the entire output is JSON
-            json_str = output.strip()
-    
-    try:
-        parsed = json.loads(json_str)
-        
-        # Validate required fields
-        if "dead_end" in parsed and "reviewer_feedback" in parsed:
-            return {
-                "dead_end": bool(parsed["dead_end"]),
-                "reviewer_feedback": str(parsed["reviewer_feedback"])
-            }
-        else:
-            print(f"⚠️  Missing required fields in reviewer output: {parsed}")
-            return None
-            
-    except json.JSONDecodeError as e:
-        print(f"⚠️  Failed to parse reviewer JSON: {e}")
-        print(f"    Output was: {output[:200]}...")
-        return None
+    return parse_llm_json_output(
+        output,
+        required_fields={"dead_end": bool, "reviewer_feedback": str},
+        agent_name="reviewer"
+    )
 
 
 # Node: increment
@@ -406,40 +441,11 @@ def parse_manager_output(output: str) -> dict | None:
     Returns:
         dict with 'i' and 'explanation' keys, or None if parsing fails
     """
-    import json
-    import re
-    
-    # Try to extract JSON from the output
-    # First, try to find JSON in code blocks
-    json_match = re.search(r'```(?:json)?\\s*({[^`]+})\\s*```', output, re.DOTALL)
-    if json_match:
-        json_str = json_match.group(1)
-    else:
-        # Try to find raw JSON object
-        json_match = re.search(r'{[^{}]*"i"[^{}]*"explanation"[^{}]*}', output, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(0)
-        else:
-            # Last resort: assume the entire output is JSON
-            json_str = output.strip()
-    
-    try:
-        parsed = json.loads(json_str)
-        
-        # Validate required fields
-        if "i" in parsed and "explanation" in parsed:
-            return {
-                "i": int(parsed["i"]),
-                "explanation": str(parsed["explanation"])
-            }
-        else:
-            print(f"⚠️  Missing required fields in manager output: {parsed}")
-            return None
-            
-    except (json.JSONDecodeError, ValueError) as e:
-        print(f"⚠️  Failed to parse manager JSON: {e}")
-        print(f"    Output was: {output[:200]}...")
-        return None
+    return parse_llm_json_output(
+        output,
+        required_fields={"i": int, "explanation": str},
+        agent_name="manager"
+    )
 
 
 # Node: engineer
