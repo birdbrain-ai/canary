@@ -198,9 +198,18 @@ YOUR OUTPUT:
             function_name=cur_function_name
         )
 
-        # TODO(akash): Parse reviewer agent's output. 
-        new_function_draft = cur_function_draft
-        function_drafts[current_iteration] = new_function_draft
+        # Parse reviewer agent's output
+        parsed = parse_reviewer_output(output)
+        
+        if parsed:
+            cur_function_draft.dead_end = parsed.get("dead_end", True)
+            cur_function_draft.reviewer_feedback = parsed.get("reviewer_feedback", "")
+        else:
+            print("⚠️  Failed to parse reviewer output, using defaults")
+            cur_function_draft.dead_end = True
+            cur_function_draft.reviewer_feedback = ""
+        
+        function_drafts[current_iteration] = cur_function_draft
         
         result_dict = {
             "function_drafts": function_drafts
@@ -217,8 +226,53 @@ YOUR OUTPUT:
 
 
 # Node: reviewer: parse output
-def parse_reviewer_output(output):
-    pass
+def parse_reviewer_output(output: str) -> dict | None:
+    """
+    Parse the reviewer LLM output to extract JSON.
+    
+    Expected format:
+    {
+      "dead_end": bool,
+      "reviewer_feedback": str
+    }
+    
+    Returns:
+        dict with 'dead_end' and 'reviewer_feedback' keys, or None if parsing fails
+    """
+    import json
+    import re
+    
+    # Try to extract JSON from the output
+    # First, try to find JSON in code blocks
+    json_match = re.search(r'```(?:json)?\s*({[^`]+})\s*```', output, re.DOTALL)
+    if json_match:
+        json_str = json_match.group(1)
+    else:
+        # Try to find raw JSON object
+        json_match = re.search(r'{[^{}]*"dead_end"[^{}]*"reviewer_feedback"[^{}]*}', output, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(0)
+        else:
+            # Last resort: assume the entire output is JSON
+            json_str = output.strip()
+    
+    try:
+        parsed = json.loads(json_str)
+        
+        # Validate required fields
+        if "dead_end" in parsed and "reviewer_feedback" in parsed:
+            return {
+                "dead_end": bool(parsed["dead_end"]),
+                "reviewer_feedback": str(parsed["reviewer_feedback"])
+            }
+        else:
+            print(f"⚠️  Missing required fields in reviewer output: {parsed}")
+            return None
+            
+    except json.JSONDecodeError as e:
+        print(f"⚠️  Failed to parse reviewer JSON: {e}")
+        print(f"    Output was: {output[:200]}...")
+        return None
 
 
 # Node: increment
