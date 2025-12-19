@@ -182,7 +182,7 @@ YOUR OUTPUT:
 
         """
 
-        output: str = llm.invoke(prompt)
+        output: str = llm.invoke(prompt).content
         
         if state.get("use_mock_llm", False):
             mock = MockLLM()
@@ -431,7 +431,7 @@ YOUR OUTPUT:
     
     """
 
-    result: str = llm.invoke(prompt)
+    result: str = llm.invoke(prompt).content
     
     if state.get("use_mock_llm", False):
         mock = MockLLM()
@@ -847,7 +847,7 @@ CRITICAL OUTPUT RULES:
 - Output ONLY the JSON array, nothing else
     
     """
-    response:str = llm.invoke(prompt)
+    response:str = llm.invoke(prompt).content
 
     if state.get("use_mock_llm", False):
         mock = MockLLM()
