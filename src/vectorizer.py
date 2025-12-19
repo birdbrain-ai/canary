@@ -7,7 +7,7 @@ import shutil
 import argparse
 from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
 from typing import List
-from my_types import FunctionInfo, FunctionDraft, VectorizationState
+from my_types import FunctionInfo, FunctionDraft, VectorizationState, PragmaAction, CodeReplaceAction
 from logger import LLMLogger
 from mock_llm import MockLLM
 
@@ -289,6 +289,54 @@ def parse_llm_json_output(
         return None
 
 
+# Generic JSON array parser for LLM outputs
+def parse_llm_json_array(
+    output: str,
+    agent_name: str = "LLM"
+) -> list | None:
+    """
+    Generic JSON array parser for LLM outputs.
+    
+    Args:
+        output: Raw LLM output string
+        agent_name: Name of the agent for error messages
+    
+    Returns:
+        Parsed list, or None if parsing fails
+    """
+    import json
+    import re
+    
+    # Try to extract JSON array from the output
+    # First, try to find JSON in code blocks
+    json_match = re.search(r'```(?:json)?\s*(\[.*?\])\s*```', output, re.DOTALL)
+    if json_match:
+        json_str = json_match.group(1)
+    else:
+        # Try to find raw JSON array
+        json_match = re.search(r'\[.*\]', output, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(0)
+        else:
+            # Last resort: assume the entire output is JSON
+            json_str = output.strip()
+    
+    try:
+        parsed = json.loads(json_str)
+        
+        # Validate it's a list
+        if not isinstance(parsed, list):
+            print(f"⚠️  {agent_name} output is not a JSON array: {type(parsed)}")
+            return None
+        
+        return parsed
+            
+    except json.JSONDecodeError as e:
+        print(f"⚠️  Failed to parse {agent_name} JSON array: {e}")
+        print(f"    Output was: {output[:200]}...")
+        return None
+
+
 # Node: reviewer: parse output
 def parse_reviewer_output(output: str) -> dict | None:
     """
@@ -448,6 +496,260 @@ def parse_manager_output(output: str) -> dict | None:
     )
 
 
+# Helper: Validate and cast pragma action
+def validate_and_cast_pragma_action(action: dict, index: int) -> PragmaAction | None:
+    """
+    Validate and type-cast a pragma action from a JSON object.
+    
+    Args:
+        action: Raw JSON object from LLM output
+        index: Index of the action in the array (for error messages)
+    
+    Returns:
+        PragmaAction object, or None if validation fails
+    """
+    # Validate required fields
+    required = ["action_type", "line_number", "pragma_type", "reasoning"]
+    missing = [f for f in required if f not in action]
+    if missing:
+        print(f"⚠️  PragmaAction {index} missing fields: {missing}")
+        return None
+    
+    # Validate pragma_type
+    valid_pragma_types = ["vectorize", "interleave", "vectorize_width"]
+    if action["pragma_type"] not in valid_pragma_types:
+        print(f"⚠️  Invalid pragma_type in action {index}: {action['pragma_type']}")
+        return None
+    
+    # Type-cast fields
+    try:
+        pragma_action: PragmaAction = {
+            "action_type": "pragma",
+            "line_number": int(action["line_number"]),
+            "pragma_type": action["pragma_type"],
+            "width": int(action["width"]) if action.get("width") is not None else None,
+            "reasoning": str(action["reasoning"])
+        }
+        return pragma_action
+    except (ValueError, TypeError) as e:
+        print(f"⚠️  Failed to convert PragmaAction {index} fields: {e}")
+        return None
+
+
+# Helper: Validate and cast code replace action
+def validate_and_cast_code_replace_action(action: dict, index: int) -> CodeReplaceAction | None:
+    """
+    Validate and type-cast a code replace action from a JSON object.
+    
+    Args:
+        action: Raw JSON object from LLM output
+        index: Index of the action in the array (for error messages)
+    
+    Returns:
+        CodeReplaceAction object, or None if validation fails
+    """
+    # Validate required fields
+    required = ["action_type", "start_line", "end_line", "new_code", "reasoning"]
+    missing = [f for f in required if f not in action]
+    if missing:
+        print(f"⚠️  CodeReplaceAction {index} missing fields: {missing}")
+        return None
+    
+    # Type-cast fields
+    try:
+        code_action: CodeReplaceAction = {
+            "action_type": "code_replace",
+            "start_line": int(action["start_line"]),
+            "end_line": int(action["end_line"]),
+            "new_code": str(action["new_code"]),
+            "reasoning": str(action["reasoning"])
+        }
+        return code_action
+    except (ValueError, TypeError) as e:
+        print(f"⚠️  Failed to convert CodeReplaceAction {index} fields: {e}")
+        return None
+
+
+# Node: engineer: parse output
+def parse_engineer_output(output: str) -> list[PragmaAction | CodeReplaceAction] | None:
+    """
+    Parse the engineer LLM output to extract an array of actions.
+    
+    Expected format:
+    [
+      {"action_type": "pragma", "line_number": int, "pragma_type": str, "width": int|null, "reasoning": str},
+      {"action_type": "code_replace", "start_line": int, "end_line": int, "new_code": str, "reasoning": str}
+    ]
+    
+    Returns:
+        List of PragmaAction and/or CodeReplaceAction objects, or None if parsing fails
+    """
+    # Use generic array parser to extract and parse the JSON array
+    parsed = parse_llm_json_array(output, agent_name="engineer")
+    
+    if parsed is None:
+        return None
+    
+    # Empty array is valid (no modifications needed)
+    if len(parsed) == 0:
+        return []
+    
+    # Validate and type-cast each action
+    actions = []
+    for i, action in enumerate(parsed):
+        if not isinstance(action, dict):
+            print(f"⚠️  Action {i} is not a JSON object: {type(action)}")
+            return None
+        
+        action_type = action.get("action_type")
+        
+        if action_type == "pragma":
+            # Validate pragma action fields
+            required = ["action_type", "line_number", "pragma_type", "reasoning"]
+            missing = [f for f in required if f not in action]
+            if missing:
+                print(f"⚠️  PragmaAction {i} missing fields: {missing}")
+                return None
+            
+            # Validate pragma_type
+            valid_pragma_types = ["vectorize", "interleave", "vectorize_width"]
+            if action["pragma_type"] not in valid_pragma_types:
+                print(f"⚠️  Invalid pragma_type in action {i}: {action['pragma_type']}")
+                return None
+            
+            try:
+                pragma_action: PragmaAction = {
+                    "action_type": "pragma",
+                    "line_number": int(action["line_number"]),
+                    "pragma_type": action["pragma_type"],
+                    "width": int(action["width"]) if action.get("width") is not None else None,
+                    "reasoning": str(action["reasoning"])
+                }
+                actions.append(pragma_action)
+            except (ValueError, TypeError) as e:
+                print(f"⚠️  Failed to convert PragmaAction {i} fields: {e}")
+                return None
+            
+        elif action_type == "code_replace":
+            # Validate code_replace action fields
+            required = ["action_type", "start_line", "end_line", "new_code", "reasoning"]
+            missing = [f for f in required if f not in action]
+            if missing:
+                print(f"⚠️  CodeReplaceAction {i} missing fields: {missing}")
+                return None
+            
+            try:
+                code_action: CodeReplaceAction = {
+                    "action_type": "code_replace",
+                    "start_line": int(action["start_line"]),
+                    "end_line": int(action["end_line"]),
+                    "new_code": str(action["new_code"]),
+                    "reasoning": str(action["reasoning"])
+                }
+                actions.append(code_action)
+            except (ValueError, TypeError) as e:
+                print(f"⚠️  Failed to convert CodeReplaceAction {i} fields: {e}")
+                return None
+            
+        else:
+            print(f"⚠️  Unknown action_type in action {i}: {action_type}")
+            return None
+    
+    return actions
+
+
+# Node: engineer: apply actions to function
+def apply_actions_to_function(
+    function_info: FunctionInfo,
+    actions: list[PragmaAction | CodeReplaceAction]
+) -> FunctionInfo:
+    """
+    Apply a list of actions to a function to create a modified version.
+    
+    Args:
+        function_info: Original function information
+        actions: List of PragmaAction and/or CodeReplaceAction objects
+    
+    Returns:
+        Modified FunctionInfo with updated full_text and body
+    """
+    # Split function text into lines
+    lines = function_info["full_text"].split("\n")
+    
+    # Sort actions by line number (descending) to avoid line number shifts
+    # For code_replace, use start_line; for pragma, use line_number
+    sorted_actions = sorted(
+        actions,
+        key=lambda a: a.get("start_line", a.get("line_number", 0)),
+        reverse=True
+    )
+    
+    for action in sorted_actions:
+        if action["action_type"] == "pragma":
+            # Insert pragma before the specified line
+            line_num = action["line_number"]
+            pragma_type = action["pragma_type"]
+            
+            # Build pragma string
+            if pragma_type == "vectorize":
+                pragma_str = "#pragma clang loop vectorize(enable)"
+            elif pragma_type == "interleave":
+                pragma_str = "#pragma clang loop interleave(enable)"
+            elif pragma_type == "vectorize_width":
+                width = action["width"]
+                pragma_str = f"#pragma clang loop vectorize_width({width})"
+            else:
+                continue  # Skip invalid pragma types
+            
+            # Get indentation of the target line
+            if 0 <= line_num < len(lines):
+                target_line = lines[line_num]
+                indent = len(target_line) - len(target_line.lstrip())
+                pragma_str = " " * indent + pragma_str
+                
+                # Insert pragma before the line
+                lines.insert(line_num, pragma_str)
+        
+        elif action["action_type"] == "code_replace":
+            # Replace lines from start_line to end_line (inclusive)
+            start = action["start_line"]
+            end = action["end_line"]
+            new_code = action["new_code"]
+            
+            # Validate line numbers
+            if start < 0 or end >= len(lines) or start > end:
+                print(f"⚠️  Invalid line range for code_replace: {start}-{end} (function has {len(lines)} lines)")
+                continue
+            
+            # Get indentation from the first line being replaced
+            if start < len(lines):
+                original_line = lines[start]
+                indent = len(original_line) - len(original_line.lstrip())
+                
+                # Apply indentation to new code (if it's multi-line)
+                new_lines = new_code.split("\n")
+                indented_new_lines = [" " * indent + line if line.strip() else line for line in new_lines]
+                
+                # Replace the lines
+                lines[start:end+1] = indented_new_lines
+    
+    # Reconstruct the function text
+    modified_full_text = "\n".join(lines)
+    
+    # Create modified function info
+    modified_info: FunctionInfo = {
+        "name": function_info["name"],
+        "signature": function_info["signature"],
+        "body": modified_full_text,  # Update body as well
+        "full_text": modified_full_text,
+        "start_line": function_info["start_line"],
+        "end_line": function_info["end_line"]
+    }
+    
+    return modified_info
+
+
+
 # Node: engineer
 def engineer(state: VectorizationState):
     logger = LLMLogger(state["log_dir"])
@@ -543,9 +845,21 @@ CRITICAL OUTPUT RULES:
         function_name=current_function_info["name"]
     )
 
-    # TODO(akash). Parse engineer agent's outputs into an array of CodeReplaceAction and PragmaAction objects
-    # TODO(akash): Write the new function text to the file. 
-    new_func_info = current_function_info
+    # Parse engineer agent's outputs into an array of CodeReplaceAction and PragmaAction objects
+    actions = parse_engineer_output(response)
+    
+    if actions is None:
+        print("⚠️  Failed to parse engineer output, using original function")
+        new_func_info = current_function_info
+    elif len(actions) == 0:
+        print("ℹ️  Engineer suggested no modifications")
+        new_func_info = current_function_info
+    else:
+        print(f"✅ Engineer suggested {len(actions)} action(s)")
+        # Apply actions to create modified function
+        new_func_info = apply_actions_to_function(current_function_info, actions)
+    
+    # Create new function draft with modified function
     current_iteration = state["current_iteration"]
     function_drafts[current_iteration] = FunctionDraft(new_func_info)
     
