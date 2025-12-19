@@ -299,16 +299,34 @@ def manager(state: VectorizationState):
     
     function_drafts = state["function_drafts"]
     make_command = state["make_command"]
-    # TODO(akash): revise the way 'function_drafts' is printed - it's currently very lazy
+    
+    # Pretty print function_drafts
+    drafts_str = ""
+    for i, draft in function_drafts.items():
+        drafts_str += f"""
+## Draft {i}
+- **Compile Success**: {draft.compile_success}
+- **Vectorization Success**: {draft.vectorization_success}
+- **Dead End**: {draft.dead_end}
+- **Reviewer Feedback**: {draft.reviewer_feedback if draft.reviewer_feedback else "None"}
+
+**Function Code:**
+```c
+{draft.modified_function_text.get("full_text", "")}
+```
+
+---
+"""
+    
     prompt = f"""Given a few drafts of the same function, pick the function that is most likely to be autovectorized by the compiler.
 
 The command that this function will be compiled with is:
 
 {make_command}
 
-The FUNCTION DRAFTS are in this JSON object:
+The FUNCTION DRAFTS are below:
 
-{function_drafts}
+{drafts_str}
 
 OUTPUT RULES:
 Your output MUST be a JSON object in the following format.
@@ -599,7 +617,6 @@ def vectorize_benchmark(benchmark_dir: str,
 
             # Pass it to LangGraph workflow: Compile -> Run -> Reviewer -> Manager -> Engineer
             final_state = vectorization_graph.invoke(initial_state)
-            print(f"Final State is:\n{final_state}")
 
 
 if __name__ == "__main__":
