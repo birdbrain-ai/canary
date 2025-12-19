@@ -365,7 +365,7 @@ YOUR OUTPUT:
         function_name=function_drafts[0].modified_function_text["name"]
     )
 
-    # TODO(akash). Parse manager agent's output.
+    # TODO(akash). Parse manager agent's output, and update vectorization state. 
     
     result_dict = {
         "manager_chosen_i": 0
