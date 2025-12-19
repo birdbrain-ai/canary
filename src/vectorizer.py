@@ -375,6 +375,12 @@ YOUR OUTPUT:
         print("⚠️  Failed to parse manager output, defaulting to draft 0")
         chosen_index = 0
     
+    # Bounds checking: ensure chosen_index is valid
+    current_iteration = state["current_iteration"]
+    if chosen_index < 0 or chosen_index >= current_iteration:
+        print(f"⚠️  Invalid draft index {chosen_index} (must be 0 <= i < {current_iteration}), defaulting to draft 0")
+        chosen_index = 0
+    
     result_dict = {
         "manager_chosen_i": chosen_index
     }
