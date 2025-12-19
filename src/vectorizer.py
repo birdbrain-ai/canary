@@ -411,13 +411,15 @@ The FUNCTION DRAFTS are below:
 {drafts_str}
 
 OUTPUT RULES:
-Your output MUST be a JSON object in the following format.
+- Your output MUST be a JSON object in the following format.
 ```
 {{
   i: int,
   explanation: str,
 }}
 ```
+- Your output i must be the identifier for one of the function drafts. It cannot be less than 0, and it cannot be greater than the id of the last function draft. 
+
 
 EXAMPLE OUTPUT:
 ```
@@ -880,22 +882,28 @@ CRITICAL OUTPUT RULES:
     # Write the modified function back to the file
     file_path = state["file_path"]
     if new_func_info != current_function_info:
-        # Use current_function_info's coordinates for replacement
+        # Determine what's currently in the file by finding the last written draft
+        # The last written draft is the one from the previous iteration (current_iteration - 1)
+        current_iteration = state["current_iteration"]
+        last_written_index = current_iteration - 1 if current_iteration > 0 else 0
+        last_written_info = function_drafts[last_written_index].modified_function_text
+
+        # Use the last written draft's coordinates for replacement
         success = write_function_to_file(
-            file_path, 
+            file_path,
             new_func_info,
-            replace_start=current_function_info["start_line"],
-            replace_end=current_function_info["end_line"]
+            replace_start=last_written_info["start_line"],
+            replace_end=last_written_info["end_line"]
         )
         if success:
             print(f"✅ Wrote modified function to {file_path}")
         else:
             print(f"⚠️  Failed to write function to file, continuing anyway")
-    
+
     # Create new function draft with modified function
     current_iteration = state["current_iteration"]
     function_drafts[current_iteration] = FunctionDraft(new_func_info)
-    
+
     result_dict = {
         "function_drafts": function_drafts
     }
