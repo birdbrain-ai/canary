@@ -885,25 +885,26 @@ CRITICAL OUTPUT RULES:
         new_func_info = apply_actions_to_function(current_function_info, actions)
 
     # Write the modified function back to the file
+    # Always write to ensure file stays in sync with function_drafts
     file_path = state["file_path"]
-    if new_func_info != current_function_info:
-        # Determine what's currently in the file by finding the last written draft
-        # The last written draft is the one from the previous iteration (current_iteration - 1)
-        current_iteration = state["current_iteration"]
-        last_written_index = current_iteration - 1 if current_iteration > 0 else 0
-        last_written_info = function_drafts[last_written_index].modified_function_text
+    current_iteration = state["current_iteration"]
 
-        # Use the last written draft's coordinates for replacement
-        success = write_function_to_file(
-            file_path,
-            new_func_info,
-            replace_start=last_written_info["start_line"],
-            replace_end=last_written_info["end_line"]
-        )
-        if success:
-            print(f"✅ Wrote modified function to {file_path}")
-        else:
-            print(f"⚠️  Failed to write function to file, continuing anyway")
+    # Determine what's currently in the file by finding the last written draft
+    # The last written draft is the one from the previous iteration (current_iteration - 1)
+    last_written_index = current_iteration - 1 if current_iteration > 0 else 0
+    last_written_info = function_drafts[last_written_index].modified_function_text
+
+    # Use the last written draft's coordinates for replacement
+    success = write_function_to_file(
+        file_path,
+        new_func_info,
+        replace_start=last_written_info["start_line"],
+        replace_end=last_written_info["end_line"]
+    )
+    if success:
+        print(f"✅ Wrote modified function to {file_path}")
+    else:
+        print(f"⚠️  Failed to write function to file, continuing anyway")
 
     # Create new function draft with modified function
     current_iteration = state["current_iteration"]
