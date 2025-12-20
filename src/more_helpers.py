@@ -9,7 +9,7 @@ from my_types import FunctionInfo
 def extract_file_context(file_content: str) -> str:
     """
     Extract relevant context from file (structs, classes, globals, typedefs,
-    enums).
+    enums, preprocessor directives, function declarations).
     These provide context for understanding what functions operate on.
 
     Args:
@@ -21,36 +21,192 @@ def extract_file_context(file_content: str) -> str:
     lines = file_content.splitlines()
     context_lines = []
 
+    i = 0
     in_multiline_comment = False
 
-    for line in lines:
+    while i < len(lines):
+        line = lines[i]
         stripped = line.strip()
 
-        # Handle multi-line comments
-        if '/*' in stripped:
-            in_multiline_comment = True
-        if '*/' in stripped:
-            in_multiline_comment = False
-            continue
+        # Handle multi-line comments properly
+        # Process comment markers in order they appear
+        temp_line = stripped
+        while '/*' in temp_line or '*/' in temp_line:
+            start_idx = temp_line.find('/*')
+            end_idx = temp_line.find('*/')
+
+            # Determine which comes first
+            if start_idx != -1 and (end_idx == -1 or start_idx < end_idx):
+                # Found /* first
+                if end_idx != -1:
+                    # Both /* and */ on same line, /* comes first
+                    # Remove the comment and continue
+                    temp_line = temp_line[:start_idx] + temp_line[end_idx+2:]
+                else:
+                    # Only /* found - start of multi-line comment
+                    in_multiline_comment = True
+                    temp_line = temp_line[:start_idx]
+                    break
+            elif end_idx != -1:
+                # Found */ first (or only */)
+                in_multiline_comment = False
+                temp_line = temp_line[end_idx+2:]
+            else:
+                break
+
+        # If we're inside a multi-line comment, skip this line
         if in_multiline_comment:
+            i += 1
             continue
+
+        # Use temp_line (with comments removed) for further checks
+        stripped = temp_line.strip()
 
         # Skip single-line comments and empty lines
-        if stripped.startswith('//') or not stripped:
+        if not stripped or stripped.startswith('//'):
+            i += 1
             continue
 
-        # Capture context: struct, class, typedef, enum, global variables
-        if any(stripped.startswith(keyword) for keyword in ['struct', 'class',
-                                                            'typedef', 'enum', 'using']):
+        # 1. Capture preprocessor directives (#define, #include, etc.)
+        if line.lstrip().startswith('#'):
             context_lines.append(line)
-        # Capture global variable declarations (simple heuristic: type name = or type name;)
-        elif ';' in stripped and not stripped.startswith('for') \
-             and not stripped.startswith('if') \
-             and not stripped.startswith('while'):
-            # Rough heuristic for global vars
-            if ' ' in stripped and '{' not in stripped \
-               and not stripped.startswith('return'):
+            # Handle multi-line preprocessor directives (ending with \)
+            while i < len(lines) - 1 and lines[i].rstrip().endswith('\\'):
+                i += 1
+                context_lines.append(lines[i])
+            i += 1
+            continue
+
+        # 2. Capture typedef declarations (can be multi-line)
+        if stripped.startswith('typedef'):
+            typedef_lines = [line]
+            # Capture until we find semicolon
+            while i < len(lines) - 1 and ';' not in lines[i]:
+                i += 1
+                typedef_lines.append(lines[i])
+            if i < len(lines) - 1 or ';' in lines[i]:
+                # Found the semicolon
+                if ';' not in lines[i]:
+                    i += 1
+                    typedef_lines.append(lines[i])
+                context_lines.extend(typedef_lines)
+            i += 1
+            continue
+
+        # 3. Capture struct/class/enum/union definitions (multi-line)
+        if any(stripped.startswith(kw) for kw in ['struct', 'class', 'enum', 'union']):
+            decl_lines = [line]
+
+            # Check if this is a forward declaration (ends with ; and no {)
+            if ';' in stripped and '{' not in stripped:
                 context_lines.append(line)
+                i += 1
+                continue
+
+            # It's a definition - find the opening brace and capture complete definition
+            j = i
+            # Look for opening brace (might be on same line or next few lines)
+            while j < len(lines) and '{' not in lines[j]:
+                j += 1
+                if j < len(lines):
+                    decl_lines.append(lines[j])
+                if ';' in lines[j]:
+                    # Found semicolon before brace - it's a forward declaration
+                    context_lines.extend(decl_lines)
+                    i = j + 1
+                    break
+            else:
+                # Found opening brace, now find matching closing brace
+                if j < len(lines):
+                    brace_count = lines[j].count('{') - lines[j].count('}')
+                    j += 1
+
+                    while j < len(lines) and brace_count > 0:
+                        decl_lines.append(lines[j])
+                        brace_count += lines[j].count('{') - lines[j].count('}')
+                        j += 1
+
+                    context_lines.extend(decl_lines)
+                    i = j
+            continue
+
+        # 4. Capture using declarations/directives
+        if stripped.startswith('using'):
+            context_lines.append(line)
+            i += 1
+            continue
+
+        # 5. Capture namespace declarations (opening line only)
+        if stripped.startswith('namespace'):
+            context_lines.append(line)
+            i += 1
+            continue
+
+        # 6. Detect and capture function declarations (prototypes), skip definitions
+        # Look for function-like patterns: has parentheses
+        if '(' in stripped and ')' in stripped and not any(stripped.startswith(kw) for kw in ['if', 'for', 'while', 'switch', 'sizeof']):
+            # Gather complete signature (might span multiple lines)
+            sig_lines = [line]
+            j = i
+
+            # Find where signature ends (either ; or {)
+            paren_depth = 0
+            found_end = False
+
+            while j < len(lines) and not found_end:
+                for char in lines[j]:
+                    if char == '(':
+                        paren_depth += 1
+                    elif char == ')':
+                        paren_depth -= 1
+                    elif char in [';', '{'] and paren_depth == 0:
+                        found_end = True
+                        break
+
+                if not found_end and j < len(lines) - 1:
+                    j += 1
+                    sig_lines.append(lines[j])
+                else:
+                    break
+
+            # Check if it's a declaration (ends with ;) or definition (has {)
+            combined = ' '.join(ln.strip() for ln in sig_lines)
+
+            if ';' in combined and ('{' not in combined or combined.index(';') < combined.index('{')):
+                # It's a function declaration - capture it
+                context_lines.extend(sig_lines)
+                i = j + 1
+                continue
+            elif '{' in combined:
+                # It's a function definition - skip it entirely
+                # Find and skip past the closing brace
+                brace_count = 0
+                for ln in sig_lines:
+                    brace_count += ln.count('{') - ln.count('}')
+
+                j += 1
+                while j < len(lines) and brace_count > 0:
+                    brace_count += lines[j].count('{') - lines[j].count('}')
+                    j += 1
+
+                i = j
+                continue
+
+        # 7. Capture potential global variable declarations
+        # Heuristic: line with semicolon, has spaces (type + name), no braces, not a control statement
+        if ';' in stripped and '{' not in stripped and '(' not in stripped:
+            # Exclude control flow and other non-declarations
+            if not any(stripped.startswith(kw) for kw in ['if', 'for', 'while', 'switch', 'return',
+                                                          'break', 'continue', 'case', 'default',
+                                                          'goto', 'delete', 'throw']):
+                # Check if it looks like a declaration (has space, likely type and name)
+                if ' ' in stripped:
+                    # Additional check: should have identifier-like tokens
+                    tokens = stripped.split()
+                    if len(tokens) >= 2:  # At least type and name
+                        context_lines.append(line)
+
+        i += 1
 
     return '\n'.join(context_lines)
 
