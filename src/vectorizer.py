@@ -48,12 +48,14 @@ def compile_code(state: VectorizationState):
     # TODO(akash): obviously just replace this with a compiler option instead of filtering it manually
     # Just make the compiler only output warnings and errors instead of an insane quantity of notes...
     compilation_feedback = extract_compilation_errors(result.stderr)
-        
+    function_drafts[current_iteration].compile_success = result.returncode == 0
+
     os.chdir(cur_working_dir)
 
     result_dict = {
         "compiler_feedback": compilation_feedback,
-        "optimization_remarks": "\n".join(relevant_remarks)
+        "optimization_remarks": "\n".join(relevant_remarks),
+        "function_drafts": function_drafts
     }
     
     after_state = state.copy()
@@ -89,11 +91,16 @@ def run_code(state: VectorizationState):
 
     if result.returncode != 0:
         print(f"Running the benchmark threw an error: {result.returncode}")
-    
+    else:
+        function_drafts = state["function_drafts"]
+        function_drafts[state["current_iteration"]].run_success = True
+        
     os.chdir(cur_working_dir)
     
     logger.log_state(state, "run_code", "after")
-    return {}
+    return {
+        "function_drafts": function_drafts
+    }
 
 
 # Node: reviewer
