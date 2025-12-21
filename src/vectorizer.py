@@ -13,6 +13,19 @@ from logger import LLMLogger
 
 # Node: compile_code
 def compile_code(state: VectorizationState):
+    '''
+    Compiles code base. 
+    This node is responsible for updating the following fields in VectorizationState.
+    
+    In state:
+    1. compiler_feedback
+    2. optimization_remarks
+
+    In function_drafts[current_iteration]:
+    1. compile_success
+    2. vectorization_success
+
+    '''
     logger = state["logger"]
     logger.log_state(state, "compile_code", "before")
     
@@ -36,28 +49,29 @@ def compile_code(state: VectorizationState):
         text=True,
     )
 
+    # 1. Extract compilation feedback.
+    # TODO(akash): obviously just replace this with a compiler option instead of filtering it manually. Just make the compiler only output warnings and errors instead of an insane quantity of notes. 
+    compilation_feedback = extract_compilation_errors(result.stderr)
+    cur_function_draft.compile_success = result.returncode == 0
+
+    # 2. Extract optimization remarks
     all_remark_files = find_files_with_ext(bench_path, [".yaml"])
     relevant_remark_files: List[str] = match_remark_files(current_file, all_remark_files)
     relevant_remarks: List[str] = []
-
     for remark_file in relevant_remark_files:
         relevant_remarks.append(filter_remarks_by_function(remark_file,
                                                            cur_function_name))
+    optimization_remarks = "\n".join(relevant_remarks)
+    vectorization_success = "!Passed" in optimization_remarks
+    cur_function_draft.vectorization_success = vectorization_success
 
-    # TODO(akash): obviously just replace this with a compiler option instead of filtering it manually
-    # Just make the compiler only output warnings and errors instead of an insane quantity of notes...
-    compilation_feedback = extract_compilation_errors(result.stderr)
-    if result.returncode == 0:
-        function_drafts[current_iteration].compile_success = True
-    else:
-        function_drafts[current_iteration].compile_success = False
-        function_drafts[current_iteration].dead_end = True
-
+    function_drafts[current_iteration] = cur_function_draft
+    
     os.chdir(cur_working_dir)
 
     result_dict = {
         "compiler_feedback": compilation_feedback,
-        "optimization_remarks": "\n".join(relevant_remarks),
+        "optimization_remarks": optimization_remarks,
         "function_drafts": function_drafts
     }
     
@@ -70,26 +84,46 @@ def compile_code(state: VectorizationState):
 
 # Node: run_code
 def run_code(state: VectorizationState):
+    '''
+    Runs code
+    This node is responsible for the following fields:
+
+    In function_drafts[current_iteration],
+    1. run_success
+
+    '''
     logger = state["logger"]
     logger.log_state(state, "run_code", "before")
-    
+
     run_command = state['run_command']
 
     function_drafts = state["function_drafts"]
     current_iteration = state["current_iteration"]
+    cur_function_draft = function_drafts[current_iteration]
 
+    # Early exit: if compile failed, skip running and mark run as failed
+    if not cur_function_draft.compile_success:
+        cur_function_draft.run_success = False
+        function_drafts[current_iteration] = cur_function_draft
+        logger.log_state(state, "run_code", "after")
+        return {
+            "function_drafts": function_drafts
+        }
 
+    # Early exit: No run command provided, so the run is presumed successful
     if not run_command:
         print("No run command provided")
+        cur_function_draft.run_success = True
+        function_drafts[current_iteration] = cur_function_draft
         logger.log_state(state, "run_code", "after")
-        function_drafts[current_iteration].run_success = True
-        return {}
+        return {
+            "function_drafts": function_drafts
+        }
 
     bench_path = state['bench_path']
     cur_working_dir = os.getcwd()
 
     os.chdir(bench_path)
-
 
     try: 
        result = subprocess.run(
@@ -99,22 +133,23 @@ def run_code(state: VectorizationState):
            text=True,
            timeout=30
        )
+    # Early exit: Timeout, so run failed
     except subprocess.TimeoutExpired:
         print(f"Running the benchmark took too much time")
-        function_drafts[current_iteration].dead_end = True
+        cur_function_draft.run_success = False
+        function_drafts[current_iteration] = cur_function_draft
         logger.log_state(state, "run_code", "after")
         return {
             "function_drafts": function_drafts
         }
-        
+
+    # Main case: either the run throws an error, or it succeeds
     if result.returncode != 0:
         print(f"Running the benchmark threw an error: {result.returncode}")
-        function_drafts[current_iteration].dead_end = True
 
     os.chdir(cur_working_dir)
-
-    function_drafts[current_iteration].run_success = result.returncode == 0
-    
+    cur_function_draft.run_success = result.returncode == 0
+    function_drafts[current_iteration] = cur_function_draft
     logger.log_state(state, "run_code", "after")
     return {
         "function_drafts": function_drafts
@@ -123,6 +158,14 @@ def run_code(state: VectorizationState):
 
 # Node: reviewer
 def reviewer(state: VectorizationState):
+    '''
+    Reviews code.
+    This node is responsible for the following fields in VectorizationState
+
+    In function_drafts[current_iteration]
+    1. dead_end
+    2. reviewer_feedback
+    '''
     logger = state["logger"]
     logger.log_state(state, "reviewer", "before")
     
@@ -137,19 +180,18 @@ def reviewer(state: VectorizationState):
     compiler_feedback = state["compiler_feedback"]
     optimization_remarks = state["optimization_remarks"]
 
-    compile_success = "error:" not in compiler_feedback
-    if compile_success:
-        compile_success_str = "The function did successfully compile."
-        cur_function_draft.compile_success = True
-    else:
-        compile_success_str = "The function FAILED to compile with the provided feedback below."
-        cur_function_draft.compile_success = False
-        
-    vectorization_success = "!Passed" in optimization_remarks
-    cur_function_draft.vectorization_success = vectorization_success
-    if vectorization_success:
-        cur_function_draft.dead_end = False
-    
+    # Early exit: if compile or run failed, mark as dead_end and skip LLM call
+    if not cur_function_draft.compile_success or not cur_function_draft.run_success:
+        cur_function_draft.dead_end = True
+        function_drafts[current_iteration] = cur_function_draft
+        logger.log_state(state, "reviewer", "after")
+        return {
+            "function_drafts": function_drafts
+        }
+
+    # Read vectorization_success that was set by compile_code
+    vectorization_success = cur_function_draft.vectorization_success
+
     if reviewer_feedback == "":
         prompt = f"""You are reviewing THIS FUNCTION for opportunities to autovectorize it.
 
@@ -167,8 +209,6 @@ Second, COMPILER FEEDBACK:
 
 {compiler_feedback}
 
-{compile_success_str}
-        
 Third, OPTIMIZATION REMARKS.
 
 {optimization_remarks}
@@ -221,14 +261,22 @@ YOUR OUTPUT:
 
         # Parse reviewer agent's output
         parsed = parse_reviewer_output(output)
-        
+
         if parsed:
-            cur_function_draft.dead_end = parsed.get("dead_end", True)
+            llm_dead_end = parsed.get("dead_end", True)
             cur_function_draft.reviewer_feedback = parsed.get("reviewer_feedback", "")
         else:
             print("⚠️  Failed to parse reviewer output, using defaults")
-            cur_function_draft.dead_end = True
+            llm_dead_end = True
             cur_function_draft.reviewer_feedback = ""
+
+        # Set dead_end based on vectorization success or LLM assessment
+        if vectorization_success:
+            # Code is already autovectorized - not a dead end
+            cur_function_draft.dead_end = False
+        else:
+            # Use LLM's assessment
+            cur_function_draft.dead_end = llm_dead_end
         
         function_drafts[current_iteration] = cur_function_draft
         
@@ -381,6 +429,12 @@ def parse_reviewer_output(output: str) -> dict | None:
 
 # Node: increment
 def increment(state: VectorizationState):
+    '''
+    Increments current_iteration.
+    This node is responsible for the following field in VectorizationState.
+    1. current_iteration.
+    
+    '''
     logger = state["logger"]
     logger.log_state(state, "increment", "before")
     
@@ -398,6 +452,11 @@ def increment(state: VectorizationState):
 
 # Node: manager
 def manager(state: VectorizationState):
+    '''
+    The manager chooses the best starting point out of all previous iterations.
+    This node is responsible for the following fields in VectorizationState.
+    1. manager_chosen_i
+    '''
     logger = state["logger"]
     logger.log_state(state, "manager", "before")
     
@@ -790,6 +849,15 @@ def apply_actions_to_function(
 
 # Node: engineer
 def engineer(state: VectorizationState):
+    '''
+    This function is responsible for applying suggestions to a code base.
+
+    In function_drafts[current_iteration],
+    1. modified_function_text
+
+    And, responsible for writing to file 
+    '''
+    
     logger = state["logger"]
     logger.log_state(state, "engineer", "before")
     
