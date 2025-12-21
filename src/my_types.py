@@ -20,8 +20,8 @@ class PragmaAction(TypedDict):
     
 class CodeReplaceAction(TypedDict):
     action_type: str  # Must be "code_replace"
-    start_line: int  # Start line (0-indexed, relative to function)
-    end_line: int  # End line (0-indexed, inclusive)
+    start_line: int  # Start line (0-indexed, inclusive, relative to function)
+    end_line: int  # End line (0-indexed, exclusive) - uses [start, end) semantics
     new_code: str  # Replacement code (can be multi-line)
     reasoning: str  # Explanation of change
 
