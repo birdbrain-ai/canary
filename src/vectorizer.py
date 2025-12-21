@@ -1090,7 +1090,7 @@ def vectorize_benchmark(benchmark_dir: str,
 
             # Pass it to LangGraph workflow: Compile -> Run -> Reviewer -> Manager -> Engineer
             print(f"🚀 Starting vectorization workflow for function: {function['name']} in {os.path.basename(current_file)}")
-            final_state = vectorization_graph.invoke(initial_state)
+            final_state = vectorization_graph.invoke(initial_state, config={"recursion_limit": 1000})
 
     return {"success": True}
 
