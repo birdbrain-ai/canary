@@ -82,18 +82,24 @@ def run_code(state: VectorizationState):
 
     os.chdir(bench_path)
 
-    result = subprocess.run(
-        run_command,
-        shell=True,
-        capture_output=False,
-        text=True,
-    )
+    result = None
+    
+    try: 
+       result = subprocess.run(
+           run_command,
+           shell=True,
+           capture_output=False,
+           text=True,
+           timeout=30
+       )
+    except subprocess.TimeoutExpired:
+        print(f"Running the benchmark took too much time")
 
-    if result.returncode != 0:
+    if result is not None and result.returncode != 0:
         print(f"Running the benchmark threw an error: {result.returncode}")
     else:
         function_drafts = state["function_drafts"]
-        function_drafts[state["current_iteration"]].run_success = True
+        function_drafts[state["current_iteration"]].run_success = (result is not None)
         
     os.chdir(cur_working_dir)
     
