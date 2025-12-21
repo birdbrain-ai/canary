@@ -102,6 +102,10 @@ def run_code(state: VectorizationState):
     except subprocess.TimeoutExpired:
         print(f"Running the benchmark took too much time")
         function_drafts[current_iteration].dead_end = True
+        logger.log_state(state, "run_code", "after")
+        return {
+            "function_drafts": function_drafts
+        }
         
     if result.returncode != 0:
         print(f"Running the benchmark threw an error: {result.returncode}")
@@ -109,7 +113,7 @@ def run_code(state: VectorizationState):
 
     os.chdir(cur_working_dir)
 
-    function_drafts[current_iteration].run_success = True
+    function_drafts[current_iteration].run_success = result.returncode == 0
     
     logger.log_state(state, "run_code", "after")
     return {
