@@ -101,9 +101,6 @@ class LLMLogger:
             # Print state table to stdout
             self._print_state_table(state, node_name, stage)
 
-            # Detect and print changes to stdout
-            self._detect_and_print_changes(state, node_name, stage)
-
         # Build directory path similar to log_llm_call
         iteration = state.get("current_iteration", 0)
         file_path = state.get("file_path", "unknown")
