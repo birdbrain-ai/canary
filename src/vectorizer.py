@@ -48,7 +48,11 @@ def compile_code(state: VectorizationState):
     # TODO(akash): obviously just replace this with a compiler option instead of filtering it manually
     # Just make the compiler only output warnings and errors instead of an insane quantity of notes...
     compilation_feedback = extract_compilation_errors(result.stderr)
-    function_drafts[current_iteration].compile_success = result.returncode == 0
+    if result.returncode == 0:
+        function_drafts[current_iteration].compile_success = True
+    else:
+        function_drafts[current_iteration].compile_success = False
+        function_drafts[current_iteration].dead_end = True
 
     os.chdir(cur_working_dir)
 
@@ -72,9 +76,14 @@ def run_code(state: VectorizationState):
     
     run_command = state['run_command']
 
+    function_drafts = state["function_drafts"]
+    current_iteration = state["current_iteration"]
+
+
     if not run_command:
         print("No run command provided")
         logger.log_state(state, "run_code", "after")
+        function_drafts[current_iteration].run_success = True
         return {}
 
     bench_path = state['bench_path']
@@ -82,8 +91,7 @@ def run_code(state: VectorizationState):
 
     os.chdir(bench_path)
 
-    result = None
-    
+
     try: 
        result = subprocess.run(
            run_command,
@@ -94,14 +102,15 @@ def run_code(state: VectorizationState):
        )
     except subprocess.TimeoutExpired:
         print(f"Running the benchmark took too much time")
-
-    if result is not None and result.returncode != 0:
-        print(f"Running the benchmark threw an error: {result.returncode}")
-    else:
-        function_drafts = state["function_drafts"]
-        function_drafts[state["current_iteration"]].run_success = (result is not None)
+        function_drafts[current_iteration].dead_end = True
         
+    if result.returncode != 0:
+        print(f"Running the benchmark threw an error: {result.returncode}")
+        function_drafts[current_iteration].dead_end = True
+
     os.chdir(cur_working_dir)
+
+    function_drafts[current_iteration].run_success = True
     
     logger.log_state(state, "run_code", "after")
     return {
