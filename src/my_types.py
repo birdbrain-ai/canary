@@ -78,4 +78,3 @@ class VectorizationState(TypedDict):
 
     function_drafts: Dict[int, FunctionDraft]
     log_dir: str
-    use_mock_llm: bool
