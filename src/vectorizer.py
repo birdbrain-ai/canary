@@ -42,6 +42,13 @@ def compile_code(state: VectorizationState):
 
     os.chdir(bench_path)
 
+    rm_result = subprocess.run(
+        "rm -rf *.opt.yaml",
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+    
     result = subprocess.run(
         make_command,
         shell=True,
