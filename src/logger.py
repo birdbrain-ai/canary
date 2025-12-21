@@ -205,30 +205,29 @@ class LLMLogger:
         print(f"{'manager_chosen_i':<25} | {state.get('manager_chosen_i', 'N/A')}")
         print(f"{'file_path':<25} | {state.get('file_path', 'N/A')}")
 
-        # Print function drafts summary
+        # Print function drafts with full details
         function_drafts = state.get('function_drafts', {})
         print(f"{'function_drafts':<25} | {len(function_drafts)} draft(s)")
 
         for draft_id, draft in function_drafts.items():
             draft_dict = draft.to_dict() if hasattr(draft, 'to_dict') else draft
             func_name = draft_dict.get('modified_function_text', {}).get('name', 'unknown')
-            compile_ok = draft_dict.get('compile_success', False)
-            run_ok = draft_dict.get('run_success', False)
-            vec_ok = draft_dict.get('vectorization_success', False)
-            dead_end = draft_dict.get('dead_end', False)
 
-            status = []
-            if compile_ok:
-                status.append("✓ compile")
-            if run_ok:
-                status.append("✓ run")
-            if vec_ok:
-                status.append("✓ vectorized")
-            if dead_end:
-                status.append("✗ dead_end")
+            print(f"  [{draft_id}] {func_name}")
+            print(f"    {'compile_success':<25}: {draft_dict.get('compile_success', False)}")
+            print(f"    {'run_success':<25}: {draft_dict.get('run_success', False)}")
+            print(f"    {'vectorization_success':<25}: {draft_dict.get('vectorization_success', False)}")
+            print(f"    {'dead_end':<25}: {draft_dict.get('dead_end', False)}")
 
-            status_str = ", ".join(status) if status else "no status"
-            print(f"  [{draft_id}] {func_name:<20} | {status_str}")
+            # Print reviewer feedback if present
+            feedback = draft_dict.get('reviewer_feedback', '')
+            if feedback:
+                feedback_preview = feedback[:80].replace('\n', ' ')
+                if len(feedback) > 80:
+                    feedback_preview += "..."
+                print(f"    {'reviewer_feedback':<25}: {feedback_preview}")
+            else:
+                print(f"    {'reviewer_feedback':<25}: (empty)")
 
         # Print feedback fields (truncated)
         compiler_feedback = state.get('compiler_feedback', '')
