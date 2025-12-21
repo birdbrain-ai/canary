@@ -37,6 +37,7 @@ class FunctionInfo(TypedDict):
 
 class FunctionDraft:
     compile_success: bool
+    run_success: bool
     dead_end: bool
     vectorization_success: bool
     reviewer_feedback: str
@@ -44,6 +45,7 @@ class FunctionDraft:
 
     def __init__(self, function_info):
         self.compile_success = False
+        self.run_success = False
         self.dead_end = True
         self.vectorization_success = False
         self.reviewer_feedback = ""
@@ -52,6 +54,7 @@ class FunctionDraft:
     def to_dict(self):
         return {
             "compile_success": self.compile_success,
+            "run_success": self.run_success,
             "dead_end": self.dead_end,
             "vectorization_success": self.vectorization_success,
             "reviewer_feedback": self.reviewer_feedback,
