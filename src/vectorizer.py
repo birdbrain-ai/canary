@@ -861,6 +861,13 @@ def engineer(state: VectorizationState):
     )
     if success:
         print(f"✅ Wrote modified function to {file_path}")
+        # Log the entire file content after writing
+        logger.log_file_content(
+            iteration=current_iteration,
+            file_path=file_path,
+            call_type="engineer",
+            function_name=current_function_info["name"]
+        )
     else:
         print(f"⚠️  Failed to write function to file, continuing anyway")
 

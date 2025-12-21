@@ -334,6 +334,54 @@ class LLMLogger:
         # Update previous state
         self.previous_state = self._copy_state(state)
 
+    def log_file_content(
+        self,
+        iteration: int,
+        file_path: str,
+        call_type: str,
+        function_name: str | None = None
+    ):
+        """
+        Save a copy of the entire file content to the logging directory.
+
+        Args:
+            iteration: Current iteration number
+            file_path: Path to source file being processed
+            call_type: Type of call (e.g., "engineer")
+            function_name: Optional function name
+        """
+        # Build directory path
+        file_basename = Path(file_path).name
+        dir_parts = [f"file_{file_basename}"]
+
+        # Add function component if applicable
+        if function_name:
+            dir_parts.append(f"func_{function_name}")
+
+        # Add iteration
+        dir_parts.append(f"iteration_{iteration}")
+
+        # Add call type with numbering
+        call_number = self._get_call_number(call_type, function_name)
+        dir_parts.append(f"{call_number:02d}_{call_type}")
+
+        # Create full directory path
+        log_dir = self.log_base_dir.joinpath(*dir_parts)
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Read the file content
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+
+            # Write to log directory
+            output_file = log_dir / f"{file_basename}"
+            output_file.write_text(file_content, encoding='utf-8')
+
+            print(f"  📄 Saved file snapshot: {'/'.join(dir_parts[-2:])}/{file_basename}")
+        except Exception as e:
+            print(f"  ⚠️  Failed to save file snapshot: {e}")
+
     def _copy_state(self, state: dict) -> dict:
         """
         Create a deep copy of the state for comparison purposes.
