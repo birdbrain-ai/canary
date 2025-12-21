@@ -9,12 +9,11 @@ from more_helpers import extract_functions, find_files_with_ext, find_target_fil
 from typing import List
 from my_types import llm, FunctionInfo, FunctionDraft, VectorizationState, PragmaAction, CodeReplaceAction
 from logger import LLMLogger
-# from mock_llm import MockLLM
 
 
 # Node: compile_code
 def compile_code(state: VectorizationState):
-    logger = LLMLogger(state["log_dir"])
+    logger = state["logger"]
     logger.log_state(state, "compile_code", "before")
     
     bench_path = state["bench_path"]
@@ -71,7 +70,7 @@ def compile_code(state: VectorizationState):
 
 # Node: run_code
 def run_code(state: VectorizationState):
-    logger = LLMLogger(state["log_dir"])
+    logger = state["logger"]
     logger.log_state(state, "run_code", "before")
     
     run_command = state['run_command']
@@ -120,7 +119,7 @@ def run_code(state: VectorizationState):
 
 # Node: reviewer
 def reviewer(state: VectorizationState):
-    logger = LLMLogger(state["log_dir"])
+    logger = state["logger"]
     logger.log_state(state, "reviewer", "before")
     
     function_drafts = state["function_drafts"]
@@ -378,7 +377,7 @@ def parse_reviewer_output(output: str) -> dict | None:
 
 # Node: increment
 def increment(state: VectorizationState):
-    logger = LLMLogger(state["log_dir"])
+    logger = state["logger"]
     logger.log_state(state, "increment", "before")
     
     current_iteration = state["current_iteration"]
@@ -395,7 +394,7 @@ def increment(state: VectorizationState):
 
 # Node: manager
 def manager(state: VectorizationState):
-    logger = LLMLogger(state["log_dir"])
+    logger = state["logger"]
     logger.log_state(state, "manager", "before")
     
     function_drafts = state["function_drafts"]
@@ -787,7 +786,7 @@ def apply_actions_to_function(
 
 # Node: engineer
 def engineer(state: VectorizationState):
-    logger = LLMLogger(state["log_dir"])
+    logger = state["logger"]
     logger.log_state(state, "engineer", "before")
     
     program_slice = state["program_slice"]
@@ -935,7 +934,7 @@ CRITICAL OUTPUT RULES:
 
 # Node: finalize
 def finalize(state: VectorizationState):
-    logger = LLMLogger(state["log_dir"])
+    logger = state["logger"]
     logger.log_state(state, "finalize", "before")
     
     function_drafts = state["function_drafts"]
@@ -1056,7 +1055,11 @@ def vectorize_benchmark(benchmark_dir: str,
 
     print("Creating vectorization workflow graph")
     vectorization_graph = create_vectorization_graph()
-    
+
+    # Initialize logger once for the entire benchmark
+    log_dir = os.path.join(current_dir, f"{benchmark_name}_logs")
+    logger = LLMLogger(log_dir)
+
     target_files = find_target_files(opt_dir)
     for current_file in target_files:
         # Initial read to find out how many functions we have
@@ -1089,18 +1092,18 @@ def vectorize_benchmark(benchmark_dir: str,
                 file_path=current_file,
                 make_command=make_command,
                 run_command=run_command,
-                
+
                 program_slice=program_slice,
                 compiler_feedback="",
                 optimization_remarks="",
-                
+
                 current_iteration=0,
                 max_iterations=max_iterations,
                 manager_chosen_i=0,
                 function_drafts={
                     0: initial_function_draft
                 },
-                log_dir=os.path.join(current_dir, f"{benchmark_name}_logs"),
+                logger=logger,
             )
 
             # Pass it to LangGraph workflow: Compile -> Run -> Reviewer -> Manager -> Engineer

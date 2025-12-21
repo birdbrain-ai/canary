@@ -1,5 +1,5 @@
 from typing import TypedDict, Dict
-# from logger import LLMLogger 
+from logger import LLMLogger
 from langchain_openai import ChatOpenAI
 
 
@@ -77,4 +77,4 @@ class VectorizationState(TypedDict):
     manager_chosen_i: int
 
     function_drafts: Dict[int, FunctionDraft]
-    log_dir: str
+    logger: 'LLMLogger'
