@@ -96,11 +96,13 @@ class LLMLogger:
             node_name: Name of the node being executed
             stage: "before" or "after"
         """
-        # Print state table to stdout
-        self._print_state_table(state, node_name, stage)
+        # Only print to stdout for "after" stage to reduce verbosity
+        if stage == "after":
+            # Print state table to stdout
+            self._print_state_table(state, node_name, stage)
 
-        # Detect and print changes to stdout
-        self._detect_and_print_changes(state, node_name, stage)
+            # Detect and print changes to stdout
+            self._detect_and_print_changes(state, node_name, stage)
 
         # Build directory path similar to log_llm_call
         iteration = state.get("current_iteration", 0)
