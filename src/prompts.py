@@ -178,16 +178,24 @@ OPTION 2 - CODE REPLACE (for targeted code changes):
 For each code change, create a JSON object:
 {{
   "action_type": "code_replace",
-  "start_line": <start line number from the numbered function above>,
-  "end_line": <end line number from the numbered function above (inclusive)>,
+  "start_line": <start line number (inclusive)>,
+  "end_line": <end line number (exclusive)>,
   "new_code": "<replacement code (can be multi-line)>",
   "reasoning": "<brief explanation>"
 }}
 
+IMPORTANT LINE NUMBER SEMANTICS:
+- Line numbers use HALF-OPEN INTERVAL: [start_line, end_line)
+- start_line is INCLUSIVE (this line will be affected)
+- end_line is EXCLUSIVE (this line will NOT be affected)
+- To INSERT at line N (before existing content): use start_line=N, end_line=N
+- To REPLACE a single line N: use start_line=N, end_line=N+1
+- To REPLACE lines N through M: use start_line=N, end_line=M+1
+
 Examples:
-- Add variable: {{"action_type": "code_replace", "start_line": 0, "end_line": 0, "new_code": "int temp = 0;", "reasoning": "Add local temporary"}}
-- Replace line: {{"action_type": "code_replace", "start_line": 5, "end_line": 5, "new_code": "result[i] = a[i] * factor;", "reasoning": "Use hoisted variable"}}
-- Multi-line: {{"action_type": "code_replace", "start_line": 3, "end_line": 5, "new_code": "for (int i = 0; i < n; i++) {{\\n    output[i] = input[i];\\n}}", "reasoning": "Simplify loop"}}
+- Insert variable at line 1: {{"action_type": "code_replace", "start_line": 1, "end_line": 1, "new_code": "int temp = 0;", "reasoning": "Add local temporary"}}
+- Replace single line 5: {{"action_type": "code_replace", "start_line": 5, "end_line": 6, "new_code": "result[i] = a[i] * factor;", "reasoning": "Use hoisted variable"}}
+- Replace lines 3-5 (inclusive): {{"action_type": "code_replace", "start_line": 3, "end_line": 6, "new_code": "for (int i = 0; i < n; i++) {{\\n    output[i] = input[i];\\n}}", "reasoning": "Simplify loop"}}
 
 CRITICAL OUTPUT RULES:
 - Output a JSON ARRAY: [{{...}}] or [{{...}}, {{...}}] for multiple actions

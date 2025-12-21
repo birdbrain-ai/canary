@@ -735,27 +735,34 @@ def apply_actions_to_function(
                 lines.insert(line_num, pragma_str)
         
         elif action["action_type"] == "code_replace":
-            # Replace lines from start_line to end_line (inclusive)
+            # Replace lines in range [start_line, end_line) (end_line is exclusive)
             start = action["start_line"]
             end = action["end_line"]
             new_code = action["new_code"]
-            
+
             # Validate line numbers
-            if start < 0 or end >= len(lines) or start > end:
-                print(f"⚠️  Invalid line range for code_replace: {start}-{end} (function has {len(lines)} lines)")
+            if start < 0 or end > len(lines) or start > end:
+                print(f"⚠️  Invalid line range for code_replace: [{start}, {end}) (function has {len(lines)} lines)")
                 continue
-            
-            # Get indentation from the first line being replaced
-            if start < len(lines):
+
+            # Get indentation from the first line being replaced (if any)
+            if start < len(lines) and start < end:
                 original_line = lines[start]
                 indent = len(original_line) - len(original_line.lstrip())
-                
-                # Apply indentation to new code (if it's multi-line)
-                new_lines = new_code.splitlines()
-                indented_new_lines = [" " * indent + line if line.strip() else line for line in new_lines]
-                
-                # Replace the lines
-                lines[start:end+1] = indented_new_lines
+            else:
+                # For insertion (start == end), use indentation from adjacent line
+                if start > 0:
+                    original_line = lines[start - 1]
+                    indent = len(original_line) - len(original_line.lstrip())
+                else:
+                    indent = 0
+
+            # Apply indentation to new code (if it's multi-line)
+            new_lines = new_code.splitlines()
+            indented_new_lines = [" " * indent + line if line.strip() else line for line in new_lines]
+
+            # Replace the lines using [start, end) semantics
+            lines[start:end] = indented_new_lines
     
     # Reconstruct the function text
     modified_full_text = "\n".join(lines)
