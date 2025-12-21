@@ -773,7 +773,7 @@ def apply_actions_to_function(
         Modified FunctionInfo with updated full_text and body
     """
     # Split function text into lines
-    lines = function_info["full_text"].split("\n")
+    lines = function_info["full_text"].splitlines()
     
     # Sort actions by line number (descending) to avoid line number shifts
     # For code_replace, use start_line; for pragma, use line_number
@@ -826,7 +826,7 @@ def apply_actions_to_function(
                 indent = len(original_line) - len(original_line.lstrip())
                 
                 # Apply indentation to new code (if it's multi-line)
-                new_lines = new_code.split("\n")
+                new_lines = new_code.splitlines()
                 indented_new_lines = [" " * indent + line if line.strip() else line for line in new_lines]
                 
                 # Replace the lines
@@ -880,7 +880,7 @@ def engineer(state: VectorizationState):
 
     # Add line numbers to function body for clarity
     numbered_function_body = "\n".join(
-        f"{i}: {line}" for i, line in enumerate(current_function_body.split("\n"))
+        f"{i}: {line}" for i, line in enumerate(current_function_body.splitlines())
     )
 
     prompt = f"""Your task is to take a function and modify it to make it easier to autovectorize.
