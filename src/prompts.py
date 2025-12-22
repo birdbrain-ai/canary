@@ -133,11 +133,14 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
     Returns:
         Formatted prompt string
     """
+    # Extract function without line numbers for diff generation
+    function_body = current_function_info["full_text"]
+
     return f"""Your task is to take a function and modify it to make it easier to autovectorize.
 
-The FUNCTION is (with line numbers):
+The FUNCTION is:
 
-{numbered_function_body}
+{function_body}
 
 (This function starts at line {current_function_info["start_line"]} in the original file)
 
@@ -153,55 +156,39 @@ Please use SUGGESTIONS FROM A REVIEWER when modifying the function.
 
 {reviewer_feedback}
 
-You have two options:
+OUTPUT FORMAT:
 
-1. PRAGMA ACTIONS: Suggest pragmas for FOR LOOPS where vectorization still failed
-- You may suggest: "vectorize", "interleave", or "vectorize_width"
-- Be conservative - only suggest if you're confident it will help
+You must output a UNIFIED DIFF that shows the changes to make to the function. The unified diff should:
+- Use standard unified diff format (--- / +++ headers, @@ hunk markers)
+- Show context lines around changes (typically 3 lines)
+- Use the filename "function.c" (exact name doesn't matter)
+- Be applicable to the function code shown above
 
-2. CODE REPLACE: Make targeted code changes:
-- Fix specific issues identified in optimization remarks
-- Add temporaries, hoist computations, break dependencies
-- Avoid making changes that alter the meaning of the function
+Example unified diff format:
+```diff
+--- function.c
++++ function.c
+@@ -1,5 +1,6 @@
+ void example(int *arr, int n) {{
++    int temp = 0;  // Added temporary variable
+     for (int i = 0; i < n; i++) {{
+-        arr[i] = arr[i] * 2;
++        arr[i] = arr[i] * temp;  // Use temp instead
+     }}
+ }}
+```
 
-OPTION 1 - PRAGMA ACTIONS (for simple vectorization hints):
-For each loop that needs a pragma, create a JSON object:
-{{
-  "action_type": "pragma",
-  "line_number": <line number from the numbered function above>,
-  "pragma_type": "vectorize" OR "interleave" OR "vectorize_width",
-  "width": <number (only if pragma_type is vectorize_width), otherwise null>,
-  "reasoning": "<brief explanation>"
-}}
+RULES:
+1. If NO changes are needed, output ONLY the text: "NO_CHANGES_NEEDED"
+2. Otherwise, output the unified diff in a code block with ```diff
+3. Make targeted changes to help with autovectorization:
+   - Add #pragma clang loop directives where beneficial
+   - Add temporary variables to break dependencies
+   - Hoist invariant computations
+   - Simplify pointer arithmetic
+4. Preserve the function's semantic meaning
+5. Keep changes minimal and focused
 
-OPTION 2 - CODE REPLACE (for targeted code changes):
-For each code change, create a JSON object:
-{{
-  "action_type": "code_replace",
-  "start_line": <start line number (inclusive)>,
-  "end_line": <end line number (exclusive)>,
-  "new_code": "<replacement code (can be multi-line)>",
-  "reasoning": "<brief explanation>"
-}}
-
-IMPORTANT LINE NUMBER SEMANTICS:
-- Line numbers use HALF-OPEN INTERVAL: [start_line, end_line)
-- start_line is INCLUSIVE (this line will be affected)
-- end_line is EXCLUSIVE (this line will NOT be affected)
-- To INSERT at line N (before existing content): use start_line=N, end_line=N
-- To REPLACE a single line N: use start_line=N, end_line=N+1
-- To REPLACE lines N through M: use start_line=N, end_line=M+1
-
-Examples:
-- Insert variable at line 1: {{"action_type": "code_replace", "start_line": 1, "end_line": 1, "new_code": "int temp = 0;", "reasoning": "Add local temporary"}}
-- Replace single line 5: {{"action_type": "code_replace", "start_line": 5, "end_line": 6, "new_code": "result[i] = a[i] * factor;", "reasoning": "Use hoisted variable"}}
-- Replace lines 3-5 (inclusive): {{"action_type": "code_replace", "start_line": 3, "end_line": 6, "new_code": "for (int i = 0; i < n; i++) {{\\n    output[i] = input[i];\\n}}", "reasoning": "Simplify loop"}}
-
-CRITICAL OUTPUT RULES:
-- Output a JSON ARRAY: [{{...}}] or [{{...}}, {{...}}] for multiple actions
-- You can mix pragma and code_replace actions in the same array
-- If NO modifications needed, output an empty array: []
-- DO NOT include any explanatory text, markdown, or code fences
-- Output ONLY the JSON array, nothing else
+YOUR OUTPUT (unified diff or "NO_CHANGES_NEEDED"):
 
     """

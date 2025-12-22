@@ -682,6 +682,131 @@ def write_function_to_file(
         return False
 
 
+# Helper: Parse unified diff from LLM output
+def parse_unified_diff_from_llm(output: str) -> str | None:
+    """
+    Extract a unified diff from LLM output.
+
+    Args:
+        output: Raw LLM output string
+
+    Returns:
+        Unified diff string, or None if no diff found or "NO_CHANGES_NEEDED"
+    """
+    import re
+
+    # Check for explicit "no changes" marker
+    if "NO_CHANGES_NEEDED" in output:
+        return None
+
+    # Try to extract diff from code blocks
+    # Look for ```diff or ``` followed by diff content
+    diff_match = re.search(r'```(?:diff)?\s*\n(.*?)\n```', output, re.DOTALL)
+    if diff_match:
+        diff_content = diff_match.group(1)
+        # Validate it looks like a unified diff
+        if '---' in diff_content and '+++' in diff_content and '@@' in diff_content:
+            return diff_content
+
+    # Try to find diff without code blocks (look for --- and +++ headers)
+    lines = output.split('\n')
+    diff_start = -1
+    for i, line in enumerate(lines):
+        if line.startswith('---'):
+            # Check if next line starts with +++
+            if i + 1 < len(lines) and lines[i + 1].startswith('+++'):
+                diff_start = i
+                break
+
+    if diff_start >= 0:
+        # Extract from diff_start to end (or until we hit non-diff content)
+        diff_lines = []
+        for i in range(diff_start, len(lines)):
+            line = lines[i]
+            # Stop if we hit markdown or other non-diff content
+            if i > diff_start and line.startswith('#') or line.startswith('```'):
+                break
+            diff_lines.append(line)
+
+        diff_content = '\n'.join(diff_lines)
+        if '@@' in diff_content:  # Validate it has hunk markers
+            return diff_content
+
+    print("⚠️  Could not extract unified diff from LLM output")
+    return None
+
+
+# Helper: Apply unified diff to function using temp file
+def apply_unified_diff_to_function(
+    function_info: FunctionInfo,
+    diff: str
+) -> FunctionInfo | None:
+    """
+    Apply a unified diff to a function by using a temporary file.
+
+    Args:
+        function_info: Original function information
+        diff: Unified diff string to apply
+
+    Returns:
+        Modified FunctionInfo, or None if patch failed
+    """
+    import tempfile
+    import subprocess
+
+    # Create a temporary directory for our work
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Write the original function to a temp file
+        func_file = os.path.join(tmpdir, "function.c")
+        with open(func_file, 'w', encoding='utf-8') as f:
+            f.write(function_info["full_text"])
+
+        # Write the diff to a temp file
+        diff_file = os.path.join(tmpdir, "changes.diff")
+        with open(diff_file, 'w', encoding='utf-8') as f:
+            f.write(diff)
+
+        # Apply the patch
+        try:
+            result = subprocess.run(
+                ['patch', '-p0', func_file, diff_file],
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+
+            if result.returncode != 0:
+                print(f"⚠️  Patch failed to apply: {result.stderr}")
+                return None
+
+            # Read the modified function
+            with open(func_file, 'r', encoding='utf-8') as f:
+                modified_text = f.read()
+
+            # Create modified function info
+            modified_info: FunctionInfo = {
+                "name": function_info["name"],
+                "signature": function_info["signature"],
+                "body": modified_text,
+                "full_text": modified_text,
+                "start_line": function_info["start_line"],
+                "end_line": function_info["start_line"] + len(modified_text.splitlines()) - 1
+            }
+
+            return modified_info
+
+        except subprocess.TimeoutExpired:
+            print("⚠️  Patch command timed out")
+            return None
+        except FileNotFoundError:
+            print("⚠️  'patch' command not found. Please install it (e.g., 'apt-get install patch')")
+            return None
+        except Exception as e:
+            print(f"⚠️  Error applying patch: {e}")
+            return None
+
+
 # Node: engineer: apply actions to function
 def apply_actions_to_function(
     function_info: FunctionInfo,
@@ -835,19 +960,23 @@ def engineer(state: VectorizationState):
         function_name=current_function_info["name"]
     )
 
-    # Parse engineer agent's outputs into an array of CodeReplaceAction and PragmaAction objects
-    actions = parse_engineer_output(response)
-    
-    if actions is None:
-        print("⚠️  Failed to parse engineer output, using original function")
-        new_func_info = current_function_info
-    elif len(actions) == 0:
-        print("ℹ️  Engineer suggested no modifications")
+    # Parse unified diff from engineer output
+    diff = parse_unified_diff_from_llm(response)
+
+    if diff is None:
+        print("ℹ️  Engineer suggested no modifications (no diff found)")
         new_func_info = current_function_info
     else:
-        print(f"✅ Engineer suggested {len(actions)} action(s)")
-        # Apply actions to create modified function
-        new_func_info = apply_actions_to_function(current_function_info, actions)
+        print("✅ Engineer provided a unified diff, applying changes...")
+        # Apply diff to create modified function
+        modified_info = apply_unified_diff_to_function(current_function_info, diff)
+
+        if modified_info is None:
+            print("⚠️  Failed to apply diff, using original function")
+            new_func_info = current_function_info
+        else:
+            print("✅ Successfully applied diff to function")
+            new_func_info = modified_info
 
     # Write the modified function back to the file
     # Always write to ensure file stays in sync with function_drafts
