@@ -736,20 +736,20 @@ def parse_unified_diff_from_llm(output: str) -> str | None:
     return None
 
 
-# Helper: Apply unified diff to function using temp file
+# Helper: Apply unified diff to function using git apply
 def apply_unified_diff_to_function(
     function_info: FunctionInfo,
     diff: str
 ) -> FunctionInfo | None:
     """
-    Apply a unified diff to a function by using a temporary file.
+    Apply a unified diff to a function using git apply.
 
     Args:
         function_info: Original function information
         diff: Unified diff string to apply
 
     Returns:
-        Modified FunctionInfo, or None if patch failed
+        Modified FunctionInfo, or None if applying the diff failed
     """
     import tempfile
     import subprocess
@@ -766,10 +766,10 @@ def apply_unified_diff_to_function(
         with open(diff_file, 'w', encoding='utf-8') as f:
             f.write(diff)
 
-        # Apply the patch
+        # Apply the diff using git apply
         try:
             result = subprocess.run(
-                ['patch', '-p0', func_file, diff_file],
+                ['git', 'apply', '--no-index', diff_file],
                 cwd=tmpdir,
                 capture_output=True,
                 text=True,
@@ -777,7 +777,7 @@ def apply_unified_diff_to_function(
             )
 
             if result.returncode != 0:
-                print(f"⚠️  Patch failed to apply: {result.stderr}")
+                print(f"⚠️  Git apply failed: {result.stderr}")
                 return None
 
             # Read the modified function
@@ -797,13 +797,13 @@ def apply_unified_diff_to_function(
             return modified_info
 
         except subprocess.TimeoutExpired:
-            print("⚠️  Patch command timed out")
+            print("⚠️  Git apply command timed out")
             return None
         except FileNotFoundError:
-            print("⚠️  'patch' command not found. Please install it (e.g., 'apt-get install patch')")
+            print("⚠️  'git' command not found. Please install git.")
             return None
         except Exception as e:
-            print(f"⚠️  Error applying patch: {e}")
+            print(f"⚠️  Error applying diff: {e}")
             return None
 
 
