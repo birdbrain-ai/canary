@@ -152,9 +152,10 @@ It is compiled with Clang, using the following command:
 
 {make_command}
 
-Please use SUGGESTIONS FROM A REVIEWER when modifying the function.
+Please use THIS INFORMATION FROM A REVIEWER when modifying the function.
 
 {reviewer_feedback}
+
 
 OUTPUT FORMAT:
 
@@ -179,16 +180,15 @@ Example unified diff format:
 ```
 
 RULES:
-1. If NO changes are needed, output ONLY the text: "NO_CHANGES_NEEDED"
-2. Otherwise, output the unified diff in a code block with ```diff
+1. Output the unified diff in a code block with ```diff
+2. If no changes are needed, output only the text "NO_CHANGES_NEEDED"
 3. Make targeted changes to help with autovectorization:
    - Add #pragma clang loop directives where beneficial
    - Add temporary variables to break dependencies
    - Hoist invariant computations
    - Simplify pointer arithmetic
-4. Preserve the function's semantic meaning
-5. Keep changes minimal and focused
+4. You MUST preserve the function's semantic meaning
 
-YOUR OUTPUT (unified diff or "NO_CHANGES_NEEDED"):
+YOUR OUTPUT (unified diff):
 
     """
