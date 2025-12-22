@@ -769,7 +769,7 @@ def apply_unified_diff_to_function(
         # Apply the diff using git apply
         try:
             result = subprocess.run(
-                ['git', 'apply', '--no-index', diff_file],
+                ['git', 'apply', diff_file],
                 cwd=tmpdir,
                 capture_output=True,
                 text=True,
