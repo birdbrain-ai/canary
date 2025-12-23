@@ -7,7 +7,7 @@ import shutil
 import argparse
 from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
 from typing import List
-from my_types import llm, FunctionInfo, FunctionDraft, VectorizationState, PragmaAction, CodeReplaceAction
+from my_types import llm, FunctionInfo, FunctionDraft, VectorizationState, SearchReplaceAction
 from logger import LLMLogger
 from prompts import get_reviewer_prompt, get_manager_prompt, get_engineer_prompt
 
@@ -506,126 +506,47 @@ def parse_manager_output(output: str) -> dict | None:
     )
 
 
-# Helper: Validate and cast pragma action
-def validate_and_cast_pragma_action(action: dict, index: int) -> PragmaAction | None:
+# Node: engineer: parse search-replace output
+def parse_search_replace_output(output: str) -> list[SearchReplaceAction] | None:
     """
-    Validate and type-cast a pragma action from a JSON object.
-    
-    Args:
-        action: Raw JSON object from LLM output
-        index: Index of the action in the array (for error messages)
-    
-    Returns:
-        PragmaAction object, or None if validation fails
-    """
-    # Validate required fields
-    required = ["action_type", "line_number", "pragma_type", "reasoning"]
-    missing = [f for f in required if f not in action]
-    if missing:
-        print(f"⚠️  PragmaAction {index} missing fields: {missing}")
-        return None
-    
-    # Validate pragma_type
-    valid_pragma_types = ["vectorize", "interleave", "vectorize_width"]
-    if action["pragma_type"] not in valid_pragma_types:
-        print(f"⚠️  Invalid pragma_type in action {index}: {action['pragma_type']}")
-        return None
-    
-    # Type-cast fields
-    try:
-        pragma_action: PragmaAction = {
-            "action_type": "pragma",
-            "line_number": int(action["line_number"]),
-            "pragma_type": action["pragma_type"],
-            "width": int(action["width"]) if action.get("width") is not None else None,
-            "reasoning": str(action["reasoning"])
-        }
-        return pragma_action
-    except (ValueError, TypeError) as e:
-        print(f"⚠️  Failed to convert PragmaAction {index} fields: {e}")
-        return None
+    Parse the engineer LLM output to extract search-replace blocks.
 
-
-# Helper: Validate and cast code replace action
-def validate_and_cast_code_replace_action(action: dict, index: int) -> CodeReplaceAction | None:
-    """
-    Validate and type-cast a code replace action from a JSON object.
-    
-    Args:
-        action: Raw JSON object from LLM output
-        index: Index of the action in the array (for error messages)
-    
-    Returns:
-        CodeReplaceAction object, or None if validation fails
-    """
-    # Validate required fields
-    required = ["action_type", "start_line", "end_line", "new_code", "reasoning"]
-    missing = [f for f in required if f not in action]
-    if missing:
-        print(f"⚠️  CodeReplaceAction {index} missing fields: {missing}")
-        return None
-    
-    # Type-cast fields
-    try:
-        code_action: CodeReplaceAction = {
-            "action_type": "code_replace",
-            "start_line": int(action["start_line"]),
-            "end_line": int(action["end_line"]),
-            "new_code": str(action["new_code"]),
-            "reasoning": str(action["reasoning"])
-        }
-        return code_action
-    except (ValueError, TypeError) as e:
-        print(f"⚠️  Failed to convert CodeReplaceAction {index} fields: {e}")
-        return None
-
-
-# Node: engineer: parse output
-def parse_engineer_output(output: str) -> list[PragmaAction | CodeReplaceAction] | None:
-    """
-    Parse the engineer LLM output to extract an array of actions.
-    
     Expected format:
-    [
-      {"action_type": "pragma", "line_number": int, "pragma_type": str, "width": int|null, "reasoning": str},
-      {"action_type": "code_replace", "start_line": int, "end_line": int, "new_code": str, "reasoning": str}
-    ]
-    
+    <<<<<<< SEARCH
+    code to search
+    =======
+    replacement code
+    >>>>>>> REPLACE
+
     Returns:
-        List of PragmaAction and/or CodeReplaceAction objects, or None if parsing fails
+        List of SearchReplaceAction dicts, or None if parsing fails, or empty list if NO_CHANGES
     """
-    # Use generic array parser to extract and parse the JSON array
-    parsed = parse_llm_json_array(output, agent_name="engineer")
-    
-    if parsed is None:
-        return None
-    
-    # Empty array is valid (no modifications needed)
-    if len(parsed) == 0:
+    import re
+
+    # Check for NO_CHANGES
+    if "NO_CHANGES" in output.strip():
         return []
-    
-    # Validate and type-cast each action
-    actions = []
-    for i, action in enumerate(parsed):
-        if not isinstance(action, dict):
-            print(f"⚠️  Action {i} is not a JSON object: {type(action)}")
-            return None
-        
-        action_type = action.get("action_type")
-        
-        if action_type == "pragma":
-            validated_action = validate_and_cast_pragma_action(action, i)
-        elif action_type == "code_replace":
-            validated_action = validate_and_cast_code_replace_action(action, i)
-        else:
-            print(f"⚠️  Unknown action_type in action {i}: {action_type}")
-            return None
-        
-        if validated_action is None:
-            return None
-        
-        actions.append(validated_action)
-    
+
+    # Pattern to match search-replace blocks
+    # Match from <<<<<<< SEARCH to =======, then from ======= to >>>>>>> REPLACE
+    pattern = r'<{7}\s*SEARCH\s*\n(.*?)\n={7}\s*\n(.*?)\n>{7}\s*REPLACE'
+
+    matches = re.findall(pattern, output, re.DOTALL)
+
+    if not matches:
+        print("⚠️  No valid search-replace blocks found in engineer output")
+        print(f"    Output was: {output[:200]}...")
+        return None
+
+    actions: list[SearchReplaceAction] = []
+    for search_text, replace_text in matches:
+        action: SearchReplaceAction = {
+            "search": search_text,
+            "replace": replace_text
+        }
+        actions.append(action)
+
+    print(f"✅ Parsed {len(actions)} search-replace block(s)")
     return actions
 
 
@@ -682,108 +603,58 @@ def write_function_to_file(
         return False
 
 
-# Node: engineer: apply actions to function
-def apply_actions_to_function(
+# Helper: Apply search-replace actions to function
+def apply_search_replace_actions(
     function_info: FunctionInfo,
-    actions: list[PragmaAction | CodeReplaceAction]
+    actions: list[SearchReplaceAction]
 ) -> FunctionInfo:
     """
-    Apply a list of actions to a function to create a modified version.
-    
+    Apply a list of search-replace actions to a function to create a modified version.
+
     Args:
         function_info: Original function information
-        actions: List of PragmaAction and/or CodeReplaceAction objects
-    
+        actions: List of SearchReplaceAction dicts
+
     Returns:
         Modified FunctionInfo with updated full_text and body
     """
-    # Split function text into lines
-    lines = function_info["full_text"].splitlines()
-    
-    # Sort actions by line number (descending) to avoid line number shifts
-    # For code_replace, use start_line; for pragma, use line_number
-    sorted_actions = sorted(
-        actions,
-        key=lambda a: a.get("start_line", a.get("line_number", 0)),
-        reverse=True
-    )
-    
-    for action in sorted_actions:
-        if action["action_type"] == "pragma":
-            # Insert pragma before the specified line
-            line_num = action["line_number"]
-            pragma_type = action["pragma_type"]
-            
-            # Build pragma string
-            if pragma_type == "vectorize":
-                pragma_str = "#pragma clang loop vectorize(enable)"
-            elif pragma_type == "interleave":
-                pragma_str = "#pragma clang loop interleave(enable)"
-            elif pragma_type == "vectorize_width":
-                width = action["width"]
-                pragma_str = f"#pragma clang loop vectorize_width({width})"
-            else:
-                continue  # Skip invalid pragma types
-            
-            # Get indentation of the target line
-            if 0 <= line_num < len(lines):
-                target_line = lines[line_num]
-                indent = len(target_line) - len(target_line.lstrip())
-                pragma_str = " " * indent + pragma_str
-                
-                # Insert pragma before the line
-                lines.insert(line_num, pragma_str)
-        
-        elif action["action_type"] == "code_replace":
-            # Replace lines in range [start_line, end_line) (end_line is exclusive)
-            start = action["start_line"]
-            end = action["end_line"]
-            new_code = action["new_code"]
+    modified_text = function_info["full_text"]
 
-            # Validate line numbers
-            if start < 0 or end > len(lines) or start > end:
-                print(f"⚠️  Invalid line range for code_replace: [{start}, {end}) (function has {len(lines)} lines)")
-                continue
+    for i, action in enumerate(actions):
+        search_text = action["search"]
+        replace_text = action["replace"]
 
-            # Get indentation from the first line being replaced (if any)
-            if start < len(lines) and start < end:
-                original_line = lines[start]
-                indent = len(original_line) - len(original_line.lstrip())
-            else:
-                # For insertion (start == end), use indentation from adjacent line
-                if start > 0:
-                    original_line = lines[start - 1]
-                    indent = len(original_line) - len(original_line.lstrip())
-                else:
-                    indent = 0
+        # Count occurrences of search text
+        count = modified_text.count(search_text)
 
-            # Apply indentation to new code (if it's multi-line)
-            new_lines = new_code.splitlines()
-            indented_new_lines = [" " * indent + line if line.strip() else line for line in new_lines]
+        if count == 0:
+            print(f"⚠️  Search-replace action {i}: search text not found")
+            print(f"    Looking for: {search_text[:100]}...")
+            continue
+        elif count > 1:
+            print(f"⚠️  Search-replace action {i}: search text appears {count} times (ambiguous)")
+            print(f"    Looking for: {search_text[:100]}...")
+            continue
 
-            # Replace the lines using [start, end) semantics
-            lines[start:end] = indented_new_lines
-    
-    # Reconstruct the function text
-    modified_full_text = "\n".join(lines)
-    
+        # Perform the replacement
+        modified_text = modified_text.replace(search_text, replace_text, 1)
+        print(f"✅ Applied search-replace action {i}")
+
     # Calculate new end_line based on number of lines in modified text
-    # Note: start_line is 0-indexed relative to the file
-    new_num_lines = len(modified_full_text.splitlines())
+    new_num_lines = len(modified_text.splitlines())
     new_end_line = function_info["start_line"] + new_num_lines - 1
-    
+
     # Create modified function info
     modified_info: FunctionInfo = {
         "name": function_info["name"],
         "signature": function_info["signature"],
-        "body": modified_full_text,  # Update body as well
-        "full_text": modified_full_text,
+        "body": modified_text,  # Update body as well
+        "full_text": modified_text,
         "start_line": function_info["start_line"],
         "end_line": new_end_line
     }
-    
-    return modified_info
 
+    return modified_info
 
 
 # Node: engineer
@@ -808,15 +679,9 @@ def engineer(state: VectorizationState):
     current_function_draft = function_drafts[manager_chosen_i]
     reviewer_feedback = current_function_draft.reviewer_feedback
     current_function_info = current_function_draft.modified_function_text
-    current_function_body = current_function_info["full_text"]
-
-    # Add line numbers to function body for clarity
-    numbered_function_body = "\n".join(
-        f"{i}: {line}" for i, line in enumerate(current_function_body.splitlines())
-    )
 
     prompt = get_engineer_prompt(
-        numbered_function_body,
+        None,  # numbered_function_body no longer used
         current_function_info,
         program_slice,
         make_command,
@@ -835,9 +700,9 @@ def engineer(state: VectorizationState):
         function_name=current_function_info["name"]
     )
 
-    # Parse engineer agent's outputs into an array of CodeReplaceAction and PragmaAction objects
-    actions = parse_engineer_output(response)
-    
+    # Parse engineer agent's outputs into search-replace actions
+    actions = parse_search_replace_output(response)
+
     if actions is None:
         print("⚠️  Failed to parse engineer output, using original function")
         new_func_info = current_function_info
@@ -845,9 +710,8 @@ def engineer(state: VectorizationState):
         print("ℹ️  Engineer suggested no modifications")
         new_func_info = current_function_info
     else:
-        print(f"✅ Engineer suggested {len(actions)} action(s)")
-        # Apply actions to create modified function
-        new_func_info = apply_actions_to_function(current_function_info, actions)
+        # Apply search-replace actions to create modified function
+        new_func_info = apply_search_replace_actions(current_function_info, actions)
 
     # Write the modified function back to the file
     # Always write to ensure file stays in sync with function_drafts
