@@ -179,10 +179,13 @@ def print_summary(results: list[TestResult]):
 def main():
     """Main entry point."""
 
-    # Find all s*.cpp files
+    # Find all s*.cpp files (but exclude _opt.cpp files)
     src_dir = "TSVC_2/src"
     pattern = os.path.join(src_dir, "s*.cpp")
-    cpp_files = sorted(glob.glob(pattern))
+    all_files = sorted(glob.glob(pattern))
+
+    # Filter out _opt.cpp files to avoid reprocessing optimized versions
+    cpp_files = [f for f in all_files if not f.endswith("_opt.cpp")]
 
     if not cpp_files:
         print(f"Error: No s*.cpp files found in {src_dir}")
