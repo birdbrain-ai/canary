@@ -135,11 +135,9 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
     """
     return f"""Your task is to take a function and modify it to make it easier to autovectorize.
 
-The FUNCTION is (with line numbers):
+The FUNCTION is:
 
-{numbered_function_body}
-
-(This function starts at line {current_function_info["start_line"]} in the original file)
+{current_function_info["full_text"]}
 
 The surrounding context is:
 
@@ -153,55 +151,74 @@ Please use SUGGESTIONS FROM A REVIEWER when modifying the function.
 
 {reviewer_feedback}
 
-You have two options:
+INSTRUCTIONS:
+Use search-replace blocks to suggest modifications. Each block shows the exact code to find (SEARCH) and what to replace it with (REPLACE).
 
-1. PRAGMA ACTIONS: Suggest pragmas for FOR LOOPS where vectorization still failed
-- You may suggest: "vectorize", "interleave", or "vectorize_width"
-- Be conservative - only suggest if you're confident it will help
+FORMAT:
+For each change, use this exact format:
 
-2. CODE REPLACE: Make targeted code changes:
-- Fix specific issues identified in optimization remarks
-- Add temporaries, hoist computations, break dependencies
-- Avoid making changes that alter the meaning of the function
+<<<<<<< SEARCH
+exact code to find
+(must match exactly including whitespace and indentation)
+=======
+replacement code
+(this will replace the SEARCH block)
+>>>>>>> REPLACE
 
-OPTION 1 - PRAGMA ACTIONS (for simple vectorization hints):
-For each loop that needs a pragma, create a JSON object:
-{{
-  "action_type": "pragma",
-  "line_number": <line number from the numbered function above>,
-  "pragma_type": "vectorize" OR "interleave" OR "vectorize_width",
-  "width": <number (only if pragma_type is vectorize_width), otherwise null>,
-  "reasoning": "<brief explanation>"
-}}
+RULES:
+1. SEARCH block must match the original code EXACTLY (including indentation and whitespace)
+2. You can make multiple changes - just use multiple search-replace blocks
+3. To add a pragma before a loop, include the loop line in SEARCH and add the pragma in REPLACE
+4. To modify code, include the lines you want to change in SEARCH and provide new code in REPLACE
+5. Make targeted changes - don't include unnecessary surrounding code
+6. If NO modifications are needed, output only: NO_CHANGES
 
-OPTION 2 - CODE REPLACE (for targeted code changes):
-For each code change, create a JSON object:
-{{
-  "action_type": "code_replace",
-  "start_line": <start line number (inclusive)>,
-  "end_line": <end line number (exclusive)>,
-  "new_code": "<replacement code (can be multi-line)>",
-  "reasoning": "<brief explanation>"
-}}
+EXAMPLES:
 
-IMPORTANT LINE NUMBER SEMANTICS:
-- Line numbers use HALF-OPEN INTERVAL: [start_line, end_line)
-- start_line is INCLUSIVE (this line will be affected)
-- end_line is EXCLUSIVE (this line will NOT be affected)
-- To INSERT at line N (before existing content): use start_line=N, end_line=N
-- To REPLACE a single line N: use start_line=N, end_line=N+1
-- To REPLACE lines N through M: use start_line=N, end_line=M+1
+Example 1 - Adding a pragma before a loop:
+<<<<<<< SEARCH
+    for (int i = 0; i < n; i++) {{
+        result[i] = a[i] + b[i];
+    }}
+=======
+    #pragma clang loop vectorize(enable)
+    for (int i = 0; i < n; i++) {{
+        result[i] = a[i] + b[i];
+    }}
+>>>>>>> REPLACE
 
-Examples:
-- Insert variable at line 1: {{"action_type": "code_replace", "start_line": 1, "end_line": 1, "new_code": "int temp = 0;", "reasoning": "Add local temporary"}}
-- Replace single line 5: {{"action_type": "code_replace", "start_line": 5, "end_line": 6, "new_code": "result[i] = a[i] * factor;", "reasoning": "Use hoisted variable"}}
-- Replace lines 3-5 (inclusive): {{"action_type": "code_replace", "start_line": 3, "end_line": 6, "new_code": "for (int i = 0; i < n; i++) {{\\n    output[i] = input[i];\\n}}", "reasoning": "Simplify loop"}}
+Example 2 - Modifying code to hoist a computation:
+<<<<<<< SEARCH
+    for (int i = 0; i < n; i++) {{
+        result[i] = a[i] * factor * 2;
+    }}
+=======
+    int hoisted = factor * 2;
+    for (int i = 0; i < n; i++) {{
+        result[i] = a[i] * hoisted;
+    }}
+>>>>>>> REPLACE
 
-CRITICAL OUTPUT RULES:
-- Output a JSON ARRAY: [{{...}}] or [{{...}}, {{...}}] for multiple actions
-- You can mix pragma and code_replace actions in the same array
-- If NO modifications needed, output an empty array: []
-- DO NOT include any explanatory text, markdown, or code fences
-- Output ONLY the JSON array, nothing else
+Example 3 - Multiple changes (just put multiple blocks one after another):
+<<<<<<< SEARCH
+    int x = compute();
+=======
+    int temp = compute();
+    int x = temp;
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH
+    for (int i = 0; i < n; i++) {{
+        data[i] = x;
+    }}
+=======
+    #pragma clang loop vectorize(enable)
+    for (int i = 0; i < n; i++) {{
+        data[i] = x;
+    }}
+>>>>>>> REPLACE
+
+YOUR OUTPUT:
+(Provide search-replace blocks or NO_CHANGES)
 
     """

@@ -10,20 +10,9 @@ llm = ChatOpenAI(
 )
 
 
-class PragmaAction(TypedDict):
-    action_type: str  # Must be "pragma"
-    line_number: int  # Line number in the function (0-indexed)
-    pragma_type: str  # "vectorize", "interleave", or "vectorize_width"
-    width: int | None  # For vectorize_width(N), otherwise None
-    reasoning: str  # Brief explanation from LLM
-
-    
-class CodeReplaceAction(TypedDict):
-    action_type: str  # Must be "code_replace"
-    start_line: int  # Start line (0-indexed, inclusive, relative to function)
-    end_line: int  # End line (0-indexed, exclusive) - uses [start, end) semantics
-    new_code: str  # Replacement code (can be multi-line)
-    reasoning: str  # Explanation of change
+class SearchReplaceAction(TypedDict):
+    search: str  # The exact text to search for
+    replace: str  # The replacement text
 
 
 class FunctionInfo(TypedDict):
