@@ -4,7 +4,7 @@ from langchain_openai import ChatOpenAI
 
 
 llm = ChatOpenAI(
-    model="Qwen/Qwen2.5-Coder-7B-Instruct", 
+    model="Qwen/Qwen3-8B",
     api_key="",
     base_url="http://localhost:8000/v1",
 )
