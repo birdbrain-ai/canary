@@ -19,106 +19,138 @@ client = OpenAI(
 )
 
 def engineer_prompt(code: str) -> str:
-    # Add line numbers to the code to help LLM generate correct diffs
-    numbered_lines = '\n'.join(f"{i+1:4d}: {line}" for i, line in enumerate(code.splitlines()))
-
     return f"""Modify this C++ code to make it easier for the clang compiler to autovectorize.
 
-CODE WITH LINE NUMBERS:
-{numbered_lines}
+CODE:
+{code}
 
-Output a unified diff showing your changes in STANDARD UNIFIED DIFF FORMAT.
+Output your changes using SEARCH/REPLACE blocks. Each block shows exactly what text to find and what to replace it with.
 
-IMPORTANT: Use the line numbers shown above in your diff. Do NOT count lines yourself.
+FORMAT:
+<<<<<<< SEARCH
+exact code to find (must match original exactly, including whitespace)
+=======
+replacement code
+>>>>>>> REPLACE
 
-CRITICAL RULES FOR UNIFIED DIFF FORMAT:
-1. Context lines (unchanged) have a SPACE prefix and must EXACTLY match the original code
-2. Removed lines have a MINUS (-) prefix showing the OLD content
-3. Added lines have a PLUS (+) prefix showing the NEW content
-4. To CHANGE a line: show it as BOTH removal (-old) AND addition (+new)
-5. Hunks MUST be ordered by ascending line number (line 10 before line 20)
-6. Context lines appear before/after changes to help locate where to apply the patch
-7. Hunk header format: @@ -oldstart,oldcount +newstart,newcount @@
+CRITICAL RULES:
+1. The SEARCH block must match the original code EXACTLY (character-for-character, including all whitespace and indentation)
+2. Include enough context in SEARCH to make the match unique (typically 3-5 lines)
+3. The REPLACE block shows the new code (with same indentation as original)
+4. You can have multiple SEARCH/REPLACE blocks for multiple changes
+5. If no changes needed, output: NO_CHANGES_NEEDED
 
-CORRECT EXAMPLE - Adding __restrict__ and changing a line:
+EXAMPLE 1 - Adding __restrict__ keyword:
+<<<<<<< SEARCH
+real_t* __restrict__ xx;
+real_t* yy;
+=======
+real_t* __restrict__ xx;
+real_t* __restrict__ yy;
+>>>>>>> REPLACE
 
-Given code with line numbers:
-   8: #include <stdio.h>
-   9:
-  10: real_t* __restrict__ xx;
-  11: real_t* yy;
-  12:
-  13: void vectorize_me(float *a, float *b, int n) {{
-  14:     for (int i = 0; i < n; i++) {{
-  15:         a[i] = b[i] * 2.0f;
-  16:     }}
-  17: }}
+EXAMPLE 2 - Hoisting computation out of loop:
+<<<<<<< SEARCH
+    for (int nl = 0; nl < 2*iterations; nl++) {{
+        for (int i = 0; i < LEN_1D; i++) {{
+            a[i] = a[LEN_1D/2] + b[i];
+        }}
+=======
+    for (int nl = 0; nl < 2*iterations; nl++) {{
+        real_t temp = a[LEN_1D/2];
+        for (int i = 0; i < LEN_1D; i++) {{
+            a[i] = temp + b[i];
+        }}
+>>>>>>> REPLACE
 
-Correct diff output:
---- original.cpp
-+++ original.cpp
-@@ -10,8 +10,9 @@
- real_t* __restrict__ xx;
--real_t* yy;
-+real_t* __restrict__ yy;
+EXAMPLE 3 - Multiple changes (use multiple blocks):
+<<<<<<< SEARCH
+real_t* yy;
+=======
+real_t* __restrict__ yy;
+>>>>>>> REPLACE
 
- void vectorize_me(float *a, float *b, int n) {{
-+    float factor = 2.0f;
-     for (int i = 0; i < n; i++) {{
--        a[i] = b[i] * 2.0f;
-+        a[i] = b[i] * factor;
-     }}
- }}
+<<<<<<< SEARCH
+        a[i] = b[i] * 2.0f;
+=======
+        a[i] = b[i] * factor;
+>>>>>>> REPLACE
 
-EXPLANATION OF ABOVE:
-- The hunk starts at line 10 (where "real_t* __restrict__ xx;" is)
-- Lines with space prefix are unchanged context (they MUST match original exactly, WITHOUT line numbers)
-- Line "real_t* yy;" is REMOVED (shown with -)
-- Line "real_t* __restrict__ yy;" is ADDED (shown with +)
-- Line "a[i] = b[i] * 2.0f;" is REMOVED
-- Line "a[i] = b[i] * factor;" is ADDED
-- Line "float factor = 2.0f;" is INSERTED (only + line, no corresponding -)
-- CRITICAL: In the diff output, DO NOT include the line numbers - only the actual code text
-
-WRONG EXAMPLE 1 - Showing modified content as context:
-@@ -10,8 +10,8 @@
- real_t* __restrict__ xx;
- real_t* __restrict__ yy;  // WRONG! This shows NEW content as context (no prefix)
-
-WRONG EXAMPLE 2 - Not showing both - and + for a change:
-@@ -10,8 +10,8 @@
- real_t* __restrict__ xx;
-+real_t* __restrict__ yy;  // WRONG! Missing the - line showing what was removed
-
-WRONG EXAMPLE 3 - Context not matching original:
-@@ -10,8 +10,8 @@
- real_t*  __restrict__  xx;  // WRONG! Extra spaces don't match original
--real_t* yy;
-+real_t* __restrict__ yy;
-
-WRONG EXAMPLE 4 - Hunks out of order:
-@@ -20,3 +20,3 @@   // WRONG! Line 20 should come AFTER line 10
-...
-@@ -10,3 +10,3 @@
-...
-
-WRONG EXAMPLE 5 - Including line numbers in diff output:
-@@ -10,2 +10,2 @@
-  10: real_t* __restrict__ xx;  // WRONG! Do not include "10:" in the diff
-- 11: real_t* yy;                // WRONG! Do not include "11:" in the diff
-+ 11: real_t* __restrict__ yy;  // WRONG! Do not include "11:" in the diff
-
-REMINDER:
-- Use the provided line numbers to determine the correct @@ hunk header line numbers
-- DO NOT include the line number prefixes (like "10: ") in the diff content itself
-- Only include the actual source code text in the diff lines
+COMMON MISTAKES TO AVOID:
+- ❌ WRONG: Not matching indentation exactly in SEARCH block
+- ❌ WRONG: Including line numbers in SEARCH block
+- ❌ WRONG: Not including enough context (making SEARCH ambiguous)
+- ✅ RIGHT: Match original exactly, include sufficient context
 
 If no changes are needed, output only: NO_CHANGES_NEEDED
 """
 
 
-def apply_diff(original_file: str, diff: str) -> str:
-    """Apply a diff to a file copy and return the path to the modified file."""
+def parse_search_replace_blocks(text: str) -> list[tuple[str, str]]:
+    """
+    Parse SEARCH/REPLACE blocks from LLM output.
+
+    Returns:
+        List of (search, replace) tuples
+    """
+    import re
+
+    # Pattern to match SEARCH/REPLACE blocks
+    pattern = r'<<<<<<< SEARCH\s*\n(.*?)\n=======\s*\n(.*?)\n>>>>>>> REPLACE'
+
+    matches = re.findall(pattern, text, re.DOTALL)
+
+    if not matches:
+        print("⚠️  No SEARCH/REPLACE blocks found in output")
+        return []
+
+    print(f"📋 Found {len(matches)} SEARCH/REPLACE block(s)")
+    return matches
+
+
+def apply_search_replace(original_file: str, llm_output: str) -> str:
+    """
+    Apply search/replace blocks to a file.
+
+    Args:
+        original_file: Path to original file
+        llm_output: LLM output containing SEARCH/REPLACE blocks
+
+    Returns:
+        Path to modified file, or None if failed
+    """
+    # Parse search/replace blocks
+    blocks = parse_search_replace_blocks(llm_output)
+
+    if not blocks:
+        return None
+
+    # Read original file
+    with open(original_file, 'r') as f:
+        content = f.read()
+
+    # Apply each search/replace block
+    modified_content = content
+    for i, (search, replace) in enumerate(blocks, 1):
+        print(f"\n📝 Applying block {i}/{len(blocks)}...")
+        print(f"   Searching for: {search[:50]}..." if len(search) > 50 else f"   Searching for: {search}")
+
+        # Check if search text exists in content
+        if search not in modified_content:
+            print(f"   ❌ Search text not found in file!")
+            print(f"   Search block was:")
+            print(f"   {repr(search)}")
+            return None
+
+        # Count occurrences
+        count = modified_content.count(search)
+        if count > 1:
+            print(f"   ⚠️  Warning: Search text appears {count} times in file")
+            print(f"   ⚠️  Will replace all occurrences")
+
+        # Apply replacement
+        modified_content = modified_content.replace(search, replace)
+        print(f"   ✅ Replaced {count} occurrence(s)")
 
     # Create output filename with _opt suffix
     base_name = os.path.basename(original_file)
@@ -126,32 +158,12 @@ def apply_diff(original_file: str, diff: str) -> str:
     name, ext = os.path.splitext(base_name)
     modified_file = os.path.join(dir_name, f"{name}_opt{ext}")
 
-    # Copy original to modified
-    shutil.copy(original_file, modified_file)
+    # Write modified content to new file
+    with open(modified_file, 'w') as f:
+        f.write(modified_content)
 
-    # Write diff to temp file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.diff', delete=False) as f:
-        diff_file = f.name
-        f.write(diff)
-
-    try:
-        # Apply diff using git apply (stricter than patch)
-        result = subprocess.run(
-            ['git', 'apply', '--verbose', diff_file],
-            cwd=dir_name if dir_name else '.',
-            capture_output=True,
-            text=True
-        )
-
-        if result.returncode != 0:
-            print(f"⚠️  Git apply failed: {result.stderr}")
-            return None
-
-        print(f"✅ Applied diff to {modified_file}")
-        return modified_file
-
-    finally:
-        os.unlink(diff_file)
+    print(f"\n✅ Written modified file to: {modified_file}")
+    return modified_file
 
 
 def strip_thinking_tokens(text: str) -> str:
@@ -188,20 +200,22 @@ def run_experiment(file_path: str):
         f.write(raw_output)
     print(f"📝 Logged full output to: {log_file}")
 
-    # Strip thinking tokens to get just the diff
-    diff = strip_thinking_tokens(raw_output)
-    print(f"\nDiff:\n{diff}\n")
+    # Strip thinking tokens
+    output = strip_thinking_tokens(raw_output)
+    print(f"\nLLM Output (without thinking):\n{output}\n")
 
     # Check if no changes needed
-    if "NO_CHANGES_NEEDED" in diff:
-        print("No changes needed.")
+    if "NO_CHANGES_NEEDED" in output:
+        print("ℹ️  No changes needed.")
         return
 
-    # Apply diff to copy
-    modified_file = apply_diff(file_path, diff)
+    # Apply search/replace blocks
+    modified_file = apply_search_replace(file_path, output)
 
     if modified_file:
-        print(f"✅ Modified file saved to: {modified_file}")
+        print(f"\n✅ Success! Modified file saved to: {modified_file}")
+    else:
+        print(f"\n❌ Failed to apply changes")
 
 
 if __name__ == "__main__":
