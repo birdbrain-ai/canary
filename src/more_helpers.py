@@ -430,8 +430,8 @@ def filter_remarks_by_function(yaml_file_path: str, func_name: str) -> str:
         # 2. Try substring match (func_name in demangled version)
         
         # Use yq to select documents where Function field contains our function name
-        # This works because demangled names typically contain the original function name
-        yq_filter = f'select(.Function and (.Function | test("{re.escape(func_name)}")))'
+        # Use word boundaries to ensure exact function name match (not substring)
+        yq_filter = f'select(.Function and (.Function | test("\\\\b{re.escape(func_name)}\\\\b")))'
         
         result = subprocess.run(
             ["yq", yq_filter],
@@ -478,9 +478,9 @@ def filter_remarks_by_function_with_demangle(yaml_content: str, func_name: str) 
             if doc and 'Function' in doc:
                 mangled = doc['Function']
                 demangled = demangle_function_name(mangled)
-                
-                # Check if func_name appears in demangled name
-                if func_name in demangled:
+
+                # Check if func_name exactly matches demangled name
+                if func_name == demangled:
                     matching_docs.append(doc)
         
         if not matching_docs:
