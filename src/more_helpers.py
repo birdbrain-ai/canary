@@ -480,7 +480,7 @@ def filter_remarks_by_function_with_demangle(yaml_content: str, func_name: str) 
                 demangled = demangle_function_name(mangled)
                 
                 # Check if func_name appears in demangled name
-                if func_name in demangled:
+                if func_name.strip() == demangled.strip():
                     matching_docs.append(doc)
         
         if not matching_docs:
