@@ -237,8 +237,8 @@ def reviewer(state: VectorizationState):
             # Code is already autovectorized - not a dead end
             cur_function_draft.dead_end = False
         else:
-            # Use LLM's assessment
-            cur_function_draft.dead_end = llm_dead_end
+            # Use LLM's assessment, but never mark iteration 0 as dead end
+            cur_function_draft.dead_end = llm_dead_end if current_iteration != 0 else False
         
         function_drafts[current_iteration] = cur_function_draft
         
