@@ -44,7 +44,7 @@ def compile_code(state: VectorizationState):
     os.chdir(bench_path)
 
     rm_result = subprocess.run(
-        "rm -rf *.opt.yaml",
+        "find . -name '*.opt.yaml' -type f -delete",
         shell=True,
         capture_output=True,
         text=True,

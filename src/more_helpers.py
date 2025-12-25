@@ -431,6 +431,7 @@ def filter_remarks_by_function(yaml_file_path: str, func_name: str) -> str:
         
         # Use yq to select documents where Function field contains our function name
         # This works because demangled names typically contain the original function name
+        # TODO(akash): This is stupid, we should just test for exact equality after stripping the strings
         yq_filter = f'select(.Function and (.Function | test("{re.escape(func_name)}")))'
         
         result = subprocess.run(
