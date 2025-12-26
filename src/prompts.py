@@ -166,12 +166,29 @@ replacement code
 >>>>>>> REPLACE
 
 RULES:
-1. SEARCH block must match the original code EXACTLY (including indentation and whitespace)
+1. SEARCH block must match the original code (whitespace differences are OK, but the code structure must match)
 2. You can make multiple changes - just use multiple search-replace blocks
 3. To add a pragma before a loop, include the loop line in SEARCH and add the pragma in REPLACE
 4. To modify code, include the lines you want to change in SEARCH and provide new code in REPLACE
 5. Make targeted changes - don't include unnecessary surrounding code
 6. If NO modifications are needed, output only: NO_CHANGES
+
+CRITICAL - NON-OVERLAPPING REQUIREMENT:
+7. Each SEARCH block must target a DIFFERENT, NON-OVERLAPPING part of the original function
+8. DO NOT create multiple SEARCH blocks that try to match the same code
+9. If you need to make multiple changes to the same section, combine them into ONE search-replace block
+10. Search-replace blocks are applied sequentially - after block 0 is applied, the original code changes, so blocks 1, 2, etc. must search for code that wasn't modified by earlier blocks
+
+WRONG - Multiple blocks modifying the same loop:
+❌ Block 0: SEARCH for original loop → add temp array
+❌ Block 1: SEARCH for original loop → add pragma    (FAILS - loop already modified by block 0!)
+
+RIGHT - Single block with all changes:
+✅ Block 0: SEARCH for original loop → add temp array AND pragma together
+
+RIGHT - Multiple blocks targeting different parts:
+✅ Block 0: SEARCH for loop A → modify loop A
+✅ Block 1: SEARCH for loop B → modify loop B       (Different loop, not overlapping)
 
 EXAMPLES:
 
@@ -199,7 +216,7 @@ Example 2 - Modifying code to hoist a computation:
     }}
 >>>>>>> REPLACE
 
-Example 3 - Multiple changes (just put multiple blocks one after another):
+Example 3 - Multiple changes to DIFFERENT parts (blocks don't overlap):
 <<<<<<< SEARCH
     int x = compute();
 =======
@@ -215,6 +232,23 @@ Example 3 - Multiple changes (just put multiple blocks one after another):
     #pragma clang loop vectorize(enable)
     for (int i = 0; i < n; i++) {{
         data[i] = x;
+    }}
+>>>>>>> REPLACE
+
+Example 4 - Combining multiple changes to SAME section into ONE block:
+<<<<<<< SEARCH
+    for (int i = 0; i < n; i++) {{
+        result[i] = a[i] + b[i - 1];
+    }}
+=======
+    // Add temporary array to eliminate dependency AND add pragma
+    float temp[n];
+    for (int i = 0; i < n; i++) {{
+        temp[i] = b[i - 1];
+    }}
+    #pragma clang loop vectorize(enable)
+    for (int i = 0; i < n; i++) {{
+        result[i] = a[i] + temp[i];
     }}
 >>>>>>> REPLACE
 

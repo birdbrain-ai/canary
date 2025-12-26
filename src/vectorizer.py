@@ -626,6 +626,96 @@ def write_function_to_file(
         return False
 
 
+# Helper: Normalize whitespace for flexible matching
+def normalize_whitespace(text: str) -> str:
+    """
+    Normalize whitespace in text for flexible matching.
+    Converts runs of spaces/tabs to single spaces, but preserves line structure.
+
+    Args:
+        text: Original text with arbitrary whitespace
+
+    Returns:
+        Text with normalized whitespace
+    """
+    import re
+    lines = text.split('\n')
+    normalized_lines = []
+    for line in lines:
+        # Replace runs of spaces/tabs with single space, but preserve leading indentation structure
+        # Strip trailing whitespace from each line
+        stripped = line.rstrip()
+        if stripped:
+            # Replace multiple spaces/tabs with single space
+            normalized = re.sub(r'[ \t]+', ' ', stripped)
+            normalized_lines.append(normalized)
+        else:
+            normalized_lines.append('')
+    return '\n'.join(normalized_lines)
+
+
+def find_fuzzy_match(search_text: str, target_text: str) -> tuple[int, int] | None:
+    """
+    Find a match for search_text in target_text using whitespace-forgiving matching.
+
+    Args:
+        search_text: Text to search for
+        target_text: Text to search in
+
+    Returns:
+        Tuple of (start_pos, end_pos) if found, None otherwise
+    """
+    # First try exact match
+    pos = target_text.find(search_text)
+    if pos != -1:
+        return (pos, pos + len(search_text))
+
+    # Try whitespace-normalized matching
+    normalized_search = normalize_whitespace(search_text)
+    normalized_target = normalize_whitespace(target_text)
+
+    pos = normalized_target.find(normalized_search)
+    if pos == -1:
+        return None
+
+    # Now we need to map the position back to the original text
+    # Count characters in normalized target up to pos
+    # Then count same number of "meaningful" chars in original
+
+    # This is complex, so let's use a simpler approach:
+    # Split into lines and try to match line by line with fuzzy whitespace
+    search_lines = search_text.split('\n')
+    target_lines = target_text.split('\n')
+    normalized_search_lines = normalized_search.split('\n')
+
+    # Try to find a sequence of lines that match
+    for i in range(len(target_lines) - len(search_lines) + 1):
+        match = True
+        for j in range(len(search_lines)):
+            target_norm = normalize_whitespace(target_lines[i + j])
+            if target_norm != normalized_search_lines[j]:
+                match = False
+                break
+
+        if match:
+            # Found a match! Calculate positions
+            start_pos = sum(len(line) + 1 for line in target_lines[:i])  # +1 for \n
+
+            # Calculate end position: sum of lines up to (but not including) the line after our match
+            # We need to account for the newlines between lines, but not after the last matched line
+            end_line_idx = i + len(search_lines)
+            if end_line_idx < len(target_lines):
+                # Not the last line in the file - include trailing newline
+                end_pos = sum(len(line) + 1 for line in target_lines[:end_line_idx])
+            else:
+                # Last line(s) in file - don't include trailing newline that doesn't exist
+                end_pos = sum(len(line) + 1 for line in target_lines[:end_line_idx]) - 1
+
+            return (start_pos, end_pos)
+
+    return None
+
+
 # Helper: Apply search-replace actions to function
 def apply_search_replace_actions(
     function_info: FunctionInfo,
@@ -633,6 +723,7 @@ def apply_search_replace_actions(
 ) -> FunctionInfo:
     """
     Apply a list of search-replace actions to a function to create a modified version.
+    Uses whitespace-forgiving matching to handle indentation differences.
 
     Args:
         function_info: Original function information
@@ -647,23 +738,35 @@ def apply_search_replace_actions(
         search_text = action["search"]
         replace_text = action["replace"]
 
-        # Count occurrences of search text
-        count = modified_text.count(search_text)
+        # Try fuzzy matching with whitespace tolerance
+        match_result = find_fuzzy_match(search_text, modified_text)
 
-        if count == 0:
+        if match_result is None:
             print(f"⚠️  Search-replace action {i}: search text not found")
             print(f"    Looking for ({len(search_text)} chars):")
             print(f"    {repr(search_text[:200])}")
-            print(f"\n    First 200 chars of function text:")
-            print(f"    {repr(modified_text[:200])}")
+            print(f"\n    In modified text ({len(modified_text)} chars):")
+            print(f"    {repr(modified_text[:400])}")
             continue
-        elif count > 1:
-            print(f"⚠️  Search-replace action {i}: search text appears {count} times (ambiguous)")
+
+        start_pos, end_pos = match_result
+
+        # Check for multiple matches (try to find another occurrence)
+        remaining_text = modified_text[end_pos:]
+        second_match = find_fuzzy_match(search_text, remaining_text)
+
+        if second_match is not None:
+            print(f"⚠️  Search-replace action {i}: search text appears multiple times (ambiguous)")
             print(f"    Looking for: {search_text[:100]}...")
             continue
 
         # Perform the replacement
-        modified_text = modified_text.replace(search_text, replace_text, 1)
+        # Preserve trailing newline if the original matched text had one
+        original_match = modified_text[start_pos:end_pos]
+        if original_match.endswith('\n') and not replace_text.endswith('\n'):
+            replace_text = replace_text + '\n'
+
+        modified_text = modified_text[:start_pos] + replace_text + modified_text[end_pos:]
         print(f"✅ Applied search-replace action {i}")
 
     # Calculate new end_line based on number of lines in modified text
