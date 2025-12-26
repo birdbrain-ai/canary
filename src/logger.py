@@ -18,6 +18,46 @@ class LLMLogger:
         self.previous_state = {}  # Track previous state for change detection
         print(f"📝 LLM logging enabled: {self.log_base_dir}")
         
+    def log_llm_prompt(
+        self,
+        iteration: int,
+        file_path: str,
+        call_type: str,
+        prompt: str,
+        function_name: str | None = None
+    ):
+        """
+        Log just the prompt before making an LLM call.
+        This ensures the prompt is saved even if the API call fails.
+
+        Args:
+            iteration: Current iteration number
+            file_path: Path to source file being processed
+            call_type: Type of LLM call (e.g., "reviewer", "engineer", "manager")
+            prompt: The prompt to send to LLM
+            function_name: Optional function name (for function-level calls)
+        """
+        # Build directory path (same as log_llm_call)
+        file_basename = Path(file_path).name
+        dir_parts = [f"file_{file_basename}"]
+
+        if function_name:
+            dir_parts.append(f"func_{function_name}")
+
+        dir_parts.append(f"iteration_{iteration}")
+
+        call_number = self._get_call_number(call_type, function_name)
+        dir_parts.append(f"{call_number:02d}_{call_type}")
+
+        log_dir = self.log_base_dir.joinpath(*dir_parts)
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Write prompt only
+        prompt_file = log_dir / "prompt.txt"
+        prompt_file.write_text(prompt, encoding='utf-8')
+
+        print(f"  📝 Logged prompt: {'/'.join(dir_parts[-2:])}")
+
     def log_llm_call(
         self,
         iteration: int,
@@ -30,7 +70,7 @@ class LLMLogger:
     ):
         """
         Log a single LLM call with prompt and response in separate files.
-        
+
         Args:
             iteration: Current iteration number
             file_path: Path to source file being processed

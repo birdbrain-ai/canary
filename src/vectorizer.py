@@ -209,15 +209,24 @@ def reviewer(state: VectorizationState):
             optimization_remarks
         )
 
-        output: str = llm.invoke(prompt).content
-        
+        # Log prompt before API call (in case of failure)
+        logger.log_llm_prompt(
+            iteration=current_iteration,
+            file_path=state["file_path"],
+            call_type="reviewer",
+            prompt=prompt,
+            function_name=cur_function_name
+        )
 
+        output: str = llm.invoke(prompt).content
+
+        # Log complete call after success
         logger.log_llm_call(
             iteration=current_iteration,
             file_path=state["file_path"],
             call_type="reviewer",
             prompt=prompt,
-            response=output, # Replace with actual LLM output when available
+            response=output,
             function_name=cur_function_name
         )
 
@@ -446,9 +455,18 @@ def manager(state: VectorizationState):
     current_iteration = state["current_iteration"]
     prompt = get_manager_prompt(drafts_str, make_command, current_iteration)
 
+    # Log prompt before API call (in case of failure)
+    logger.log_llm_prompt(
+        iteration=current_iteration,
+        file_path=state["file_path"],
+        call_type="manager",
+        prompt=prompt,
+        function_name=function_drafts[0].modified_function_text["name"]
+    )
+
     result: str = llm.invoke(prompt).content
-    
-    current_iteration = state["current_iteration"]
+
+    # Log complete call after success
     logger.log_llm_call(
         iteration=current_iteration,
         file_path=state["file_path"],
@@ -695,10 +713,20 @@ def engineer(state: VectorizationState):
         make_command,
         reviewer_feedback
     )
-    response:str = llm.invoke(prompt).content
-
 
     current_iteration = state["current_iteration"]
+    # Log prompt before API call (in case of failure)
+    logger.log_llm_prompt(
+        iteration=current_iteration,
+        file_path=state["file_path"],
+        call_type="engineer",
+        prompt=prompt,
+        function_name=current_function_info["name"]
+    )
+
+    response: str = llm.invoke(prompt).content
+
+    # Log complete call after success
     logger.log_llm_call(
         iteration=current_iteration,
         file_path=state["file_path"],
