@@ -529,13 +529,18 @@ def parse_search_replace_output(output: str) -> list[SearchReplaceAction] | None
 
     # Pattern to match search-replace blocks
     # Match from <<<<<<< SEARCH to =======, then from ======= to >>>>>>> REPLACE
-    pattern = r'<{7}\s*SEARCH\s*\n(.*?)\n={7}\s*\n(.*?)\n>{7}\s*REPLACE'
+    # More flexible: allows 7+ chars, optional newlines, case-insensitive
+    pattern = r'<{7,}\s*SEARCH\s*\n(.*?)\n={7,}\s*\n(.*?)\n>{7,}\s*REPLACE'
 
     matches = re.findall(pattern, output, re.DOTALL)
 
     if not matches:
         print("⚠️  No valid search-replace blocks found in engineer output")
-        print(f"    Output was: {output[:200]}...")
+        print(f"    Full output:\n{output}")
+        print("\n    Checking for markers:")
+        print(f"    - Contains '<<<<<<< SEARCH': {'<<<<<<< SEARCH' in output}")
+        print(f"    - Contains '=======': {'=======' in output}")
+        print(f"    - Contains '>>>>>>> REPLACE': {'>>>>>>> REPLACE' in output}")
         return None
 
     actions: list[SearchReplaceAction] = []
@@ -629,7 +634,10 @@ def apply_search_replace_actions(
 
         if count == 0:
             print(f"⚠️  Search-replace action {i}: search text not found")
-            print(f"    Looking for: {search_text[:100]}...")
+            print(f"    Looking for ({len(search_text)} chars):")
+            print(f"    {repr(search_text[:200])}")
+            print(f"\n    First 200 chars of function text:")
+            print(f"    {repr(modified_text[:200])}")
             continue
         elif count > 1:
             print(f"⚠️  Search-replace action {i}: search text appears {count} times (ambiguous)")
