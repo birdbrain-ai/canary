@@ -402,7 +402,8 @@ def filter_vectorize_remarks(yaml_file_path: str) -> str:
 def deduplicate_yaml_remarks(yaml_content: str) -> str:
     """
     Deduplicate YAML optimization remarks by removing duplicate entries.
-    Uses the entire document as a signature for strict matching.
+    Uses string-based comparison with whitespace normalization to avoid
+    YAML parsing issues with custom tags (!Missed, !Passed, etc.).
 
     Args:
         yaml_content: YAML content containing optimization remarks
@@ -414,28 +415,32 @@ def deduplicate_yaml_remarks(yaml_content: str) -> str:
         return ""
 
     try:
-        import yaml
-        import json
+        # Split by YAML document separator
+        # Documents are separated by "---" lines
+        documents = yaml_content.split('\n---\n')
 
-        documents = list(yaml.safe_load_all(yaml_content))
         seen_docs = set()
         unique_docs = []
 
         for doc in documents:
-            if doc:
-                # Create a hashable signature using the entire document
-                # Convert to JSON string for a stable, hashable representation
-                signature = json.dumps(doc, sort_keys=True)
+            if not doc.strip():
+                continue
 
-                if signature not in seen_docs:
-                    seen_docs.add(signature)
-                    unique_docs.append(doc)
+            # Normalize whitespace for comparison
+            normalized_doc = normalize_whitespace_for_matching(doc)
 
-        # Convert back to YAML
-        result = ""
-        for doc in unique_docs:
-            result += "---\n"
-            result += yaml.dump(doc, default_flow_style=False)
+            if normalized_doc not in seen_docs:
+                seen_docs.add(normalized_doc)
+                # Keep original formatting for output
+                unique_docs.append(doc.strip())
+
+        # Reconstruct YAML with document separators
+        if not unique_docs:
+            return ""
+
+        result = "---\n" + "\n---\n".join(unique_docs)
+        if not result.endswith('\n'):
+            result += '\n'
 
         return result
 
@@ -469,16 +474,9 @@ def filter_remarks_by_function(yaml_file_path: str, func_name: str) -> str:
         if result.returncode != 0 or not result.stdout.strip():
             return ""
 
-        # Now filter by function name
-        # We need to check if func_name appears in the Function field
-        # The Function field contains mangled names, so we need to:
-        # 1. Try exact match with mangled name
-        # 2. Try substring match (func_name in demangled version)
-
-        # Use yq to select documents where Function field contains our function name
-        # This works because demangled names typically contain the original function name
-        # TODO(akash): This is stupid, we should just test for exact equality after stripping the strings
-        yq_filter = f'select(.Function and (.Function | test("{re.escape(func_name)}")))'
+        # Now filter by function name using exact match
+        # This avoids regex issues and prevents "init" from matching "initialise_arrays"
+        yq_filter = f'select(.Function == "{func_name}")'
 
         result = subprocess.run(
             ["yq", yq_filter],
