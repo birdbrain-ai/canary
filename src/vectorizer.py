@@ -527,7 +527,7 @@ def parse_manager_output(output: str) -> dict | None:
 # Node: engineer: parse search-replace output
 def parse_search_replace_output(output: str) -> list[SearchReplaceAction] | None:
     """
-    Parse the engineer LLM output to extract search-replace blocks.
+    Parse the engineer LLM output to extract ONE search-replace block.
 
     Expected format:
     <<<<<<< SEARCH
@@ -537,7 +537,7 @@ def parse_search_replace_output(output: str) -> list[SearchReplaceAction] | None
     >>>>>>> REPLACE
 
     Returns:
-        List of SearchReplaceAction dicts, or None if parsing fails, or empty list if NO_CHANGES
+        List with one SearchReplaceAction dict, or None if parsing fails, or empty list if NO_CHANGES
     """
     import re
 
@@ -546,31 +546,27 @@ def parse_search_replace_output(output: str) -> list[SearchReplaceAction] | None
         return []
 
     # Pattern to match search-replace blocks
-    # Match from <<<<<<< SEARCH to =======, then from ======= to >>>>>>> REPLACE
-    # More flexible: allows 7+ chars, optional newlines, case-insensitive
     pattern = r'<{7,}\s*SEARCH\s*\n(.*?)\n={7,}\s*\n(.*?)\n>{7,}\s*REPLACE'
 
     matches = re.findall(pattern, output, re.DOTALL)
 
     if not matches:
-        print("⚠️  No valid search-replace blocks found in engineer output")
-        print(f"    Full output:\n{output}")
-        print("\n    Checking for markers:")
-        print(f"    - Contains '<<<<<<< SEARCH': {'<<<<<<< SEARCH' in output}")
-        print(f"    - Contains '=======': {'=======' in output}")
-        print(f"    - Contains '>>>>>>> REPLACE': {'>>>>>>> REPLACE' in output}")
+        print("⚠️  No valid search-replace block found in engineer output")
+        print(f"    Output: {output[:200]}...")
         return None
 
-    actions: list[SearchReplaceAction] = []
-    for search_text, replace_text in matches:
-        action: SearchReplaceAction = {
-            "search": search_text,
-            "replace": replace_text
-        }
-        actions.append(action)
+    if len(matches) > 1:
+        print(f"⚠️  Warning: Found {len(matches)} search-replace blocks, expected 1. Using only the first.")
 
-    print(f"✅ Parsed {len(actions)} search-replace block(s)")
-    return actions
+    # Take only the first block
+    search_text, replace_text = matches[0]
+    action: SearchReplaceAction = {
+        "search": search_text,
+        "replace": replace_text
+    }
+
+    print(f"✅ Parsed 1 search-replace block")
+    return [action]
 
 
 # Helper: Write function to file
