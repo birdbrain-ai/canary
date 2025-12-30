@@ -133,126 +133,58 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
     Returns:
         Formatted prompt string
     """
-    return f"""Your task is to take a function and modify it to make it easier to autovectorize.
+    return f"""Modify this function to enable autovectorization. Make ONE small, targeted change.
 
-The FUNCTION is:
-
+FUNCTION:
 {current_function_info["full_text"]}
 
-The surrounding context is:
-
+CONTEXT:
 {program_slice}
 
-It is compiled with Clang, using the following command:
+COMPILED WITH: {make_command}
 
-{make_command}
-
-Please use SUGGESTIONS FROM A REVIEWER when modifying the function.
-
+REVIEWER FEEDBACK:
 {reviewer_feedback}
 
 INSTRUCTIONS:
-Use search-replace blocks to suggest modifications. Each block shows the exact code to find (SEARCH) and what to replace it with (REPLACE).
-
-FORMAT:
-For each change, use this exact format:
+Make ONE change using this format:
 
 <<<<<<< SEARCH
 exact code to find
-(must match exactly including whitespace and indentation)
 =======
 replacement code
-(this will replace the SEARCH block)
 >>>>>>> REPLACE
 
-RULES:
-1. SEARCH block must match the original code (whitespace differences are OK, but the code structure must match)
-2. You can make multiple changes - just use multiple search-replace blocks
-3. To add a pragma before a loop, include the loop line in SEARCH and add the pragma in REPLACE
-4. To modify code, include the lines you want to change in SEARCH and provide new code in REPLACE
-5. Make targeted changes - don't include unnecessary surrounding code
-6. If NO modifications are needed, output only: NO_CHANGES
-
-CRITICAL - NON-OVERLAPPING REQUIREMENT:
-7. Each SEARCH block must target a DIFFERENT, NON-OVERLAPPING part of the original function
-8. DO NOT create multiple SEARCH blocks that try to match the same code
-9. If you need to make multiple changes to the same section, combine them into ONE search-replace block
-10. Search-replace blocks are applied sequentially - after block 0 is applied, the original code changes, so blocks 1, 2, etc. must search for code that wasn't modified by earlier blocks
-
-WRONG - Multiple blocks modifying the same loop:
-❌ Block 0: SEARCH for original loop → add temp array
-❌ Block 1: SEARCH for original loop → add pragma    (FAILS - loop already modified by block 0!)
-
-RIGHT - Single block with all changes:
-✅ Block 0: SEARCH for original loop → add temp array AND pragma together
-
-RIGHT - Multiple blocks targeting different parts:
-✅ Block 0: SEARCH for loop A → modify loop A
-✅ Block 1: SEARCH for loop B → modify loop B       (Different loop, not overlapping)
+- If no change needed, output: NO_CHANGES
+- Keep changes minimal - only modify what's necessary
+- Whitespace differences in SEARCH are OK
 
 EXAMPLES:
 
-Example 1 - Adding a pragma before a loop:
+Add pragma:
 <<<<<<< SEARCH
-    for (int i = 0; i < n; i++) {{
-        result[i] = a[i] + b[i];
-    }}
+for (int i = 0; i < n; i++) {{
+    a[i] = b[i] + c[i];
+}}
 =======
-    #pragma clang loop vectorize(enable)
-    for (int i = 0; i < n; i++) {{
-        result[i] = a[i] + b[i];
-    }}
+#pragma clang loop vectorize(enable)
+for (int i = 0; i < n; i++) {{
+    a[i] = b[i] + c[i];
+}}
 >>>>>>> REPLACE
 
-Example 2 - Modifying code to hoist a computation:
+Fix dependency:
 <<<<<<< SEARCH
-    for (int i = 0; i < n; i++) {{
-        result[i] = a[i] * factor * 2;
-    }}
+for (int i = 1; i < n; i++) {{
+    a[i] = a[i-1] + b[i];
+}}
 =======
-    int hoisted = factor * 2;
-    for (int i = 0; i < n; i++) {{
-        result[i] = a[i] * hoisted;
-    }}
->>>>>>> REPLACE
-
-Example 3 - Multiple changes to DIFFERENT parts (blocks don't overlap):
-<<<<<<< SEARCH
-    int x = compute();
-=======
-    int temp = compute();
-    int x = temp;
->>>>>>> REPLACE
-
-<<<<<<< SEARCH
-    for (int i = 0; i < n; i++) {{
-        data[i] = x;
-    }}
-=======
-    #pragma clang loop vectorize(enable)
-    for (int i = 0; i < n; i++) {{
-        data[i] = x;
-    }}
->>>>>>> REPLACE
-
-Example 4 - Combining multiple changes to SAME section into ONE block:
-<<<<<<< SEARCH
-    for (int i = 0; i < n; i++) {{
-        result[i] = a[i] + b[i - 1];
-    }}
-=======
-    // Add temporary array to eliminate dependency AND add pragma
-    float temp[n];
-    for (int i = 0; i < n; i++) {{
-        temp[i] = b[i - 1];
-    }}
-    #pragma clang loop vectorize(enable)
-    for (int i = 0; i < n; i++) {{
-        result[i] = a[i] + temp[i];
-    }}
+float temp = a[0];
+for (int i = 1; i < n; i++) {{
+    temp = temp + b[i];
+    a[i] = temp;
+}}
 >>>>>>> REPLACE
 
 YOUR OUTPUT:
-(Provide search-replace blocks or NO_CHANGES)
-
     """

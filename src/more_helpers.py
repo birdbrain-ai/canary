@@ -399,58 +399,135 @@ def filter_vectorize_remarks(yaml_file_path: str) -> str:
         return ""
 
 
+def deduplicate_yaml_remarks(yaml_content: str) -> str:
+    """
+    Deduplicate YAML optimization remarks by removing duplicate entries.
+    Uses string-based comparison with whitespace normalization to avoid
+    YAML parsing issues with custom tags (!Missed, !Passed, etc.).
+
+    Args:
+        yaml_content: YAML content containing optimization remarks
+
+    Returns:
+        Deduplicated YAML content
+    """
+    if not yaml_content.strip():
+        return ""
+
+    try:
+        # Split by YAML document separator
+        # Documents are separated by "---" lines
+        documents = yaml_content.split('\n---\n')
+
+        seen_docs = set()
+        unique_docs = []
+
+        for doc in documents:
+            if not doc.strip():
+                continue
+
+            # Remove leading "---" if present (happens with first document)
+            doc_cleaned = doc.strip()
+            if doc_cleaned.startswith('---'):
+                doc_cleaned = doc_cleaned[3:].lstrip('\n')
+
+            if not doc_cleaned.strip():
+                continue
+
+            # Normalize whitespace for comparison
+            normalized_doc = normalize_whitespace_for_matching(doc_cleaned)
+
+            if normalized_doc not in seen_docs:
+                seen_docs.add(normalized_doc)
+                # Keep original formatting for output (without leading ---)
+                unique_docs.append(doc_cleaned)
+
+        # Reconstruct YAML with document separators
+        if not unique_docs:
+            return ""
+
+        result = "---\n" + "\n---\n".join(unique_docs)
+        if not result.endswith('\n'):
+            result += '\n'
+
+        return result
+
+    except Exception as e:
+        print(f"⚠ Warning: Could not deduplicate YAML remarks: {e}")
+        return yaml_content  # Return original on error
+
+
 def filter_remarks_by_function(yaml_file_path: str, func_name: str) -> str:
     """
     Filter YAML optimization remarks to only include entries for a specific function.
-    Uses yq to properly parse YAML and match against both mangled and demangled function names.
-    
+    Uses two yq queries: one for exact matches, one for all docs (which we demangle).
+    Concatenates and deduplicates results.
+
     Args:
         yaml_file_path: Path to .opt.yaml file
-        func_name: Function name to filter for (e.g., "vecAdd")
-    
+        func_name: Function name to filter for (e.g., "vecAdd", "init")
+
     Returns:
         Filtered YAML content as string containing complete YAML documents,
         or empty string if no matches or filtering fails
     """
     try:
-        # First, filter for loop-vectorize pass
-        result = subprocess.run(
+        # Query 1: Get docs with exact function name match (handles unmangled names)
+        yq_filter_exact = f'select(.Pass == "loop-vectorize" and .Function == "{func_name}")'
+        result_exact = subprocess.run(
+            ["yq", yq_filter_exact, yaml_file_path],
+            capture_output=True,
+            text=True,
+        )
+
+        exact_matches = result_exact.stdout if result_exact.returncode == 0 else ""
+
+        # Query 2: Get all loop-vectorize docs, then filter by demangling
+        result_all = subprocess.run(
             ["yq", "select(.Pass == \"loop-vectorize\")", yaml_file_path],
             capture_output=True,
             text=True,
         )
-        
-        if result.returncode != 0 or not result.stdout.strip():
+
+        mangled_matches = ""
+        if result_all.returncode == 0 and result_all.stdout.strip():
+            # Parse documents and filter by demangled name
+            documents = result_all.stdout.split('\n---\n')
+            matching_docs = []
+
+            for doc in documents:
+                if not doc.strip():
+                    continue
+
+                # Extract Function field
+                for line in doc.splitlines():
+                    if line.strip().startswith('Function:'):
+                        function_field = line.split('Function:', 1)[1].strip()
+
+                        # Demangle and compare
+                        demangled = demangle_function_name(function_field)
+                        if demangled.strip() == func_name.strip():
+                            # Clean up the doc (remove leading --- if present)
+                            doc_cleaned = doc.strip()
+                            if doc_cleaned.startswith('---'):
+                                doc_cleaned = doc_cleaned[3:].lstrip('\n')
+                            matching_docs.append(doc_cleaned)
+                            break
+
+            if matching_docs:
+                mangled_matches = "---\n" + "\n---\n".join(matching_docs)
+                if not mangled_matches.endswith('\n'):
+                    mangled_matches += '\n'
+
+        # Concatenate both result sets
+        combined = exact_matches + mangled_matches
+
+        if not combined.strip():
             return ""
-        
-        # Now filter by function name
-        # We need to check if func_name appears in the Function field
-        # The Function field contains mangled names, so we need to:
-        # 1. Try exact match with mangled name
-        # 2. Try substring match (func_name in demangled version)
-        
-        # Use yq to select documents where Function field contains our function name
-        # This works because demangled names typically contain the original function name
-        # TODO(akash): This is stupid, we should just test for exact equality after stripping the strings
-        yq_filter = f'select(.Function and (.Function | test("{re.escape(func_name)}")))'
-        
-        result = subprocess.run(
-            ["yq", yq_filter],
-            input=result.stdout,
-            capture_output=True,
-            text=True,
-        )
-        
-        if result.returncode == 0:
-            # If direct match didn't work, try demangling approach
-            if not result.stdout.strip():
-                # Fall back to manual demangling check
-                return filter_remarks_by_function_with_demangle(result.stdout, func_name)
-            return result.stdout
-        else:
-            print(f"⚠ Warning: yq function filter failed for {yaml_file_path}")
-            return ""
-            
+
+        # Deduplicate the combined results
+        return deduplicate_yaml_remarks(combined)
+
     except Exception as e:
         print(f"⚠ Warning: Could not filter remarks by function for {yaml_file_path}: {e}")
         return ""
@@ -530,37 +607,82 @@ def demangle_function_name(mangled: str) -> str:
         return mangled
 
 
+def normalize_whitespace_for_matching(text: str) -> str:
+    """
+    Normalize whitespace in text for flexible matching.
+    Collapses all whitespace runs to single spaces.
+
+    Args:
+        text: Original text
+
+    Returns:
+        Text with normalized whitespace
+    """
+    import re
+    return re.sub(r'\s+', ' ', text.strip())
+
+
 def extract_compilation_errors(stderr_output: str) -> str:
     """
-    Extracts 'error:' and 'warning:' lines from stderr along with the following 10 lines,
-    
+    Extracts 'error:' and 'warning:' lines from stderr along with context lines,
+    with deduplication to avoid repeating the same warning/error multiple times.
+
+    Context capture stops at the next diagnostic line (note:/remark:/warning:/error:)
+    or after 10 lines, whichever comes first.
+
     Args:
         stderr_output: Raw stderr from compiler
         target_file: Path to the file we want errors for
-        
+
     Returns:
         Filtered error/warning text
     """
     if not stderr_output:
         return ""
-        
-    # target_basename = os.path.basename(target_file)
+
+    # Keywords that mark the start of a new diagnostic
+    diagnostic_keywords = ["note:", "remark:", "warning:", "error:"]
+
     lines = stderr_output.splitlines()
-    filtered_lines = []
+    filtered_blocks = []
+    seen_messages = set()  # Track unique warning/error messages (normalized)
     i = 0
+
     while i < len(lines):
         line = lines[i]
-        # Check for error/warning AND target filename on the same line
+
+        # Check for error/warning
         if ("error:" in line or "warning:" in line):
-            # Capture this line and up to 10 following lines
-            end_idx = min(i + 11, len(lines))
-            filtered_lines.extend(lines[i:end_idx])
-            filtered_lines.append("-" * 20) # Separator
-            i = end_idx
+            # Normalize the message for comparison (whitespace-insensitive)
+            normalized_message = normalize_whitespace_for_matching(line)
+
+            # Only include if we haven't seen this message before
+            if normalized_message not in seen_messages:
+                seen_messages.add(normalized_message)
+
+                # Capture this line and up to 10 following lines,
+                # but stop before the next diagnostic line
+                block = [lines[i]]
+                j = i + 1
+                context_lines = 0
+
+                while j < len(lines) and context_lines < 10:
+                    # Stop if we hit another diagnostic line
+                    if any(keyword in lines[j] for keyword in diagnostic_keywords):
+                        break
+                    block.append(lines[j])
+                    context_lines += 1
+                    j += 1
+
+                block.append("-" * 20)  # Separator
+                filtered_blocks.append("\n".join(block))
+
+            # Move to next line
+            i += 1
         else:
             i += 1
-            
-    if not filtered_lines:
+
+    if not filtered_blocks:
         return ""
-        
-    return "\n".join(filtered_lines) + "\n"
+
+    return "\n".join(filtered_blocks) + "\n"
