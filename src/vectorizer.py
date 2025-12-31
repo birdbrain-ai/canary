@@ -58,8 +58,15 @@ def compile_code(state: VectorizationState):
     )
 
     # 1. Extract compilation feedback.
-    # TODO(akash): obviously just replace this with a compiler option instead of filtering it manually. Just make the compiler only output warnings and errors instead of an insane quantity of notes. 
-    compilation_feedback = extract_compilation_errors(result.stderr)
+    # TODO(akash): obviously just replace this with a compiler option instead of filtering it manually. Just make the compiler only output warnings and errors instead of an insane quantity of notes.
+    # Convert 0-indexed function line numbers to 1-indexed compiler line numbers
+    func_start_line_1indexed = cur_function_info["start_line"] + 1
+    func_end_line_1indexed = cur_function_info["end_line"] + 1
+    compilation_feedback = extract_compilation_errors(
+        result.stderr,
+        line_range_start=func_start_line_1indexed,
+        line_range_end=func_end_line_1indexed
+    )
     cur_function_draft.compile_success = result.returncode == 0
 
     # 2. Extract optimization remarks
