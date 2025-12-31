@@ -622,7 +622,34 @@ def normalize_whitespace_for_matching(text: str) -> str:
     return re.sub(r'\s+', ' ', text.strip())
 
 
-def extract_compilation_errors(stderr_output: str) -> str:
+def extract_line_number_from_diagnostic(line: str) -> int | None:
+    """
+    Extracts the line number from a compiler diagnostic line.
+
+    Expected formats:
+    - file.c:123:45: warning: message (with column)
+    - file.c:123: warning: message (without column)
+
+    Args:
+        line: Compiler diagnostic line
+
+    Returns:
+        Line number if found, None otherwise
+    """
+    import re
+    # Pattern: filename:line:column: or filename:line:
+    # Look for :NUMBER: or :NUMBER:NUMBER: pattern
+    match = re.search(r':(\d+)(?::\d+)?:', line)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def extract_compilation_errors(
+    stderr_output: str,
+    line_range_start: int | None = None,
+    line_range_end: int | None = None
+) -> str:
     """
     Extracts 'error:' and 'warning:' lines from stderr along with context lines,
     with deduplication to avoid repeating the same warning/error multiple times.
@@ -632,7 +659,8 @@ def extract_compilation_errors(stderr_output: str) -> str:
 
     Args:
         stderr_output: Raw stderr from compiler
-        target_file: Path to the file we want errors for
+        line_range_start: Optional start line (inclusive) for filtering warnings/notes/remarks
+        line_range_end: Optional end line (inclusive) for filtering warnings/notes/remarks
 
     Returns:
         Filtered error/warning text
@@ -651,31 +679,51 @@ def extract_compilation_errors(stderr_output: str) -> str:
     while i < len(lines):
         line = lines[i]
 
-        # Check for error/warning
-        if ("error:" in line or "warning:" in line):
-            # Normalize the message for comparison (whitespace-insensitive)
-            normalized_message = normalize_whitespace_for_matching(line)
+        # Check for error/warning/note/remark
+        is_error = "error:" in line
+        is_warning = "warning:" in line
+        is_note = "note:" in line
+        is_remark = "remark:" in line
 
-            # Only include if we haven't seen this message before
-            if normalized_message not in seen_messages:
-                seen_messages.add(normalized_message)
+        if is_error or is_warning or is_note or is_remark:
+            # Extract line number from the diagnostic
+            line_number = extract_line_number_from_diagnostic(line)
 
-                # Capture this line and up to 10 following lines,
-                # but stop before the next diagnostic line
-                block = [lines[i]]
-                j = i + 1
-                context_lines = 0
+            # Apply line range filtering only to non-errors
+            should_include = True
+            if not is_error and line_range_start is not None and line_range_end is not None:
+                # Filter warnings, notes, and remarks by line range
+                if line_number is None:
+                    # If we can't extract a line number, exclude it to be safe
+                    should_include = False
+                elif not (line_range_start <= line_number <= line_range_end):
+                    # Line number is outside the function range
+                    should_include = False
 
-                while j < len(lines) and context_lines < 10:
-                    # Stop if we hit another diagnostic line
-                    if any(keyword in lines[j] for keyword in diagnostic_keywords):
-                        break
-                    block.append(lines[j])
-                    context_lines += 1
-                    j += 1
+            if should_include:
+                # Normalize the message for comparison (whitespace-insensitive)
+                normalized_message = normalize_whitespace_for_matching(line)
 
-                block.append("-" * 20)  # Separator
-                filtered_blocks.append("\n".join(block))
+                # Only include if we haven't seen this message before
+                if normalized_message not in seen_messages:
+                    seen_messages.add(normalized_message)
+
+                    # Capture this line and up to 10 following lines,
+                    # but stop before the next diagnostic line
+                    block = [lines[i]]
+                    j = i + 1
+                    context_lines = 0
+
+                    while j < len(lines) and context_lines < 10:
+                        # Stop if we hit another diagnostic line
+                        if any(keyword in lines[j] for keyword in diagnostic_keywords):
+                            break
+                        block.append(lines[j])
+                        context_lines += 1
+                        j += 1
+
+                    block.append("-" * 20)  # Separator
+                    filtered_blocks.append("\n".join(block))
 
             # Move to next line
             i += 1
