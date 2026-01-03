@@ -549,6 +549,14 @@ def parse_search_replace_output(output: str) -> list[SearchReplaceAction] | None
     """
     import re
 
+    # Strip <think>...</think> blocks before parsing
+    # This ensures we only parse the actual output, not draft versions from the reasoning process
+    output = re.sub(r'<think>.*?</think>', '', output, flags=re.DOTALL)
+
+    # Also handle unclosed <think> tags (LLM got stuck in infinite loop)
+    # If there's a <think> without a closing tag, strip everything from <think> onwards
+    output = re.sub(r'<think>.*', '', output, flags=re.DOTALL)
+
     # Check for NO_CHANGES
     if "NO_CHANGES" in output.strip():
         return []
@@ -634,7 +642,7 @@ def write_function_to_file(
 def normalize_whitespace(text: str) -> str:
     """
     Normalize whitespace in text for flexible matching.
-    Converts runs of spaces/tabs to single spaces, but preserves line structure.
+    Strips leading/trailing whitespace from each line and normalizes internal whitespace.
 
     Args:
         text: Original text with arbitrary whitespace
@@ -646,9 +654,8 @@ def normalize_whitespace(text: str) -> str:
     lines = text.split('\n')
     normalized_lines = []
     for line in lines:
-        # Replace runs of spaces/tabs with single space, but preserve leading indentation structure
-        # Strip trailing whitespace from each line
-        stripped = line.rstrip()
+        # Strip leading AND trailing whitespace from each line
+        stripped = line.strip()
         if stripped:
             # Replace multiple spaces/tabs with single space
             normalized = re.sub(r'[ \t]+', ' ', stripped)
