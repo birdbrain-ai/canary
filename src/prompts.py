@@ -167,22 +167,21 @@ COMPILED WITH: {make_command}
 REVIEWER FEEDBACK:
 {reviewer_feedback}
 
-INSTRUCTIONS:
-Make ONE change using this format:
+CRITICAL INSTRUCTIONS:
+- Output EXACTLY ONE search-replace block. Do NOT output multiple blocks.
+- Your SEARCH block must match code that actually exists in the function above
+- If no change needed, output: NO_CHANGES
 
+FORMAT:
 <<<<<<< SEARCH
 exact code to find
 =======
 replacement code
 >>>>>>> REPLACE
 
-- If no change needed, output: NO_CHANGES
-- Keep changes minimal - only modify what's necessary
-- Whitespace differences in SEARCH are OK
-
 EXAMPLES:
 
-Add pragma:
+EXAMPLE 1 - Add pragma:
 <<<<<<< SEARCH
 for (int i = 0; i < n; i++) {{
     a[i] = b[i] + c[i];
@@ -194,7 +193,7 @@ for (int i = 0; i < n; i++) {{
 }}
 >>>>>>> REPLACE
 
-Fix dependency:
+EXAMPLE 2 - Fix dependency:
 <<<<<<< SEARCH
 for (int i = 1; i < n; i++) {{
     a[i] = a[i-1] + b[i];
