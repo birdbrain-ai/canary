@@ -173,6 +173,7 @@ CRITICAL INSTRUCTIONS:
 - Your SEARCH block must match code that actually exists in the FUNCTION section above.
 - If the same code appears multiple times in the function, include enough surrounding lines in your SEARCH to make it unique - otherwise the replacement will FAIL
 - Follow the reviewer feedback - implement the suggested changes
+- Preserve the semantic behavior of the function - only make changes that improve vectorization without altering what the function computes
 - If no change needed, output: NO_CHANGES
 
 FORMAT:
