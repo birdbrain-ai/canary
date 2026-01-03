@@ -5,11 +5,47 @@ import os
 import subprocess
 import shutil
 import argparse
+import json
+import tempfile
 from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
 from typing import List
 from my_types import llm, FunctionInfo, FunctionDraft, VectorizationState, SearchReplaceAction
 from logger import LLMLogger
 from prompts import get_reviewer_prompt, get_manager_prompt, get_engineer_prompt
+
+
+# Helper: Serialize VectorizationState to JSON
+def serialize_state_to_json(state: VectorizationState) -> dict:
+    """
+    Convert VectorizationState to a JSON-serializable dictionary.
+
+    Args:
+        state: The VectorizationState to serialize
+
+    Returns:
+        A dictionary that can be JSON-serialized
+    """
+    # Convert function_drafts to serializable format
+    serialized_drafts = {}
+    for iteration, draft in state["function_drafts"].items():
+        serialized_drafts[str(iteration)] = draft.to_dict()
+
+    # Create serialized state, excluding non-serializable fields
+    serialized_state = {
+        "bench_path": state["bench_path"],
+        "file_path": state["file_path"],
+        "make_command": state["make_command"],
+        "run_command": state["run_command"],
+        "program_slice": state["program_slice"],
+        "compiler_feedback": state["compiler_feedback"],
+        "optimization_remarks": state["optimization_remarks"],
+        "current_iteration": state["current_iteration"],
+        "max_iterations": state["max_iterations"],
+        "manager_chosen_i": state["manager_chosen_i"],
+        "function_drafts": serialized_drafts,
+    }
+
+    return serialized_state
 
 
 # Node: compile_code
@@ -138,37 +174,54 @@ def run_code(state: VectorizationState):
     bench_path = state['bench_path']
     cur_working_dir = os.getcwd()
 
-    os.chdir(bench_path)
+    # Serialize state to JSON and write to temporary file
+    serialized_state = serialize_state_to_json(state)
+    temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+    temp_file_path = temp_file.name
 
-    try: 
-       result = subprocess.run(
-           run_command,
-           shell=True,
-           capture_output=False,
-           text=True,
-           timeout=30
-       )
-    # Early exit: Timeout, so run failed
-    except subprocess.TimeoutExpired:
-        print(f"Running the benchmark took too much time")
-        cur_function_draft.run_success = False
+    try:
+        json.dump(serialized_state, temp_file, indent=2)
+        temp_file.close()
+
+        os.chdir(bench_path)
+
+        # Append the temp file path to the run command
+        full_command = f"{run_command} {temp_file_path}"
+
+        try:
+           result = subprocess.run(
+               full_command,
+               shell=True,
+               capture_output=False,
+               text=True,
+               timeout=30
+           )
+        # Early exit: Timeout, so run failed
+        except subprocess.TimeoutExpired:
+            print(f"Running the benchmark took too much time")
+            cur_function_draft.run_success = False
+            function_drafts[current_iteration] = cur_function_draft
+            logger.log_state(state, "run_code", "after")
+            os.chdir(cur_working_dir)
+            return {
+                "function_drafts": function_drafts
+            }
+
+        # Main case: either the run throws an error, or it succeeds
+        if result.returncode != 0:
+            print(f"Running the benchmark threw an error: {result.returncode}")
+
+        os.chdir(cur_working_dir)
+        cur_function_draft.run_success = result.returncode == 0
         function_drafts[current_iteration] = cur_function_draft
         logger.log_state(state, "run_code", "after")
         return {
             "function_drafts": function_drafts
         }
-
-    # Main case: either the run throws an error, or it succeeds
-    if result.returncode != 0:
-        print(f"Running the benchmark threw an error: {result.returncode}")
-
-    os.chdir(cur_working_dir)
-    cur_function_draft.run_success = result.returncode == 0
-    function_drafts[current_iteration] = cur_function_draft
-    logger.log_state(state, "run_code", "after")
-    return {
-        "function_drafts": function_drafts
-    }
+    finally:
+        # Clean up temporary file
+        if os.path.exists(temp_file_path):
+            os.unlink(temp_file_path)
 
 
 # Node: reviewer
@@ -1119,7 +1172,9 @@ Examples:
         "--run-command", "-r",
         type=str,
         default="",
-        help="Optional command to run benchmark (not used yet)"
+        help="Optional command to validate function behavior. "
+             "The script receives a JSON file path as its first argument containing the full VectorizationState. "
+             "Exit code 0 indicates success, non-zero indicates failure."
     )
 
     parser.add_argument(
