@@ -3,7 +3,7 @@ Prompt templates for the vectorization workflow.
 """
 
 def get_reviewer_prompt(cur_function_info, make_command, program_slice,
-                        compiler_feedback, optimization_remarks):
+                        compiler_feedback, optimization_remarks, vectorization_success):
     """
     Generate the reviewer prompt for evaluating autovectorization opportunities.
 
@@ -17,15 +17,15 @@ def get_reviewer_prompt(cur_function_info, make_command, program_slice,
     Returns:
         Formatted prompt string
     """
-    return f"""You are reviewing THIS FUNCTION for opportunities to autovectorize it.
+    return f"""You are reviewing THIS FUNCTION for opportunities to autovectorize it. If there are further opportunities to autovectorize the function, you MUST provide a NUMBERED LIST of suggested changes.
 
 {cur_function_info["full_text"]}
 
-        The function is compiled with Clang, using the following command: {make_command}
+The function is compiled with Clang, using the following command: {make_command}
 
-        You have access to some information to help.
+You have access to the following information:
 
-First, the PROGRAM
+First, the PROGRAM:
 
 {program_slice}
 
@@ -33,7 +33,7 @@ Second, COMPILER FEEDBACK:
 
 {compiler_feedback}
 
-Third, OPTIMIZATION REMARKS.
+Third, OPTIMIZATION REMARKS:
 
 {optimization_remarks}
 
@@ -46,30 +46,38 @@ You MUST return a JSON object in this format:
 }}
 ```
 
+The function's VECTORIZATION SUCCESS is: {vectorization_success}
+
 RULES:
-- If the function was already autovectorized, you must set the dead_end field to false, and the vectorization_success field to true.
-- You must set 'dead_end' to false is the function is a useful starting point for autovectorization.
-- Fill out the reviewer_feedback field to include future directions to modify the function in order to autovectorize it.
+- Set 'dead_end' to false if:
+  1. The function is already fully autovectorized (success case), OR
+  2. There are concrete suggestions that could improve autovectorization (actionable case)
+- Set 'dead_end' to true if:
+  1. The function cannot be further autovectorized, AND
+  2. There are no actionable suggestions to try
+- When dead_end is false, provide a NUMBERED LIST of CONCRETE SUGGESTIONS in the reviewer_feedback field
+- When dead_end is true, you may leave reviewer_feedback empty or briefly explain why no progress can be made
+- All suggestions must preserve the semantic behavior of the function - only suggest changes that improve vectorization without altering what the function computes
 
 EXAMPLE OUTPUTS:
 {{
   "dead_end": false,
-  "reviewer_feedback": "This function is already fully autovectorized. No further work is needed."
+  "reviewer_feedback": "1. Finished: This function is already fully autovectorized. No further work is needed."
 }}
 
 {{
   "dead_end": true,
-  "reviewer_feedback": ""
+  "reviewer_feedback": "This function cannot be autovectorized due to inherent scalar operations with complex control flow that cannot be parallelized."
 }}
 
 {{
-  "dead_end": true,
-  "reviewer_feedback": "Optimization remarks for this function suggest that a non-reduction value in the loop body is used outside the loop. Compiler feedback indicates that this function could be autovectorized if we make a copy of the variable 'a'. Suggestion: Make a copy of the variable 'a'."
+  "dead_end": false,
+  "reviewer_feedback": "1. Problem: Optimization remarks indicate that a non-reduction value in the loop body is used outside the loop. Compiler feedback suggests this function could be autovectorized by making a copy of the variable 'a'. Suggestion: Make a temporary copy of the variable 'a' before the for loop."
 }}
 
 YOUR OUTPUT:
 
-        """
+    """
 
 
 def get_manager_prompt(drafts_str, make_command, current_iteration):
@@ -84,7 +92,7 @@ def get_manager_prompt(drafts_str, make_command, current_iteration):
     Returns:
         Formatted prompt string
     """
-    return f"""Given a few drafts of the same function, pick the function that is most likely to be autovectorized by the compiler.
+    return f"""Given a few drafts of the same function, pick the function draft most likely to achieve the fastest execution time, either because it's already autovectorized or because it's closest to being autovectorized. This will be used as the starting point for the next iteration of optimization.
 
 The command that this function will be compiled with is:
 
@@ -94,24 +102,38 @@ The FUNCTION DRAFTS are below:
 
 {drafts_str}
 
+SELECTION CRITERIA:
+1. Prioritize drafts with the greatest potential for fast execution
+2. Drafts already autovectorized (vectorization_success = true) typically have the best performance
+3. If no drafts are vectorized, choose the one closest to being vectorized based on reviewer feedback
+4. If multiple drafts are equally promising, consider reviewer feedback about optimization potential
+
 OUTPUT RULES:
 - Your output MUST be a JSON object in the following format.
 ```
 {{
   "i": int,
-  "explanation": str,
+  "explanation": str
 }}
 ```
-- Your output i must be in the valid range: 0 <= i < {current_iteration}. This means i can be between 0 and {current_iteration - 1} (inclusive). DO NOT output any value outside this range.
+- Your output i must be in the valid range: 0 <= i < {current_iteration}. DO NOT output any value outside this range.
 
 
-EXAMPLE OUTPUT:
+EXAMPLE OUTPUTS:
 ```
 {{
-  "i": {current_iteration - 1},
-  "explanation": "It was the only function draft that was successfully autovectorized. This is a good starting point for further autovectorization attempts."
+  "i": 0,
+  "explanation": "Draft 0 was successfully autovectorized and will execute the fastest among all drafts."
 }}
 ```
+{f'''
+```
+{{
+  "i": {current_iteration // 2},
+  "explanation": "Draft {current_iteration // 2} has the most promising reviewer feedback with concrete suggestions for vectorization, making it the best candidate for further optimization."
+}}
+```
+''' if current_iteration >= 2 else ''}
 
 YOUR OUTPUT:
 
@@ -133,7 +155,7 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
     Returns:
         Formatted prompt string
     """
-    return f"""Modify this function to enable autovectorization. Make ONE small, targeted change.
+    return f"""Modify this function to enable autovectorization.
 
 FUNCTION:
 {current_function_info["full_text"]}
@@ -146,22 +168,24 @@ COMPILED WITH: {make_command}
 REVIEWER FEEDBACK:
 {reviewer_feedback}
 
-INSTRUCTIONS:
-Make ONE change using this format:
+CRITICAL INSTRUCTIONS:
+- Output EXACTLY ONE search-replace block. Do NOT output multiple blocks.
+- Your SEARCH block must match code that actually exists in the FUNCTION section above.
+- If the same code appears multiple times in the function, include enough surrounding lines in your SEARCH to make it unique - otherwise the replacement will FAIL
+- Follow the reviewer feedback - implement the suggested changes
+- Preserve the semantic behavior of the function - only make changes that improve vectorization without altering what the function computes
+- If no change needed, output: NO_CHANGES
 
+FORMAT:
 <<<<<<< SEARCH
 exact code to find
 =======
 replacement code
 >>>>>>> REPLACE
 
-- If no change needed, output: NO_CHANGES
-- Keep changes minimal - only modify what's necessary
-- Whitespace differences in SEARCH are OK
-
 EXAMPLES:
 
-Add pragma:
+EXAMPLE 1 - Add pragma:
 <<<<<<< SEARCH
 for (int i = 0; i < n; i++) {{
     a[i] = b[i] + c[i];
@@ -173,7 +197,7 @@ for (int i = 0; i < n; i++) {{
 }}
 >>>>>>> REPLACE
 
-Fix dependency:
+EXAMPLE 2 - Fix dependency:
 <<<<<<< SEARCH
 for (int i = 1; i < n; i++) {{
     a[i] = a[i-1] + b[i];
