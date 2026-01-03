@@ -17,13 +17,13 @@ def get_reviewer_prompt(cur_function_info, make_command, program_slice,
     Returns:
         Formatted prompt string
     """
-    return f"""You are reviewing THIS FUNCTION for opportunities to autovectorize it. If there are further opportunities to autovectorize the function, you MUST provide a NUMBERED LIST of suggested changes to the for loop. 
+    return f"""You are reviewing THIS FUNCTION for opportunities to autovectorize it. If there are further opportunities to autovectorize the function, you MUST provide a NUMBERED LIST of suggested changes.
 
 {cur_function_info["full_text"]}
 
-        The function is compiled with Clang, using the following command: {make_command}
+The function is compiled with Clang, using the following command: {make_command}
 
-        You have access to some information to help.
+You have access to the following information:
 
 First, the PROGRAM:
 
@@ -77,7 +77,7 @@ EXAMPLE OUTPUTS:
 
 YOUR OUTPUT:
 
-        """
+    """
 
 
 def get_manager_prompt(drafts_str, make_command, current_iteration):
@@ -155,7 +155,7 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
     Returns:
         Formatted prompt string
     """
-    return f"""Modify this function to enable autovectorization. Out put ONE search-replace block to change the function. 
+    return f"""Modify this function to enable autovectorization.
 
 FUNCTION:
 {current_function_info["full_text"]}
