@@ -57,6 +57,7 @@ RULES:
   2. There are no actionable suggestions to try
 - When dead_end is false, provide a NUMBERED LIST of CONCRETE SUGGESTIONS in the reviewer_feedback field
 - When dead_end is true, you may leave reviewer_feedback empty or briefly explain why no progress can be made
+- All suggestions must preserve the semantic behavior of the function - only suggest changes that improve vectorization without altering what the function computes
 
 EXAMPLE OUTPUTS:
 {{
