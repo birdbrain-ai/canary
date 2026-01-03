@@ -7,6 +7,7 @@ import shutil
 import argparse
 import json
 import tempfile
+import sys
 from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
 from typing import List
 from my_types import llm, FunctionInfo, FunctionDraft, VectorizationState, SearchReplaceAction
@@ -192,10 +193,16 @@ def run_code(state: VectorizationState):
            result = subprocess.run(
                full_command,
                shell=True,
-               capture_output=False,
+               capture_output=True,
                text=True,
                timeout=30
            )
+
+           # Print stdout and stderr from validation script
+           if result.stdout:
+               print(result.stdout, end='')
+           if result.stderr:
+               print(result.stderr, end='', file=sys.stderr)
         # Early exit: Timeout, so run failed
         except subprocess.TimeoutExpired:
             print(f"Running the benchmark took too much time")

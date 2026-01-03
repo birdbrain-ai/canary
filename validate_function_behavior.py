@@ -39,6 +39,23 @@ def extract_function_name(state):
     return function_name
 
 
+def extract_compiler(make_command):
+    """
+    Extract compiler name from make command.
+
+    Args:
+        make_command: Make command string (e.g., 'make COMPILER=clang')
+
+    Returns:
+        Compiler name (e.g., 'clang', 'GNU') or 'GNU' as default
+    """
+    import re
+    match = re.search(r'COMPILER=(\w+)', make_command)
+    if match:
+        return match.group(1)
+    return 'GNU'  # Default to GNU if not specified
+
+
 def modify_main_function(tsvc_path, function_name):
     """
     Modify main() in tsvc.c to only call the target function.
@@ -98,13 +115,13 @@ def modify_main_function(tsvc_path, function_name):
         f.writelines(modified_lines)
 
 
-def build_tsvc(directory, make_target=''):
+def build_tsvc(directory, make_command='make'):
     """
     Build TSVC in the given directory.
 
     Args:
         directory: Path to TSVC directory
-        make_target: Optional make target (e.g., 'clean')
+        make_command: Make command to use (e.g., 'make', 'make COMPILER=clang')
 
     Returns:
         True if build succeeded, False otherwise
@@ -115,14 +132,16 @@ def build_tsvc(directory, make_target=''):
 
         # Run make clean first
         result = subprocess.run(
-            ['make', 'clean'],
+            f'{make_command} clean',
+            shell=True,
             capture_output=True,
             text=True
         )
 
         # Run make
         result = subprocess.run(
-            ['make'],
+            make_command,
+            shell=True,
             capture_output=True,
             text=True,
             timeout=120
@@ -227,9 +246,14 @@ def main():
     current_iteration = state['current_iteration']
     bench_path = state['bench_path']
     file_path = state['file_path']
+    make_command = state['make_command']
     function_name = extract_function_name(state)
 
+    # Extract compiler from make command to determine bin directory
+    compiler = extract_compiler(make_command)
+
     print(f"Validating function: {function_name} at iteration {current_iteration}")
+    print(f"Using compiler: {compiler}")
 
     # Paths
     cwd = os.getcwd()
@@ -262,16 +286,16 @@ def main():
 
         # Build baseline
         print("Building baseline...")
-        if not build_tsvc(baseline_dir):
+        if not build_tsvc(baseline_dir, make_command):
             print("Failed to build baseline", file=sys.stderr)
             sys.exit(2)
 
         # Run baseline to get checksum
-        baseline_exec = os.path.join(baseline_dir, 'bin', 'GNU', exec_name)
+        baseline_exec = os.path.join(baseline_dir, 'bin', compiler, exec_name)
         if not os.path.exists(baseline_exec):
             # Fallback to default
             exec_name = 'tsvc_vec_default'
-            baseline_exec = os.path.join(baseline_dir, 'bin', 'GNU', exec_name)
+            baseline_exec = os.path.join(baseline_dir, 'bin', compiler, exec_name)
 
         baseline_checksum = run_and_extract_checksum(baseline_exec, function_name)
         if baseline_checksum is None:
@@ -316,14 +340,14 @@ def main():
 
     # Build test
     print("Building test...")
-    if not build_tsvc(test_dir):
+    if not build_tsvc(test_dir, make_command):
         print("Failed to build test", file=sys.stderr)
         # Clean up before exit
         shutil.rmtree(test_dir)
         sys.exit(2)
 
     # Run test to get checksum
-    test_exec = os.path.join(test_dir, 'bin', 'GNU', exec_name)
+    test_exec = os.path.join(test_dir, 'bin', compiler, exec_name)
     modified_checksum = run_and_extract_checksum(test_exec, function_name)
     if modified_checksum is None:
         print("Failed to get modified checksum", file=sys.stderr)
