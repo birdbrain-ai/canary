@@ -49,9 +49,14 @@ You MUST return a JSON object in this format:
 The function's VECTORIZATION SUCCESS is: {vectorization_success}
 
 RULES:
-- If the function was already autovectorized, you must set the dead_end field to false, and the vectorization_success field to true.
-- You must set 'dead_end' to false is the function is a useful starting point for autovectorization.
-- Fill out the reviewer_feedback field to include a NUMBERED LIST of CONCRETE SUGGESTIONS to modify the function in order to autovectorize it.
+- Set 'dead_end' to false if:
+  1. The function is already fully autovectorized (success case), OR
+  2. There are concrete suggestions that could improve autovectorization (actionable case)
+- Set 'dead_end' to true if:
+  1. The function cannot be further autovectorized, AND
+  2. There are no actionable suggestions to try
+- When dead_end is false, provide a NUMBERED LIST of CONCRETE SUGGESTIONS in the reviewer_feedback field
+- When dead_end is true, you may leave reviewer_feedback empty or briefly explain why no progress can be made
 
 EXAMPLE OUTPUTS:
 {{
@@ -61,12 +66,12 @@ EXAMPLE OUTPUTS:
 
 {{
   "dead_end": true,
-  "reviewer_feedback": ""
+  "reviewer_feedback": "This function cannot be autovectorized due to inherent scalar operations with complex control flow that cannot be parallelized."
 }}
 
 {{
-  "dead_end": true,
-  "reviewer_feedback": "1. Problem: Optimization remarks for this function suggest that a non-reduction value in the loop body is used outside the loop. Compiler feedback indicates that this function could be autovectorized if we make a copy of the variable 'a'. Suggestion: Make a temporary copy of the variable 'a' before the for loop."
+  "dead_end": false,
+  "reviewer_feedback": "1. Problem: Optimization remarks indicate that a non-reduction value in the loop body is used outside the loop. Compiler feedback suggests this function could be autovectorized by making a copy of the variable 'a'. Suggestion: Make a temporary copy of the variable 'a' before the for loop."
 }}
 
 YOUR OUTPUT:
