@@ -155,7 +155,7 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
     Returns:
         Formatted prompt string
     """
-    return f"""Modify this function to enable autovectorization. Make ONE small, targeted change.
+    return f"""Modify this function to enable autovectorization. Out put ONE search-replace block to change the function. 
 
 FUNCTION:
 {current_function_info["full_text"]}
@@ -170,7 +170,9 @@ REVIEWER FEEDBACK:
 
 CRITICAL INSTRUCTIONS:
 - Output EXACTLY ONE search-replace block. Do NOT output multiple blocks.
-- Your SEARCH block must match code that actually exists in the function above
+- Your SEARCH block must match code that actually exists in the FUNCTION section above.
+- If the same code appears multiple times in the function, include enough surrounding lines in your SEARCH to make it unique - otherwise the replacement will FAIL
+- Follow the reviewer feedback - implement the suggested changes
 - If no change needed, output: NO_CHANGES
 
 FORMAT:
