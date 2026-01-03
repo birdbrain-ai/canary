@@ -342,7 +342,13 @@ def find_target_files(directory: str) -> List[str]:
     Returns:
         List of absolute paths to .h, .c, .cpp, .hxx, .hpp files
     """
-    return find_files_with_ext(directory, [".h", ".c", ".cpp", ".hxx", ".hpp"])
+    all_files = find_files_with_ext(directory, [".h", ".c", ".cpp", ".hxx", ".hpp"])
+
+    # For TSVC benchmarks, only process tsvc.c (skip dummy.c, common.c, etc.)
+    if "TSVC" in directory:
+        all_files = [f for f in all_files if f.endswith("tsvc.c")]
+
+    return all_files
 
 
 def match_remark_files(target_file: str, remark_files: List[str]) -> List[str]:
