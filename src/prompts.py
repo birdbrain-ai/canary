@@ -3,7 +3,7 @@ Prompt templates for the vectorization workflow.
 """
 
 def get_reviewer_prompt(cur_function_info, make_command, program_slice,
-                        compiler_feedback, optimization_remarks):
+                        compiler_feedback, optimization_remarks, vectorization_success):
     """
     Generate the reviewer prompt for evaluating autovectorization opportunities.
 
@@ -17,7 +17,7 @@ def get_reviewer_prompt(cur_function_info, make_command, program_slice,
     Returns:
         Formatted prompt string
     """
-    return f"""You are reviewing THIS FUNCTION for opportunities to autovectorize it.
+    return f"""You are reviewing THIS FUNCTION for opportunities to autovectorize it. If there are further opportunities to autovectorize the function, you MUST provide a NUMBERED LIST of suggested changes to the for loop. 
 
 {cur_function_info["full_text"]}
 
@@ -25,7 +25,7 @@ def get_reviewer_prompt(cur_function_info, make_command, program_slice,
 
         You have access to some information to help.
 
-First, the PROGRAM
+First, the PROGRAM:
 
 {program_slice}
 
@@ -33,7 +33,7 @@ Second, COMPILER FEEDBACK:
 
 {compiler_feedback}
 
-Third, OPTIMIZATION REMARKS.
+Third, OPTIMIZATION REMARKS:
 
 {optimization_remarks}
 
@@ -46,15 +46,17 @@ You MUST return a JSON object in this format:
 }}
 ```
 
+The function's VECTORIZATION SUCCESS is: {vectorization_success}
+
 RULES:
 - If the function was already autovectorized, you must set the dead_end field to false, and the vectorization_success field to true.
 - You must set 'dead_end' to false is the function is a useful starting point for autovectorization.
-- Fill out the reviewer_feedback field to include future directions to modify the function in order to autovectorize it.
+- Fill out the reviewer_feedback field to include a NUMBERED LIST of CONCRETE SUGGESTIONS to modify the function in order to autovectorize it.
 
 EXAMPLE OUTPUTS:
 {{
   "dead_end": false,
-  "reviewer_feedback": "This function is already fully autovectorized. No further work is needed."
+  "reviewer_feedback": "1. Finished: This function is already fully autovectorized. No further work is needed."
 }}
 
 {{
@@ -64,7 +66,7 @@ EXAMPLE OUTPUTS:
 
 {{
   "dead_end": true,
-  "reviewer_feedback": "Optimization remarks for this function suggest that a non-reduction value in the loop body is used outside the loop. Compiler feedback indicates that this function could be autovectorized if we make a copy of the variable 'a'. Suggestion: Make a copy of the variable 'a'."
+  "reviewer_feedback": "1. Problem: Optimization remarks for this function suggest that a non-reduction value in the loop body is used outside the loop. Compiler feedback indicates that this function could be autovectorized if we make a copy of the variable 'a'. Suggestion: Make a temporary copy of the variable 'a' before the for loop."
 }}
 
 YOUR OUTPUT:

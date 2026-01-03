@@ -213,7 +213,8 @@ def reviewer(state: VectorizationState):
             make_command,
             program_slice,
             compiler_feedback,
-            optimization_remarks
+            optimization_remarks,
+            vectorization_success
         )
 
         # Log prompt before API call (in case of failure)
