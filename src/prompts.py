@@ -91,7 +91,7 @@ def get_manager_prompt(drafts_str, make_command, current_iteration):
     Returns:
         Formatted prompt string
     """
-    return f"""Given a few drafts of the same function, pick the function that is most likely to be autovectorized by the compiler.
+    return f"""Given a few drafts of the same function, pick the function draft most likely to achieve the fastest execution time, either because it's already autovectorized or because it's closest to being autovectorized. This will be used as the starting point for the next iteration of optimization.
 
 The command that this function will be compiled with is:
 
@@ -101,24 +101,38 @@ The FUNCTION DRAFTS are below:
 
 {drafts_str}
 
+SELECTION CRITERIA:
+1. Prioritize drafts with the greatest potential for fast execution
+2. Drafts already autovectorized (vectorization_success = true) typically have the best performance
+3. If no drafts are vectorized, choose the one closest to being vectorized based on reviewer feedback
+4. If multiple drafts are equally promising, consider reviewer feedback about optimization potential
+
 OUTPUT RULES:
 - Your output MUST be a JSON object in the following format.
 ```
 {{
   "i": int,
-  "explanation": str,
+  "explanation": str
 }}
 ```
-- Your output i must be in the valid range: 0 <= i < {current_iteration}. This means i can be between 0 and {current_iteration - 1} (inclusive). DO NOT output any value outside this range.
+- Your output i must be in the valid range: 0 <= i < {current_iteration}. DO NOT output any value outside this range.
 
 
-EXAMPLE OUTPUT:
+EXAMPLE OUTPUTS:
 ```
 {{
-  "i": {current_iteration - 1},
-  "explanation": "It was the only function draft that was successfully autovectorized. This is a good starting point for further autovectorization attempts."
+  "i": 0,
+  "explanation": "Draft 0 was successfully autovectorized and will execute the fastest among all drafts."
 }}
 ```
+{f'''
+```
+{{
+  "i": {current_iteration // 2},
+  "explanation": "Draft {current_iteration // 2} has the most promising reviewer feedback with concrete suggestions for vectorization, making it the best candidate for further optimization."
+}}
+```
+''' if current_iteration >= 2 else ''}
 
 YOUR OUTPUT:
 
