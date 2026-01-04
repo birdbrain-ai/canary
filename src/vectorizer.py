@@ -978,9 +978,9 @@ def finalize(state: VectorizationState):
 
     the_thing_i_want_to_return = 0
     # Find the best draft
-    # Priority 1: First draft that is both compiled and vectorized
+    # Priority 1: First draft that is compiled, runs, and is vectorized
     for i in range(len(function_drafts) - 1, -1, -1):
-        if function_drafts[i].compile_success and function_drafts[i].vectorization_success:
+        if function_drafts[i].compile_success and function_drafts[i].vectorization_success and function_drafts[i].run_success:
             final_draft = function_drafts[i]
             the_thing_i_want_to_return = i
             break
