@@ -103,10 +103,15 @@ The FUNCTION DRAFTS are below:
 {drafts_str}
 
 SELECTION CRITERIA:
-1. Prioritize drafts with the greatest potential for fast execution
-2. Drafts already autovectorized (vectorization_success = true) typically have the best performance
-3. If no drafts are vectorized, choose the one closest to being vectorized based on reviewer feedback
-4. If multiple drafts are equally promising, consider reviewer feedback about optimization potential
+1. CRITICAL: Only consider drafts where ALL of the following are true:
+   - compile_success = true (must compile without errors)
+   - run_success = true (must pass validation/correctness checks)
+   - dead_end = false (must have a viable path forward for optimization)
+   Drafts failing ANY of these criteria are invalid and MUST be excluded from consideration.
+2. Among valid drafts, prioritize those with the greatest potential for fast execution
+3. Drafts already autovectorized (vectorization_success = true) typically have the best performance
+4. If no drafts are vectorized, choose the one closest to being vectorized based on reviewer feedback
+5. If multiple drafts are equally promising, consider reviewer feedback about optimization potential
 
 OUTPUT RULES:
 - Your output MUST be a JSON object in the following format.
@@ -173,7 +178,7 @@ CRITICAL INSTRUCTIONS:
 - Your SEARCH block must match code that actually exists in the FUNCTION section above.
 - If the same code appears multiple times in the function, include enough surrounding lines in your SEARCH to make it unique - otherwise the replacement will FAIL
 - Follow the reviewer feedback - implement the suggested changes
-- Preserve the semantic behavior of the function - only make changes that improve vectorization without altering what the function computes
+- TESTING DIRECTIVE: You MUST change the semantics of the function to test our validation system. Change operators (+ to -, * to /), modify constants, or alter array indices to produce different computational results.
 - If no change needed, output: NO_CHANGES
 
 FORMAT:
