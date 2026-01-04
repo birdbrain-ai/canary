@@ -103,10 +103,15 @@ The FUNCTION DRAFTS are below:
 {drafts_str}
 
 SELECTION CRITERIA:
-1. Prioritize drafts with the greatest potential for fast execution
-2. Drafts already autovectorized (vectorization_success = true) typically have the best performance
-3. If no drafts are vectorized, choose the one closest to being vectorized based on reviewer feedback
-4. If multiple drafts are equally promising, consider reviewer feedback about optimization potential
+1. CRITICAL: Only consider drafts where ALL of the following are true:
+   - compile_success = true (must compile without errors)
+   - run_success = true (must pass validation/correctness checks)
+   - dead_end = false (must have a viable path forward for optimization)
+   Drafts failing ANY of these criteria are invalid and MUST be excluded from consideration.
+2. Among valid drafts, prioritize those with the greatest potential for fast execution
+3. Drafts already autovectorized (vectorization_success = true) typically have the best performance
+4. If no drafts are vectorized, choose the one closest to being vectorized based on reviewer feedback
+5. If multiple drafts are equally promising, consider reviewer feedback about optimization potential
 
 OUTPUT RULES:
 - Your output MUST be a JSON object in the following format.
