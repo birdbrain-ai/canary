@@ -379,7 +379,8 @@ def match_remark_files(target_file: str, remark_files: List[str]) -> List[str]:
 
 def filter_vectorize_remarks(yaml_file_path: str) -> str:
     """
-    Filter YAML optimization remarks to only include loop-vectorize entries.
+    Filter YAML optimization remarks to only include vectorization entries
+    (both loop-vectorize and slp-vectorizer).
     This dramatically reduces the content sent to the LLM.
 
     Args:
@@ -390,7 +391,7 @@ def filter_vectorize_remarks(yaml_file_path: str) -> str:
     """
     try:
         result = subprocess.run(
-            ["yq", "select(.Pass == \"loop-vectorize\")", yaml_file_path],
+            ["yq", "select(.Pass == \"loop-vectorize\" or .Pass == \"slp-vectorizer\")", yaml_file_path],
             capture_output=True,
             text=True,
         )
@@ -467,6 +468,7 @@ def deduplicate_yaml_remarks(yaml_content: str) -> str:
 def filter_remarks_by_function(yaml_file_path: str, func_name: str) -> str:
     """
     Filter YAML optimization remarks to only include entries for a specific function.
+    Includes both loop-vectorize and slp-vectorizer remarks.
     Uses two yq queries: one for exact matches, one for all docs (which we demangle).
     Concatenates and deduplicates results.
 
@@ -480,7 +482,7 @@ def filter_remarks_by_function(yaml_file_path: str, func_name: str) -> str:
     """
     try:
         # Query 1: Get docs with exact function name match (handles unmangled names)
-        yq_filter_exact = f'select(.Pass == "loop-vectorize" and .Function == "{func_name}")'
+        yq_filter_exact = f'select((.Pass == "loop-vectorize" or .Pass == "slp-vectorizer") and .Function == "{func_name}")'
         result_exact = subprocess.run(
             ["yq", yq_filter_exact, yaml_file_path],
             capture_output=True,
@@ -489,9 +491,9 @@ def filter_remarks_by_function(yaml_file_path: str, func_name: str) -> str:
 
         exact_matches = result_exact.stdout if result_exact.returncode == 0 else ""
 
-        # Query 2: Get all loop-vectorize docs, then filter by demangling
+        # Query 2: Get all loop-vectorize and slp-vectorizer docs, then filter by demangling
         result_all = subprocess.run(
-            ["yq", "select(.Pass == \"loop-vectorize\")", yaml_file_path],
+            ["yq", "select(.Pass == \"loop-vectorize\" or .Pass == \"slp-vectorizer\")", yaml_file_path],
             capture_output=True,
             text=True,
         )
