@@ -25,17 +25,9 @@ The function is compiled with Clang, using the following command: {make_command}
 
 You have access to the following information:
 
-First, the PROGRAM:
+The PROGRAM:
 
 {program_slice}
-
-Second, COMPILER FEEDBACK:
-
-{compiler_feedback}
-
-Third, OPTIMIZATION REMARKS:
-
-{optimization_remarks}
 
 You MUST return a JSON object in this format:
 
@@ -72,7 +64,7 @@ EXAMPLE OUTPUTS:
 
 {{
   "dead_end": false,
-  "reviewer_feedback": "1. Problem: Optimization remarks indicate that a non-reduction value in the loop body is used outside the loop. Compiler feedback suggests this function could be autovectorized by making a copy of the variable 'a'. Suggestion: Make a temporary copy of the variable 'a' before the for loop."
+  "reviewer_feedback": "1. Problem: A non-reduction value in the loop body is used outside the loop. This function could be autovectorized by making a copy of the variable 'a'. Suggestion: Make a temporary copy of the variable 'a' before the for loop."
 }}
 
 YOUR OUTPUT:
