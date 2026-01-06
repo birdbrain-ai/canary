@@ -5,7 +5,7 @@ from pathlib import Path
 
 class LLMLogger:
     """Handles logging of all LLM interactions with full transparency"""
-    
+
     def __init__(self, log_base_dir: str):
         """
         Initialize LLM logger.
@@ -16,7 +16,26 @@ class LLMLogger:
         self.log_base_dir = Path(log_base_dir)
         self.log_base_dir.mkdir(exist_ok=True)
         self.previous_state = {}  # Track previous state for change detection
+
+        # Set up output log file
+        self.output_log_file = self.log_base_dir / "vectorizer_output.log"
+        self.log_file_handle = open(self.output_log_file, 'w', encoding='utf-8')
+
         print(f"📝 LLM logging enabled: {self.log_base_dir}")
+        print(f"📝 Output log file: {self.output_log_file}")
+
+    def print(self, *args, **kwargs):
+        """
+        Print to the log file instead of stdout.
+        Mirrors the built-in print() function signature.
+        """
+        # Write to log file
+        print(*args, **kwargs, file=self.log_file_handle, flush=True)
+
+    def close(self):
+        """Close the log file handle."""
+        if hasattr(self, 'log_file_handle') and self.log_file_handle:
+            self.log_file_handle.close()
         
     def log_llm_prompt(
         self,
@@ -56,7 +75,7 @@ class LLMLogger:
         prompt_file = log_dir / "prompt.txt"
         prompt_file.write_text(prompt, encoding='utf-8')
 
-        print(f"  📝 Logged prompt: {'/'.join(dir_parts[-2:])}")
+        self.print(f"  📝 Logged prompt: {'/'.join(dir_parts[-2:])}")
 
     def log_llm_call(
         self,
@@ -124,8 +143,8 @@ class LLMLogger:
         
         metadata_file = log_dir / "metadata.json"
         metadata_file.write_text(json.dumps(metadata, indent=2), encoding='utf-8')
-        
-        print(f"  📝 Logged: {'/'.join(dir_parts[-2:])}")
+
+        self.print(f"  📝 Logged: {'/'.join(dir_parts[-2:])}")
 
     def log_state(self, state: dict, node_name: str, stage: str):
         """
@@ -188,7 +207,7 @@ class LLMLogger:
                 encoding='utf-8'
             )
         except Exception as e:
-            print(f"  ⚠️  Failed to log state: {e}")
+            self.print(f"  ⚠️  Failed to log state: {e}")
 
     def _get_call_number(self, call_type: str, function_name: str | None) -> int:
         """Determine sequential number for call type"""
@@ -226,38 +245,38 @@ class LLMLogger:
 
     def _print_state_table(self, state: dict, node_name: str, stage: str):
         """
-        Print a formatted table of VectorizationState fields to stdout.
+        Print a formatted table of VectorizationState fields to log file.
 
         Args:
             state: The VectorizationState dict
             node_name: Name of the node being executed
             stage: "before" or "after"
         """
-        print("\n" + "="*80)
-        print(f"VectorizationState at {node_name} ({stage})")
-        print("="*80)
+        self.print("\n" + "="*80)
+        self.print(f"VectorizationState at {node_name} ({stage})")
+        self.print("="*80)
 
         # Print basic fields
-        print(f"{'Field':<25} | {'Value'}")
-        print("-"*80)
-        print(f"{'current_iteration':<25} | {state.get('current_iteration', 'N/A')}")
-        print(f"{'max_iterations':<25} | {state.get('max_iterations', 'N/A')}")
-        print(f"{'manager_chosen_i':<25} | {state.get('manager_chosen_i', 'N/A')}")
-        print(f"{'file_path':<25} | {state.get('file_path', 'N/A')}")
+        self.print(f"{'Field':<25} | {'Value'}")
+        self.print("-"*80)
+        self.print(f"{'current_iteration':<25} | {state.get('current_iteration', 'N/A')}")
+        self.print(f"{'max_iterations':<25} | {state.get('max_iterations', 'N/A')}")
+        self.print(f"{'manager_chosen_i':<25} | {state.get('manager_chosen_i', 'N/A')}")
+        self.print(f"{'file_path':<25} | {state.get('file_path', 'N/A')}")
 
         # Print function drafts with full details
         function_drafts = state.get('function_drafts', {})
-        print(f"{'function_drafts':<25} | {len(function_drafts)} draft(s)")
+        self.print(f"{'function_drafts':<25} | {len(function_drafts)} draft(s)")
 
         for draft_id, draft in function_drafts.items():
             draft_dict = draft.to_dict() if hasattr(draft, 'to_dict') else draft
             func_name = draft_dict.get('modified_function_text', {}).get('name', 'unknown')
 
-            print(f"  [{draft_id}] {func_name}")
-            print(f"    {'compile_success':<25}: {draft_dict.get('compile_success', False)}")
-            print(f"    {'run_success':<25}: {draft_dict.get('run_success', False)}")
-            print(f"    {'vectorization_success':<25}: {draft_dict.get('vectorization_success', False)}")
-            print(f"    {'dead_end':<25}: {draft_dict.get('dead_end', False)}")
+            self.print(f"  [{draft_id}] {func_name}")
+            self.print(f"    {'compile_success':<25}: {draft_dict.get('compile_success', False)}")
+            self.print(f"    {'run_success':<25}: {draft_dict.get('run_success', False)}")
+            self.print(f"    {'vectorization_success':<25}: {draft_dict.get('vectorization_success', False)}")
+            self.print(f"    {'dead_end':<25}: {draft_dict.get('dead_end', False)}")
 
             # Print reviewer feedback if present
             feedback = draft_dict.get('reviewer_feedback', '')
@@ -265,9 +284,9 @@ class LLMLogger:
                 feedback_preview = feedback[:80].replace('\n', ' ')
                 if len(feedback) > 80:
                     feedback_preview += "..."
-                print(f"    {'reviewer_feedback':<25}: {feedback_preview}")
+                self.print(f"    {'reviewer_feedback':<25}: {feedback_preview}")
             else:
-                print(f"    {'reviewer_feedback':<25}: (empty)")
+                self.print(f"    {'reviewer_feedback':<25}: (empty)")
 
         # Print feedback fields (truncated)
         compiler_feedback = state.get('compiler_feedback', '')
@@ -277,15 +296,15 @@ class LLMLogger:
             cf_preview = compiler_feedback[:60].replace('\n', ' ')
             if len(compiler_feedback) > 60:
                 cf_preview += "..."
-            print(f"{'compiler_feedback':<25} | {cf_preview}")
+            self.print(f"{'compiler_feedback':<25} | {cf_preview}")
 
         if opt_remarks:
             or_preview = opt_remarks[:60].replace('\n', ' ')
             if len(opt_remarks) > 60:
                 or_preview += "..."
-            print(f"{'optimization_remarks':<25} | {or_preview}")
+            self.print(f"{'optimization_remarks':<25} | {or_preview}")
 
-        print("="*80 + "\n")
+        self.print("="*80 + "\n")
 
     def _detect_and_print_changes(self, state: dict, node_name: str, stage: str):
         """
@@ -418,9 +437,9 @@ class LLMLogger:
             output_file = log_dir / f"{file_basename}"
             output_file.write_text(file_content, encoding='utf-8')
 
-            print(f"  📄 Saved file snapshot: {'/'.join(dir_parts[-2:])}/{file_basename}")
+            self.print(f"  📄 Saved file snapshot: {'/'.join(dir_parts[-2:])}/{file_basename}")
         except Exception as e:
-            print(f"  ⚠️  Failed to save file snapshot: {e}")
+            self.print(f"  ⚠️  Failed to save file snapshot: {e}")
 
     def _copy_state(self, state: dict) -> dict:
         """

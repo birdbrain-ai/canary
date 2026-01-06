@@ -4,6 +4,11 @@
 ### 1. We need debug information (observability in every stage of every node) - in a separate directory / logfile. That's basically everything that was contained previously (granular details about vectorization state, the output of every LLM call, etc., and the output of the file from the engineer), AND, we also need everything from every subprocess printed to stdout. 
 ### 2. We need the output state of every function - a table for every function, for every iteration - which includes a table for the vectorization state after the workflow for every iteration - and then, one row for the finalize function output (which iteration did we pick?).
 
+### Steps involved
+### 1. Redirect all logger output to a file
+### 2. Output the loop table to stdout
+### 3. Refactor the logging format
+
 # Vectorizer
 from langgraph.graph import StateGraph, END
 from langchain_community.document_loaders import TextLoader
@@ -1110,6 +1115,9 @@ def vectorize_benchmark(benchmark_dir: str,
         initial_functions: List[FunctionInfo] = extract_functions(initial_code)
         num_functions = len(initial_functions)
 
+        print(f"Starting to vectorize {current_file}")
+        print("function,base_compile,base_run,base_vec,opt_compile,opt_run,opt_vec")
+
         for func_idx in range(num_functions):
             # Re-read the file every time to get updated line numbers if it was modified
             loader = TextLoader(current_file, encoding='utf-8')
@@ -1152,9 +1160,21 @@ def vectorize_benchmark(benchmark_dir: str,
             final_state = vectorization_graph.invoke(initial_state, config={"recursion_limit": 1000})
 
             # TODO(akash): Here is where we print the Loop Table to stdout
-            # Loop | base_compile | base_run | base_vec | opt_compile | opt_run | opt_vec
+            # Loop,base_compile,base_run,base_vec,opt_compile,opt_run,opt_vec
             # s111 ...
-            
+            final_function_drafts = final_state["function_drafts"]
+            finalized_i = final_state["manager_chosen_i"]
+            base_function_draft = final_function_drafts[0]
+            func_name = base_function_draft.modified_function_text["name"]
+            base_compile = base_function_draft.compile_success
+            base_run = base_function_draft.run_success
+            base_vec = base_function_draft.vectorization_success
+            final_function_draft = final_function_drafts[finalized_i]
+            opt_compile = final_function_draft.compile_success
+            opt_run = final_function_draft.run_success
+            opt_vec = final_function_draft.vectorization_success
+
+            print(f"{func_name},{base_compile},{base_run},{base_vec},{opt_compile},{opt_run},{opt_vec}")
 
     return {"success": True}
 
