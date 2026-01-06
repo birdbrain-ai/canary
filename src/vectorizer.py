@@ -5,9 +5,9 @@
 ### 2. We need the output state of every function - a table for every function, for every iteration - which includes a table for the vectorization state after the workflow for every iteration - and then, one row for the finalize function output (which iteration did we pick?).
 
 ### Steps involved
-### 1. Redirect all logger output to a file
-### 2. Output the loop table to stdout
-### 3. Refactor the logging format
+### DONE 1. Redirect all logger output to a file
+### DONE 2. Output the loop table to stdout
+### TODO 3. Work on helper functions that don't have access to the logger
 
 # Vectorizer
 from langgraph.graph import StateGraph, END
