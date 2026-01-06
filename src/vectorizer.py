@@ -175,7 +175,7 @@ def run_code(state: VectorizationState):
 
     # Early exit: No run command provided, so the run is presumed successful
     if not run_command:
-        print("No run command provided")
+        logger.print("No run command provided")
         cur_function_draft.run_success = True
         function_drafts[current_iteration] = cur_function_draft
         logger.log_state(state, "run_code", "after")
@@ -216,7 +216,7 @@ def run_code(state: VectorizationState):
                print(result.stderr, end='', file=sys.stderr)
         # Early exit: Timeout, so run failed
         except subprocess.TimeoutExpired:
-            print(f"Running the benchmark took too much time")
+            logger.print(f"Running the benchmark took too much time")
             cur_function_draft.run_success = False
             function_drafts[current_iteration] = cur_function_draft
             logger.log_state(state, "run_code", "after")
@@ -227,7 +227,7 @@ def run_code(state: VectorizationState):
 
         # Main case: either the run throws an error, or it succeeds
         if result.returncode != 0:
-            print(f"Running the benchmark threw an error: {result.returncode}")
+            logger.print(f"Running the benchmark threw an error: {result.returncode}")
 
         os.chdir(cur_working_dir)
         cur_function_draft.run_success = result.returncode == 0
@@ -310,13 +310,13 @@ def reviewer(state: VectorizationState):
         )
 
         # Parse reviewer agent's output
-        parsed = parse_reviewer_output(output)
+        parsed = parse_reviewer_output(output, logger)
 
         if parsed:
             llm_dead_end = parsed.get("dead_end", True)
             cur_function_draft.reviewer_feedback = parsed.get("reviewer_feedback", "")
         else:
-            print("⚠️  Failed to parse reviewer output, using defaults")
+            logger.print("⚠️  Failed to parse reviewer output, using defaults")
             llm_dead_end = True
             cur_function_draft.reviewer_feedback = ""
 
@@ -348,17 +348,19 @@ def reviewer(state: VectorizationState):
 def parse_llm_json_output(
     output: str,
     required_fields: dict[str, type],
-    agent_name: str = "LLM"
+    agent_name: str = "LLM",
+    logger = None
 ) -> dict | None:
     """
     Generic JSON parser for LLM outputs.
-    
+
     Args:
         output: Raw LLM output string
         required_fields: Dict mapping field names to their expected types
                         e.g., {"dead_end": bool, "reviewer_feedback": str}
         agent_name: Name of the agent for error messages
-    
+        logger: Optional LLMLogger instance for logging
+
     Returns:
         Parsed and validated dict, or None if parsing fails
     """
@@ -388,38 +390,54 @@ def parse_llm_json_output(
         # Validate required fields
         missing_fields = [field for field in required_fields if field not in parsed]
         if missing_fields:
-            print(f"⚠️  Missing required fields in {agent_name} output: {missing_fields}")
+            msg = f"⚠️  Missing required fields in {agent_name} output: {missing_fields}"
+            if logger:
+                logger.print(msg)
+            else:
+                print(msg)
             return None
-        
+
         # Type-cast fields according to required_fields
         result = {}
         for field, expected_type in required_fields.items():
             try:
                 result[field] = expected_type(parsed[field])
             except (ValueError, TypeError) as e:
-                print(f"⚠️  Failed to convert {field} to {expected_type.__name__} in {agent_name} output: {e}")
+                msg = f"⚠️  Failed to convert {field} to {expected_type.__name__} in {agent_name} output: {e}"
+                if logger:
+                    logger.print(msg)
+                else:
+                    print(msg)
                 return None
-        
+
         return result
-            
+
     except json.JSONDecodeError as e:
-        print(f"⚠️  Failed to parse {agent_name} JSON: {e}")
-        print(f"    Output was: {output[:200]}...")
+        msg1 = f"⚠️  Failed to parse {agent_name} JSON: {e}"
+        msg2 = f"    Output was: {output[:200]}..."
+        if logger:
+            logger.print(msg1)
+            logger.print(msg2)
+        else:
+            print(msg1)
+            print(msg2)
         return None
 
 
 # Generic JSON array parser for LLM outputs
 def parse_llm_json_array(
     output: str,
-    agent_name: str = "LLM"
+    agent_name: str = "LLM",
+    logger = None
 ) -> list | None:
     """
     Generic JSON array parser for LLM outputs.
-    
+
     Args:
         output: Raw LLM output string
         agent_name: Name of the agent for error messages
-    
+        logger: Optional LLMLogger instance for logging
+
     Returns:
         Parsed list, or None if parsing fails
     """
@@ -442,38 +460,53 @@ def parse_llm_json_array(
     
     try:
         parsed = json.loads(json_str)
-        
+
         # Validate it's a list
         if not isinstance(parsed, list):
-            print(f"⚠️  {agent_name} output is not a JSON array: {type(parsed)}")
+            msg = f"⚠️  {agent_name} output is not a JSON array: {type(parsed)}"
+            if logger:
+                logger.print(msg)
+            else:
+                print(msg)
             return None
-        
+
         return parsed
-            
+
     except json.JSONDecodeError as e:
-        print(f"⚠️  Failed to parse {agent_name} JSON array: {e}")
-        print(f"    Output was: {output[:200]}...")
+        msg1 = f"⚠️  Failed to parse {agent_name} JSON array: {e}"
+        msg2 = f"    Output was: {output[:200]}..."
+        if logger:
+            logger.print(msg1)
+            logger.print(msg2)
+        else:
+            print(msg1)
+            print(msg2)
         return None
 
 
 # Node: reviewer: parse output
-def parse_reviewer_output(output: str) -> dict | None:
+def parse_reviewer_output(output: str, logger = None) -> dict | None:
     """
     Parse the reviewer LLM output to extract JSON.
-    
+
     Expected format:
     {
       "dead_end": bool,
       "reviewer_feedback": str
     }
-    
+
+    Args:
+        output: Raw LLM output string
+        logger: Optional LLMLogger instance for logging
+
     Returns:
         dict with 'dead_end' and 'reviewer_feedback' keys, or None if parsing fails
     """
     return parse_llm_json_output(
         output,
         required_fields={"dead_end": bool, "reviewer_feedback": str},
-        agent_name="reviewer"
+        agent_name="reviewer",
+        logger=logger
     )
 
 
@@ -556,19 +589,19 @@ def manager(state: VectorizationState):
     )
 
     # Parse manager agent's output and update vectorization state
-    parsed = parse_manager_output(result)
+    parsed = parse_manager_output(result, logger)
     
     if parsed:
         chosen_index = parsed.get("i", 0)
-        # print(f"✅ Manager chose draft {chosen_index}: {parsed.get('explanation', 'No explanation')}")
+        # logger.print(f"✅ Manager chose draft {chosen_index}: {parsed.get('explanation', 'No explanation')}")
     else:
-        print("⚠️  Failed to parse manager output, defaulting to draft 0")
+        logger.print("⚠️  Failed to parse manager output, defaulting to draft 0")
         chosen_index = 0
-    
+
     # Bounds checking: ensure chosen_index is valid
     current_iteration = state["current_iteration"]
     if chosen_index < 0 or chosen_index >= current_iteration:
-        print(f"⚠️  Invalid draft index {chosen_index} (must be 0 <= i < {current_iteration}), defaulting to draft 0")
+        logger.print(f"⚠️  Invalid draft index {chosen_index} (must be 0 <= i < {current_iteration}), defaulting to draft 0")
         chosen_index = 0
     
     result_dict = {
@@ -583,28 +616,33 @@ def manager(state: VectorizationState):
 
 
 # Node: manager: parse output
-def parse_manager_output(output: str) -> dict | None:
+def parse_manager_output(output: str, logger = None) -> dict | None:
     """
     Parse the manager LLM output to extract the chosen draft index.
-    
+
     Expected format:
     {
       "i": int,
       "explanation": str
     }
-    
+
+    Args:
+        output: Raw LLM output string
+        logger: Optional LLMLogger instance for logging
+
     Returns:
         dict with 'i' and 'explanation' keys, or None if parsing fails
     """
     return parse_llm_json_output(
         output,
         required_fields={"i": int, "explanation": str},
-        agent_name="manager"
+        agent_name="manager",
+        logger=logger
     )
 
 
 # Node: engineer: parse search-replace output
-def parse_search_replace_output(output: str) -> list[SearchReplaceAction] | None:
+def parse_search_replace_output(output: str, logger = None) -> list[SearchReplaceAction] | None:
     """
     Parse the engineer LLM output to extract ONE search-replace block.
 
@@ -614,6 +652,10 @@ def parse_search_replace_output(output: str) -> list[SearchReplaceAction] | None
     =======
     replacement code
     >>>>>>> REPLACE
+
+    Args:
+        output: Raw LLM output string
+        logger: Optional LLMLogger instance for logging
 
     Returns:
         List with one SearchReplaceAction dict, or None if parsing fails, or empty list if NO_CHANGES
@@ -638,12 +680,22 @@ def parse_search_replace_output(output: str) -> list[SearchReplaceAction] | None
     matches = re.findall(pattern, output, re.DOTALL)
 
     if not matches:
-        print("⚠️  No valid search-replace block found in engineer output")
-        print(f"    Output: {output[:200]}...")
+        msg1 = "⚠️  No valid search-replace block found in engineer output"
+        msg2 = f"    Output: {output[:200]}..."
+        if logger:
+            logger.print(msg1)
+            logger.print(msg2)
+        else:
+            print(msg1)
+            print(msg2)
         return None
 
     if len(matches) > 1:
-        print(f"⚠️  Warning: Found {len(matches)} search-replace blocks, expected 1. Using only the first.")
+        msg = f"⚠️  Warning: Found {len(matches)} search-replace blocks, expected 1. Using only the first."
+        if logger:
+            logger.print(msg)
+        else:
+            print(msg)
 
     # Take only the first block
     search_text, replace_text = matches[0]
@@ -652,7 +704,11 @@ def parse_search_replace_output(output: str) -> list[SearchReplaceAction] | None
         "replace": replace_text
     }
 
-    print(f"✅ Parsed 1 search-replace block")
+    msg = f"✅ Parsed 1 search-replace block"
+    if logger:
+        logger.print(msg)
+    else:
+        print(msg)
     return [action]
 
 
@@ -661,17 +717,19 @@ def write_function_to_file(
     file_path: str,
     function_info: FunctionInfo,
     replace_start: int | None = None,
-    replace_end: int | None = None
+    replace_end: int | None = None,
+    logger = None
 ) -> bool:
     """
     Write a modified function back to its source file.
-    
+
     Args:
         file_path: Absolute path to the source file
         function_info: FunctionInfo with modified full_text to write
         replace_start: Start line to replace (0-indexed). If None, use function_info["start_line"]
         replace_end: End line to replace (0-indexed). If None, use function_info["end_line"]
-    
+        logger: Optional LLMLogger instance for logging
+
     Returns:
         True if successful, False otherwise
     """
@@ -686,7 +744,11 @@ def write_function_to_file(
         
         # Validate line numbers
         if start < 0 or end >= len(lines) or start > end:
-            print(f"⚠️  Invalid line range {start}-{end} for file with {len(lines)} lines")
+            msg = f"⚠️  Invalid line range {start}-{end} for file with {len(lines)} lines"
+            if logger:
+                logger.print(msg)
+            else:
+                print(msg)
             return False
         
         # Replace the function lines with the modified function
@@ -703,9 +765,13 @@ def write_function_to_file(
             f.writelines(new_lines)
         
         return True
-        
+
     except IOError as e:
-        print(f"⚠️  Failed to write function to {file_path}: {e}")
+        msg = f"⚠️  Failed to write function to {file_path}: {e}"
+        if logger:
+            logger.print(msg)
+        else:
+            print(msg)
         return False
 
 
@@ -801,7 +867,8 @@ def find_fuzzy_match(search_text: str, target_text: str) -> tuple[int, int] | No
 # Helper: Apply search-replace actions to function
 def apply_search_replace_actions(
     function_info: FunctionInfo,
-    actions: list[SearchReplaceAction]
+    actions: list[SearchReplaceAction],
+    logger = None
 ) -> FunctionInfo:
     """
     Apply a list of search-replace actions to a function to create a modified version.
@@ -810,6 +877,7 @@ def apply_search_replace_actions(
     Args:
         function_info: Original function information
         actions: List of SearchReplaceAction dicts
+        logger: Optional LLMLogger instance for logging
 
     Returns:
         Modified FunctionInfo with updated full_text and body
@@ -824,11 +892,18 @@ def apply_search_replace_actions(
         match_result = find_fuzzy_match(search_text, modified_text)
 
         if match_result is None:
-            print(f"⚠️  Search-replace action {i}: search text not found")
-            print(f"    Looking for ({len(search_text)} chars):")
-            print(f"    {repr(search_text[:200])}")
-            print(f"\n    In modified text ({len(modified_text)} chars):")
-            print(f"    {repr(modified_text[:400])}")
+            if logger:
+                logger.print(f"⚠️  Search-replace action {i}: search text not found")
+                logger.print(f"    Looking for ({len(search_text)} chars):")
+                logger.print(f"    {repr(search_text[:200])}")
+                logger.print(f"\n    In modified text ({len(modified_text)} chars):")
+                logger.print(f"    {repr(modified_text[:400])}")
+            else:
+                print(f"⚠️  Search-replace action {i}: search text not found")
+                print(f"    Looking for ({len(search_text)} chars):")
+                print(f"    {repr(search_text[:200])}")
+                print(f"\n    In modified text ({len(modified_text)} chars):")
+                print(f"    {repr(modified_text[:400])}")
             continue
 
         start_pos, end_pos = match_result
@@ -838,8 +913,12 @@ def apply_search_replace_actions(
         second_match = find_fuzzy_match(search_text, remaining_text)
 
         if second_match is not None:
-            print(f"⚠️  Search-replace action {i}: search text appears multiple times (ambiguous)")
-            print(f"    Looking for: {search_text[:100]}...")
+            if logger:
+                logger.print(f"⚠️  Search-replace action {i}: search text appears multiple times (ambiguous)")
+                logger.print(f"    Looking for: {search_text[:100]}...")
+            else:
+                print(f"⚠️  Search-replace action {i}: search text appears multiple times (ambiguous)")
+                print(f"    Looking for: {search_text[:100]}...")
             continue
 
         # Perform the replacement
@@ -849,7 +928,10 @@ def apply_search_replace_actions(
             replace_text = replace_text + '\n'
 
         modified_text = modified_text[:start_pos] + replace_text + modified_text[end_pos:]
-        print(f"✅ Applied search-replace action {i}")
+        if logger:
+            logger.print(f"✅ Applied search-replace action {i}")
+        else:
+            print(f"✅ Applied search-replace action {i}")
 
     # Calculate new end_line based on number of lines in modified text
     new_num_lines = len(modified_text.splitlines())
@@ -922,17 +1004,17 @@ def engineer(state: VectorizationState):
     )
 
     # Parse engineer agent's outputs into search-replace actions
-    actions = parse_search_replace_output(response)
+    actions = parse_search_replace_output(response, logger)
 
     if actions is None:
-        print("⚠️  Failed to parse engineer output, using original function")
+        logger.print("⚠️  Failed to parse engineer output, using original function")
         new_func_info = current_function_info
     elif len(actions) == 0:
-        print("ℹ️  Engineer suggested no modifications")
+        logger.print("ℹ️  Engineer suggested no modifications")
         new_func_info = current_function_info
     else:
         # Apply search-replace actions to create modified function
-        new_func_info = apply_search_replace_actions(current_function_info, actions)
+        new_func_info = apply_search_replace_actions(current_function_info, actions, logger)
 
     # Write the modified function back to the file
     # Always write to ensure file stays in sync with function_drafts
@@ -949,10 +1031,11 @@ def engineer(state: VectorizationState):
         file_path,
         new_func_info,
         replace_start=last_written_info["start_line"],
-        replace_end=last_written_info["end_line"]
+        replace_end=last_written_info["end_line"],
+        logger=logger
     )
     if success:
-        print(f"✅ Wrote modified function to {file_path}")
+        logger.print(f"✅ Wrote modified function to {file_path}")
         # Log the entire file content after writing
         logger.log_file_content(
             iteration=current_iteration,
@@ -961,7 +1044,7 @@ def engineer(state: VectorizationState):
             function_name=current_function_info["name"]
         )
     else:
-        print(f"⚠️  Failed to write function to file, continuing anyway")
+        logger.print(f"⚠️  Failed to write function to file, continuing anyway")
 
     # Create new function draft with modified function
     current_iteration = state["current_iteration"]
@@ -1010,18 +1093,19 @@ def finalize(state: VectorizationState):
     last_draft_info = function_drafts[last_iteration].modified_function_text
     
     success = write_function_to_file(
-        file_path, 
+        file_path,
         final_function_info,
         replace_start=last_draft_info["start_line"],
-        replace_end=last_draft_info["end_line"]
+        replace_end=last_draft_info["end_line"],
+        logger=logger
     )
-    
+
     if success:
-        print(f"✅ Finalized and wrote function '{final_function_info['name']}' to {file_path}")
+        logger.print(f"✅ Finalized and wrote function '{final_function_info['name']}' to {file_path}")
         if final_draft.vectorization_success:
-            print(f"🎉 Function was successfully vectorized!")
+            logger.print(f"🎉 Function was successfully vectorized!")
     else:
-        print(f"⚠️  Failed to write final function to file")
+        logger.print(f"⚠️  Failed to write final function to file")
 
     logger.log_state(state, "finalize", "after")
     return {
@@ -1129,7 +1213,7 @@ def vectorize_benchmark(benchmark_dir: str,
             functions: List[FunctionInfo] = extract_functions(code)
             
             if func_idx >= len(functions):
-                print(f"⚠️  Warning: Expected {num_functions} functions but found {len(functions)} in {current_file} at index {func_idx}")
+                logger.print(f"⚠️  Warning: Expected {num_functions} functions but found {len(functions)} in {current_file} at index {func_idx}")
                 continue
 
             function = functions[func_idx]
@@ -1156,7 +1240,7 @@ def vectorize_benchmark(benchmark_dir: str,
             )
 
             # Pass it to LangGraph workflow: Compile -> Run -> Reviewer -> Manager -> Engineer
-            print(f"🚀 Starting vectorization workflow for function: {function['name']} in {os.path.basename(current_file)}")
+            logger.print(f"🚀 Starting vectorization workflow for function: {function['name']} in {os.path.basename(current_file)}")
             final_state = vectorization_graph.invoke(initial_state, config={"recursion_limit": 1000})
 
             # TODO(akash): Here is where we print the Loop Table to stdout
