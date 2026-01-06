@@ -25,7 +25,11 @@ The function is compiled with Clang, using the following command: {make_command}
 
 You have access to the following information:
 
-The PROGRAM:
+First, the PROGRAM:
+
+Second, COMPILER ERRORS:
+
+{compiler_feedback}
 
 {program_slice}
 

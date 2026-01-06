@@ -678,7 +678,12 @@ def extract_compilation_errors(
         return ""
 
     # Keywords that mark the start of a new diagnostic
-    diagnostic_keywords = ["note:", "remark:", "warning:", "error:"]
+    diagnostic_keywords = [
+        "note:",
+        "remark:",
+        "warning:",
+        "error:"
+    ]
 
     lines = stderr_output.splitlines()
     filtered_blocks = []
@@ -694,7 +699,7 @@ def extract_compilation_errors(
         is_note = "note:" in line
         is_remark = "remark:" in line
 
-        if is_error or is_warning or is_note or is_remark:
+        if is_error: #or is_warning or is_note or is_remark:
             # Extract line number from the diagnostic
             line_number = extract_line_number_from_diagnostic(line)
 

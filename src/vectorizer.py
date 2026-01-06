@@ -7,7 +7,7 @@
 ### Steps involved
 ### DONE 1. Redirect all logger output to a file
 ### DONE 2. Output the loop table to stdout
-### TODO 3. Work on helper functions that don't have access to the logger
+### DONE 3. Work on helper functions that don't have access to the logger
 
 # Vectorizer
 from langgraph.graph import StateGraph, END
