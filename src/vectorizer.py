@@ -1,3 +1,9 @@
+### TODO(akash)
+### Notes about logging
+### What information do we need?
+### 1. We need debug information (observability in every stage of every node) - in a separate directory / logfile. That's basically everything that was contained previously (granular details about vectorization state, the output of every LLM call, etc., and the output of the file from the engineer), AND, we also need everything from every subprocess printed to stdout. 
+### 2. We need the output state of every function - a table for every function, for every iteration - which includes a table for the vectorization state after the workflow for every iteration - and then, one row for the finalize function output (which iteration did we pick?).
+
 # Vectorizer
 from langgraph.graph import StateGraph, END
 from langchain_community.document_loaders import TextLoader
