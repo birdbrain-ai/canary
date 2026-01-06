@@ -209,11 +209,11 @@ def run_code(state: VectorizationState):
                timeout=600
            )
 
-           # Print stdout and stderr from validation script
+           # Log stdout and stderr from validation script
            if result.stdout:
-               print(result.stdout, end='')
+               logger.print(result.stdout, end='')
            if result.stderr:
-               print(result.stderr, end='', file=sys.stderr)
+               logger.print(result.stderr, end='')
         # Early exit: Timeout, so run failed
         except subprocess.TimeoutExpired:
             logger.print(f"Running the benchmark took too much time")
