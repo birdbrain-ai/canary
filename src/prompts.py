@@ -27,11 +27,11 @@ You have access to the following information:
 
 First, the PROGRAM:
 
+{program_slice}
+
 Second, COMPILER ERRORS:
 
 {compiler_feedback}
-
-{program_slice}
 
 You MUST return a JSON object in this format:
 
