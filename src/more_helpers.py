@@ -603,7 +603,7 @@ def demangle_function_name(mangled: str) -> str:
             ["c++filt", mangled],
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=600
         )
         if result.returncode == 0:
             demangled = result.stdout.strip()

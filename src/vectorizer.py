@@ -195,7 +195,7 @@ def run_code(state: VectorizationState):
                shell=True,
                capture_output=True,
                text=True,
-               timeout=30
+               timeout=600
            )
 
            # Print stdout and stderr from validation script

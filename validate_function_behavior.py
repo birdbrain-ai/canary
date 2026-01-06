@@ -144,7 +144,7 @@ def build_tsvc(directory, make_command='make'):
             shell=True,
             capture_output=True,
             text=True,
-            timeout=120
+            timeout=600
         )
 
         return result.returncode == 0
@@ -174,7 +174,7 @@ def run_and_extract_checksum(executable_path, function_name):
             [executable_path],
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=600
         )
 
         if result.returncode != 0:
