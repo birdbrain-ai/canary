@@ -508,6 +508,7 @@ def manager(state: VectorizationState):
         drafts_str += f"""
 ## Draft {i}
 - **Compile Success**: {draft.compile_success}
+- **Run Success**: {draft.run_success}
 - **Vectorization Success**: {draft.vectorization_success}
 - **Dead End**: {draft.dead_end}
 - **Reviewer Feedback**: {draft.reviewer_feedback if draft.reviewer_feedback else "None"}
