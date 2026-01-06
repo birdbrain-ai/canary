@@ -1151,6 +1151,11 @@ def vectorize_benchmark(benchmark_dir: str,
             print(f"🚀 Starting vectorization workflow for function: {function['name']} in {os.path.basename(current_file)}")
             final_state = vectorization_graph.invoke(initial_state, config={"recursion_limit": 1000})
 
+            # TODO(akash): Here is where we print the Loop Table to stdout
+            # Loop | base_compile | base_run | base_vec | opt_compile | opt_run | opt_vec
+            # s111 ...
+            
+
     return {"success": True}
 
 
