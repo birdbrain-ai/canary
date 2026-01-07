@@ -204,6 +204,10 @@ def main():
         # Skip if function is identical
         if func1 == func2:
             print(f"  {func_name}: No changes")
+            results.append({
+                'func_name': func_name,
+                'explanation': ""
+            })
             continue
 
         print(f"  {func_name}: Analyzing changes...")
