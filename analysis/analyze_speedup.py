@@ -2,6 +2,10 @@
 """
 Analyze TSVC benchmark results to calculate speedup and verify checksums.
 Compares base and optimized runs.
+Input:
+  Two raw text files containing TSVC_2 run outputs
+Output: 
+  CSV file with relevant columns you can upload to Google Sheets
 """
 
 import sys
