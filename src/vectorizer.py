@@ -309,6 +309,11 @@ def reviewer(state: VectorizationState):
             function_name=cur_function_name
         )
 
+        import re
+        output = re.sub(r'<think>.*?</think>', '', output, flags=re.DOTALL)
+        # Also handle unclosed <think> tags
+        output = re.sub(r'<think>.*', '', output, flags=re.DOTALL)
+
         # Parse reviewer agent's output
         parsed = parse_reviewer_output(output, logger)
 
