@@ -1,4 +1,3 @@
-### Make the reviewer and the engineer aware of the SLP pattern - unrolling + SLP vectorizer is a common way to do something
 ### To reviewer, add multiple suggestions to NonReductionValueUsedOutsideLoop remark example, AND add CantComputeNumberOfIterationsExample example, and use SLP vectorizer as a jumping off point. 
 ### To engineer, add loop splitting, loop rerolling, AND loop unroll pragma. 
 
