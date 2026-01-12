@@ -237,5 +237,50 @@ for (int i = 1; i < n; i++) {{
 }}
 >>>>>>> REPLACE
 
+EXAMPLE 3 - Loop splitting:
+<<<<<<< SEARCH
+for (int i = 0; i < n; i++) {
+    a[i] = a[i - 1] * b[i];
+    c[i] = a[i] + e[i];
+}
+=======
+for (int i = 0; i < n; i++) {
+    a[i] = a[i - 1] * b[i];
+}
+for (int i = 0; i < n; i++) {
+    c[i] = a[i] + e[i];
+}
+>>>>>>> REPLACE
+
+EXAMPLE 4 - Loop unrolling:
+<<<<<<< SEARCH
+for (int i = 0; i < LEN_1D-1; i++) {
+    a[i] = b[i] * c[i  ] * d[i];
+    b[i] = a[i] * a[i+1] * d[i];
+}
+=======
+#pragma clang loop unroll(enable)
+for (int i = 0; i < LEN_1D-1; i++) {
+    a[i] = b[i] * c[i  ] * d[i];
+    b[i] = a[i] * a[i+1] * d[i];
+}
+>>>>>>> REPLACE
+
+EXAMPLE 5 - Loop rerolling:
+<<<<<<< SEARCH
+for (int i = 0; i < LEN_1D - 5; i += 5) {
+    a[i] = a[i + 1] * a[i];
+    a[i + 1] = a[i + 2] * a[i + 1];
+    a[i + 2] = a[i + 3] * a[i + 2];
+    a[i + 3] = a[i + 4] * a[i + 3];
+    a[i + 4] = a[i + 5] * a[i + 4];
+}
+=======
+for (int i = 0; i < LEN_1D - 1; i++) {
+    a[i] = a[i + 1] * a[i];
+}
+>>>>>>> REPLACE
+
+
 YOUR OUTPUT:
     """
