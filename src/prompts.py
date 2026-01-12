@@ -64,6 +64,12 @@ RULES:
 - When dead_end is true, you may leave reviewer_feedback empty or briefly explain why no progress can be made
 - All suggestions must preserve the semantic behavior of the function - only suggest changes that improve vectorization without altering what the function computes
 
+EXTRA INFORMATION:
+- Clang has two autovectorizers: The Loop Vectorizer and the Superword Level Parallelism (SLP) Vectorizer. The Loop Vectorizer takes loop iterations and executes them in parallel. The SLP Vectorizer packs instructions in straight-line code, and transforms them into vector instructions. One common pattern with the SLP Vectorizer: unroll a loop in order to transform it into straight line code, and then autovectorize it using the SLP Vectorizer. 
+- The relevant remarks for the loop vectorizer have 'loop-vectorize' in them.
+- The relevant remarks for the SLP vectorizer have either 'slp-vectorizer' or 'loop-unroll' in them.
+- Your suggestions as a reviewer should target one or both of the loop and SLP vectorizers.
+
 EXAMPLE OUTPUTS:
 {{
   "dead_end": false,
