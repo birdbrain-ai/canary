@@ -121,11 +121,17 @@ def compile_code(state: VectorizationState):
     all_remark_files = find_files_with_ext(bench_path, [".yaml"])
     relevant_remark_files: List[str] = match_remark_files(current_file, all_remark_files)
     relevant_remarks: List[str] = []
+    only_vec_remarks: List[str] = []
     for remark_file in relevant_remark_files:
         relevant_remarks.append(filter_remarks_by_function(remark_file,
-                                                           cur_function_name))
+                                                           cur_function_name,
+                                                           True))
+        only_vec_remarks.append(filter_remarks_by_function(remark_file,
+                                                           cur_function_name,
+                                                           False))
     optimization_remarks = "\n".join(relevant_remarks)
-    vectorization_success = "!Passed" in optimization_remarks
+    only_vec_remarks = "\n".join(only_vec_remarks)
+    vectorization_success = "!Passed" in only_vec_remarks
     cur_function_draft.vectorization_success = vectorization_success
 
     function_drafts[current_iteration] = cur_function_draft
