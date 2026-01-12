@@ -1,5 +1,6 @@
-### To reviewer, add multiple suggestions to NonReductionValueUsedOutsideLoop remark example, AND add CantComputeNumberOfIterationsExample example, and use SLP vectorizer as a jumping off point. 
-### To engineer, add loop splitting, loop rerolling, AND loop unroll pragma. 
+### I can give the reviewer a bit more context about what each remark means and how to interpret it now. I am a little concerned about the impulse to connect #pragma clang loop unroll(enable) to any specific remark, AND, I am concerned about whether this will ever enable further SLP vectorization. 
+### To reviewer, add multiple suggestions to NonReductionValueUsedOutsideLoop remark example, AND add CantComputeNumberOfIterationsExample example, and use SLP vectorizer as a jumping off point. Modify an existing example (NonReductionValueUsedOutsideLoop), and add another example (SLP). 
+### To engineer, add loop splitting, loop rerolling (s116 is a perfect example), AND loop unroll pragma.
 
 
 """
@@ -82,7 +83,12 @@ EXAMPLE OUTPUTS:
 
 {{
   "dead_end": false,
-  "reviewer_feedback": "1. Problem: Optimization remarks indicate that a non-reduction value in the loop body is used outside the loop. Compiler feedback suggests this function could be autovectorized by making a copy of the variable 'a'. Suggestion: Make a temporary copy of the variable 'a' before the for loop."
+  "reviewer_feedback": "Problem: Optimization remarks indicate that a non-reduction value in the loop body is used outside the loop. Compiler feedback suggests this function could be autovectorized by making a copy of the variable 'a'. Suggestions: 1. Make a temporary copy of the variable 'a' before the for loop. 2. Reverse the iteration order and split the loop. Luckily, this would not break semantics, and it would resolve the data dependency over b. 3. Try rerolling the loop so the compiler can automatically resolve the RAW dependency."
+}}
+
+{{
+  "dead_end": false,
+  "reviewer_feedback": "Problem: ."
 }}
 
 YOUR OUTPUT:
