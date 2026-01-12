@@ -465,7 +465,7 @@ def deduplicate_yaml_remarks(yaml_content: str) -> str:
         return yaml_content  # Return original on error
 
 
-def filter_remarks_by_function(yaml_file_path: str, func_name: str) -> str:
+def filter_remarks_by_function(yaml_file_path: str, func_name: str, include_loop_unroll: bool) -> str:
     """
     Filter YAML optimization remarks to only include entries for a specific function.
     Includes loop-vectorize, slp-vectorizer, and loop-unroll remarks.
@@ -480,9 +480,15 @@ def filter_remarks_by_function(yaml_file_path: str, func_name: str) -> str:
         Filtered YAML content as string containing complete YAML documents,
         or empty string if no matches or filtering fails
     """
+
+    if include_loop_unroll:
+        query_part = "(.Pass == \"loop-vectorize\" or .Pass == \"slp-vectorizer\" or .Pass == \"loop-unroll\")"
+    else:
+        query_part = "(.Pass == \"loop-vectorize\" or .Pass == \"slp-vectorizer\")"
+    
     try:
         # Query 1: Get docs with exact function name match (handles unmangled names)
-        yq_filter_exact = f'select((.Pass == "loop-vectorize" or .Pass == "slp-vectorizer" or .Pass == "loop-unroll") and .Function == "{func_name}")'
+        yq_filter_exact = f'select({query_part} and .Function == "{func_name}")'
         result_exact = subprocess.run(
             ["yq", yq_filter_exact, yaml_file_path],
             capture_output=True,
@@ -493,7 +499,7 @@ def filter_remarks_by_function(yaml_file_path: str, func_name: str) -> str:
 
         # Query 2: Get all loop-vectorize, slp-vectorizer, and loop-unroll docs, then filter by demangling
         result_all = subprocess.run(
-            ["yq", "select(.Pass == \"loop-vectorize\" or .Pass == \"slp-vectorizer\" or .Pass == \"loop-unroll\")", yaml_file_path],
+            ["yq", f"select({query_part})", yaml_file_path],
             capture_output=True,
             text=True,
         )
