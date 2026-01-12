@@ -200,6 +200,9 @@ CRITICAL INSTRUCTIONS:
 - Follow the reviewer feedback - implement the suggested changes
 - Preserve the semantic behavior of the function - only make changes that improve vectorization without altering what the function computes
 - If no change needed, output: NO_CHANGES
+- PRAGMA PLACEMENT: ALL clang pragmas MUST be placed ABOVE the loop header, NEVER below it
+- DO NOT use memcpy() - it requires string.h which cannot be included in this context
+- UNROLL SYNTAX: Use "#pragma clang loop unroll(enable)" NOT "#pragma clang loop unroll(4)" or any integer value
 
 FORMAT:
 <<<<<<< SEARCH
