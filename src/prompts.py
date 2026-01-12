@@ -1,8 +1,3 @@
-### I can give the reviewer a bit more context about what each remark means and how to interpret it now. I am a little concerned about the impulse to connect #pragma clang loop unroll(enable) to any specific remark, AND, I am concerned about whether this will ever enable further SLP vectorization. 
-### To reviewer, add multiple suggestions to NonReductionValueUsedOutsideLoop remark example, AND add CantComputeNumberOfIterationsExample example, and use SLP vectorizer as a jumping off point. Modify an existing example (NonReductionValueUsedOutsideLoop), and add another example (SLP). 
-### To engineer, add loop splitting, loop rerolling (s116 is a perfect example), AND loop unroll pragma.
-
-
 """
 Prompt templates for the vectorization workflow.
 """
