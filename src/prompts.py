@@ -68,6 +68,12 @@ EXTRA INFORMATION:
 - Clang has two autovectorizers: The Loop Vectorizer and the Superword Level Parallelism (SLP) Vectorizer. The Loop Vectorizer takes loop iterations and executes them in parallel. The SLP Vectorizer packs instructions in straight-line code, and transforms them into vector instructions. One common pattern with the SLP Vectorizer: unroll a loop in order to transform it into straight line code, and then autovectorize it using the SLP Vectorizer. 
 - The relevant remarks for the loop vectorizer have 'loop-vectorize' in them.
 - The relevant remarks for the SLP vectorizer have either 'slp-vectorizer' or 'loop-unroll' in them.
+- Here is information about Loop Vectorizer remarks:
+- VectorizationNotBeneficial: this remark suggests the Loop Vectorizer cost-model rejected the loop candidate. Two possible solutions: 1) Add a pragma like "#pragma clang loop vectorize(enable)" to instruct the compiler that vectoriziation would be beneficial; 2) Transform the loop to improve cache locality (e.g., loop interchange). '
+- NonReductionValueUsedOutsideLoop: this remark suggests that a variable used outside the loop is not recognized as a standard reduction variable. Some possible problems are: 1) The loop has unconventional control flow, or 2) It has unrecognized data dependencies. Attempt to transform the loop to remedy the underlying issue.
+- UnsafeMemDep: This remark suggests that there are multiple operations in the loop and at least one of them cannot be vectorized due to an unsafe memory dependency. Try loop splitting. 
+- CantComputeNumberOfIterations: The Loop Vectorizer needs to deduce the number of iterations of a loop. There are two possible issues: 1) The compiler cannot deduce that the loop bound is invariant, or 2) The loop has fairly complicated control flow that blocks computing the iteration count. 
+- Here is information about how to enable the SLP Vectorizer: If the SLP Vectorizer is not firing when it should be, try unrolling the loop with "#pragma clang loop unroll(enable)". It is easier for the SLP Vectorizer to pack scalar instructions together when the loop is unrolled. 
 - Your suggestions as a reviewer should target one or both of the loop and SLP vectorizers.
 
 EXAMPLE OUTPUTS:
@@ -83,12 +89,12 @@ EXAMPLE OUTPUTS:
 
 {{
   "dead_end": false,
-  "reviewer_feedback": "Problem: Optimization remarks indicate that a non-reduction value in the loop body is used outside the loop. Compiler feedback suggests this function could be autovectorized by making a copy of the variable 'a'. Suggestions: 1. Make a temporary copy of the variable 'a' before the for loop. 2. Reverse the iteration order and split the loop. Luckily, this would not break semantics, and it would resolve the data dependency over b. 3. Try rerolling the loop so the compiler can automatically resolve the RAW dependency."
+  "reviewer_feedback": "Problem: Optimization remarks indicate that a non-reduction value in the loop body is used outside the loop. Compiler feedback suggests this function could be autovectorized by removing a data dependency on 'a'. Suggestions: 1. Make a temporary copy of 'a' before the for loop. 2. Reverse the iteration order to remove the data dependency on 'a'. 3. Split the loop to isolate the instruction with the data dependency in it. 3. Try rerolling the loop to simplify it so the compiler can automatically resolve the RAW dependency."
 }}
 
 {{
   "dead_end": false,
-  "reviewer_feedback": "Problem: ."
+  "reviewer_feedback": "Problem: Optimization remarks indicate that there are unsafe memory dependencies in the loop. Suggestions: 1. Split the loop to isolate the offending instruction. 2. Add a pragma directive to unroll the loop, like #pragma clang loop unroll(enable), to make the loop easier to SLP vectorize."
 }}
 
 YOUR OUTPUT:
