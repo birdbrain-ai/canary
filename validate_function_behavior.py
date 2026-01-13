@@ -257,8 +257,14 @@ def main():
 
     # Paths
     cwd = os.getcwd()
-    baseline_dir = os.path.join(cwd, 'TSVC_2_baseline')
-    test_dir = os.path.join(cwd, 'TSVC_2_test')
+
+    # Extract benchmark name from bench_path (e.g., TSVC_2_opt -> TSVC_2, TSVC_2_mini_opt -> TSVC_2_mini)
+    bench_name = os.path.basename(bench_path)
+    if bench_name.endswith('_opt'):
+        bench_name = bench_name[:-4]  # Remove '_opt' suffix
+
+    baseline_dir = os.path.join(cwd, f'{bench_name}_baseline')
+    test_dir = os.path.join(cwd, f'{bench_name}_test')
 
     # Determine which executable to use (prefer relaxed, fallback to default)
     exec_name = 'tsvc_vec_relaxed'
@@ -271,11 +277,16 @@ def main():
         if os.path.exists(baseline_dir):
             shutil.rmtree(baseline_dir)
 
-        # Copy original TSVC_2 to baseline
-        # The bench_path is TSVC_2_opt, so we need to go back to TSVC_2
-        original_tsvc = bench_path.replace('_opt', '')
+        # Copy original benchmark to baseline
+        # The bench_path is <benchmark>_opt, so we need to go back to <benchmark>
+        # Derive the original path using the extracted bench_name
+        if bench_path.endswith('_opt'):
+            original_tsvc = bench_path[:-4]  # Remove '_opt' from the full path
+        else:
+            original_tsvc = bench_path
+
         if not os.path.exists(original_tsvc):
-            print(f"Original TSVC_2 not found at {original_tsvc}", file=sys.stderr)
+            print(f"Original benchmark not found at {original_tsvc}", file=sys.stderr)
             sys.exit(2)
 
         shutil.copytree(original_tsvc, baseline_dir)

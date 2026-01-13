@@ -56,6 +56,7 @@ class VectorizationState(TypedDict):
     file_path: str # const
     make_command: str # const
     run_command: str # const
+    use_compiler_feedback: bool # const
 
     program_slice: str # const
     compiler_feedback: str

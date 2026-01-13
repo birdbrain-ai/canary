@@ -3,7 +3,8 @@ Prompt templates for the vectorization workflow.
 """
 
 def get_reviewer_prompt(cur_function_info, make_command, program_slice,
-                        compiler_feedback, optimization_remarks, vectorization_success):
+                        compiler_feedback, optimization_remarks, vectorization_success,
+                        use_compiler_feedback=True):
     """
     Generate the reviewer prompt for evaluating autovectorization opportunities.
 
@@ -13,10 +14,51 @@ def get_reviewer_prompt(cur_function_info, make_command, program_slice,
         program_slice: Surrounding program context
         compiler_feedback: Compiler errors/warnings
         optimization_remarks: LLVM optimization remarks
+        vectorization_success: Whether the function was successfully vectorized
+        use_compiler_feedback: Whether to include compiler feedback and optimization remarks in the prompt
 
     Returns:
         Formatted prompt string
     """
+    # Build the feedback sections conditionally
+    # When disabled, keep structure but remove actual content for ablation study
+    if use_compiler_feedback:
+        compiler_fb_content = compiler_feedback
+        opt_remarks_content = optimization_remarks
+    else:
+        compiler_fb_content = ""
+        opt_remarks_content = ""
+
+    feedback_sections = f"""Second, COMPILER FEEDBACK:
+
+{compiler_fb_content}
+
+Third, OPTIMIZATION REMARKS:
+
+{opt_remarks_content}"""
+
+    # Conditionally build EXTRA INFORMATION section
+    # When feedback is disabled, keep only general vectorization knowledge, remove remark interpretation
+    if use_compiler_feedback:
+        # Full version with remark interpretation
+        extra_info = """EXTRA INFORMATION:
+- Clang has two autovectorizers: The Loop Vectorizer and the Superword Level Parallelism (SLP) Vectorizer. The Loop Vectorizer takes loop iterations and executes them in parallel. The SLP Vectorizer packs instructions in straight-line code, and transforms them into vector instructions. One common pattern with the SLP Vectorizer: unroll a loop in order to transform it into straight line code, and then autovectorize it using the SLP Vectorizer.
+- The relevant remarks for the loop vectorizer have 'loop-vectorize' in them.
+- The relevant remarks for the SLP vectorizer have either 'slp-vectorizer' or 'loop-unroll' in them.
+- Here is information about Loop Vectorizer remarks:
+- VectorizationNotBeneficial: this remark suggests the Loop Vectorizer cost-model rejected the loop candidate. Two possible solutions: 1) Add a pragma like "#pragma clang loop vectorize(enable)" to instruct the compiler that vectoriziation would be beneficial; 2) Transform the loop to improve cache locality (e.g., loop interchange). '
+- NonReductionValueUsedOutsideLoop: this remark suggests that a variable used outside the loop is not recognized as a standard reduction variable. Some possible problems are: 1) The loop has unconventional control flow, or 2) It has unrecognized data dependencies. Attempt to transform the loop to remedy the underlying issue.
+- UnsafeMemDep: This remark suggests that there are multiple operations in the loop and at least one of them cannot be vectorized due to an unsafe memory dependency. Try loop splitting. Do not use #pragma clang loop distribute, it is unwieldy.
+- CantComputeNumberOfIterations: The Loop Vectorizer needs to deduce the number of iterations of a loop. There are two possible issues: 1) The compiler cannot deduce that the loop bound is invariant, or 2) The loop has fairly complicated control flow that blocks computing the iteration count.
+- Here is information about how to enable the SLP Vectorizer: If the SLP Vectorizer is not firing when it should be, try unrolling the loop with "#pragma clang loop unroll(enable)". It is easier for the SLP Vectorizer to pack scalar instructions together when the loop is unrolled.
+- Your suggestions as a reviewer should target one or both of the loop and SLP vectorizers."""
+    else:
+        # Minimal version without remark interpretation (only general knowledge)
+        extra_info = """EXTRA INFORMATION:
+- Clang has two autovectorizers: The Loop Vectorizer and the Superword Level Parallelism (SLP) Vectorizer. The Loop Vectorizer takes loop iterations and executes them in parallel. The SLP Vectorizer packs instructions in straight-line code, and transforms them into vector instructions. One common pattern with the SLP Vectorizer: unroll a loop in order to transform it into straight line code, and then autovectorize it using the SLP Vectorizer.
+- Here is information about how to enable the SLP Vectorizer: If the SLP Vectorizer is not firing when it should be, try unrolling the loop with "#pragma clang loop unroll(enable)". It is easier for the SLP Vectorizer to pack scalar instructions together when the loop is unrolled..
+- Your suggestions as a reviewer should target one or both of the loop and SLP vectorizers."""
+
     return f"""You are reviewing THIS FUNCTION for opportunities to autovectorize it. If there are further opportunities to autovectorize the function, you MUST provide a NUMBERED LIST of suggested changes.
 
 {cur_function_info["full_text"]}
@@ -29,13 +71,7 @@ First, the PROGRAM:
 
 {program_slice}
 
-Second, COMPILER FEEDBACK:
-
-{compiler_feedback}
-
-Third, OPTIMIZATION REMARKS:
-
-{optimization_remarks}
+{feedback_sections}
 
 You MUST return a JSON object in this format:
 
@@ -59,17 +95,7 @@ RULES:
 - When dead_end is true, you may leave reviewer_feedback empty or briefly explain why no progress can be made
 - All suggestions must preserve the semantic behavior of the function - only suggest changes that improve vectorization without altering what the function computes
 
-EXTRA INFORMATION:
-- Clang has two autovectorizers: The Loop Vectorizer and the Superword Level Parallelism (SLP) Vectorizer. The Loop Vectorizer takes loop iterations and executes them in parallel. The SLP Vectorizer packs instructions in straight-line code, and transforms them into vector instructions. One common pattern with the SLP Vectorizer: unroll a loop in order to transform it into straight line code, and then autovectorize it using the SLP Vectorizer. 
-- The relevant remarks for the loop vectorizer have 'loop-vectorize' in them.
-- The relevant remarks for the SLP vectorizer have either 'slp-vectorizer' or 'loop-unroll' in them.
-- Here is information about Loop Vectorizer remarks:
-- VectorizationNotBeneficial: this remark suggests the Loop Vectorizer cost-model rejected the loop candidate. Two possible solutions: 1) Add a pragma like "#pragma clang loop vectorize(enable)" to instruct the compiler that vectoriziation would be beneficial; 2) Transform the loop to improve cache locality (e.g., loop interchange). '
-- NonReductionValueUsedOutsideLoop: this remark suggests that a variable used outside the loop is not recognized as a standard reduction variable. Some possible problems are: 1) The loop has unconventional control flow, or 2) It has unrecognized data dependencies. Attempt to transform the loop to remedy the underlying issue.
-- UnsafeMemDep: This remark suggests that there are multiple operations in the loop and at least one of them cannot be vectorized due to an unsafe memory dependency. Try loop splitting. Do not use #pragma clang loop distribute, it is unwieldy. 
-- CantComputeNumberOfIterations: The Loop Vectorizer needs to deduce the number of iterations of a loop. There are two possible issues: 1) The compiler cannot deduce that the loop bound is invariant, or 2) The loop has fairly complicated control flow that blocks computing the iteration count. 
-- Here is information about how to enable the SLP Vectorizer: If the SLP Vectorizer is not firing when it should be, try unrolling the loop with "#pragma clang loop unroll(enable)". It is easier for the SLP Vectorizer to pack scalar instructions together when the loop is unrolled. 
-- Your suggestions as a reviewer should target one or both of the loop and SLP vectorizers.
+{extra_info}
 
 EXAMPLE OUTPUTS:
 {{

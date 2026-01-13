@@ -48,6 +48,7 @@ def serialize_state_to_json(state: VectorizationState) -> dict:
         "file_path": state["file_path"],
         "make_command": state["make_command"],
         "run_command": state["run_command"],
+        "use_compiler_feedback": state["use_compiler_feedback"],
         "program_slice": state["program_slice"],
         "compiler_feedback": state["compiler_feedback"],
         "optimization_remarks": state["optimization_remarks"],
@@ -291,7 +292,8 @@ def reviewer(state: VectorizationState):
             program_slice,
             compiler_feedback,
             optimization_remarks,
-            vectorization_success
+            vectorization_success,
+            state["use_compiler_feedback"]
         )
 
         # Log prompt before API call (in case of failure)
@@ -1170,6 +1172,7 @@ def vectorize_benchmark(benchmark_dir: str,
                         make_command: str,
                         max_iterations: int,
                         run_command: str,
+                        use_compiler_feedback: bool = True,
                         ):
 
     abs_benchmark_dir = os.path.abspath(benchmark_dir)
@@ -1237,6 +1240,7 @@ def vectorize_benchmark(benchmark_dir: str,
                 file_path=current_file,
                 make_command=make_command,
                 run_command=run_command,
+                use_compiler_feedback=use_compiler_feedback,
 
                 program_slice=program_slice,
                 compiler_feedback="",
@@ -1318,6 +1322,15 @@ Examples:
         help="Number of iterative refinement passes (default: 3)"
     )
 
+    parser.add_argument(
+        "--disable-compiler-feedback",
+        action="store_true",
+        help="Disable compiler feedback and optimization remarks in LLM prompts. "
+             "Useful for experimental testing to measure the impact of compiler feedback "
+             "on vectorization effectiveness. Feedback is still collected for logging, "
+             "but not provided to the LLM. (default: feedback enabled)"
+    )
+
     args = parser.parse_args()
 
     # Determine mode based on path type
@@ -1333,6 +1346,7 @@ Examples:
             args.make_command,
             max_iterations=args.iterations,
             run_command=args.run_command,
+            use_compiler_feedback=not args.disable_compiler_feedback,
         )
     else:
         print(f"✗ Error: Directory not found: {args.path}")
