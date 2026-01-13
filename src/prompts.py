@@ -3,7 +3,8 @@ Prompt templates for the vectorization workflow.
 """
 
 def get_reviewer_prompt(cur_function_info, make_command, program_slice,
-                        compiler_feedback, optimization_remarks, vectorization_success):
+                        compiler_feedback, optimization_remarks, vectorization_success,
+                        use_compiler_feedback=True):
     """
     Generate the reviewer prompt for evaluating autovectorization opportunities.
 
@@ -13,10 +14,23 @@ def get_reviewer_prompt(cur_function_info, make_command, program_slice,
         program_slice: Surrounding program context
         compiler_feedback: Compiler errors/warnings
         optimization_remarks: LLVM optimization remarks
+        vectorization_success: Whether the function was successfully vectorized
+        use_compiler_feedback: Whether to include compiler feedback and optimization remarks in the prompt
 
     Returns:
         Formatted prompt string
     """
+    # Build the feedback sections conditionally
+    feedback_sections = ""
+    if use_compiler_feedback:
+        feedback_sections = f"""Second, COMPILER FEEDBACK:
+
+{compiler_feedback}
+
+Third, OPTIMIZATION REMARKS:
+
+{optimization_remarks}"""
+
     return f"""You are reviewing THIS FUNCTION for opportunities to autovectorize it. If there are further opportunities to autovectorize the function, you MUST provide a NUMBERED LIST of suggested changes.
 
 {cur_function_info["full_text"]}
@@ -29,13 +43,7 @@ First, the PROGRAM:
 
 {program_slice}
 
-Second, COMPILER FEEDBACK:
-
-{compiler_feedback}
-
-Third, OPTIMIZATION REMARKS:
-
-{optimization_remarks}
+{feedback_sections}
 
 You MUST return a JSON object in this format:
 
