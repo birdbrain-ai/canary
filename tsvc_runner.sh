@@ -15,7 +15,7 @@ tsvc_remarks_out_file="tsvc_intel_remarks_run.txt"
 
 log_file="tsvc_intel_run_log.txt"
 
-if [$compiler = "intel"]; then
+if [ $compiler = "intel" ]; then
 	echo "Sourcing ICX"
 	source ~/tank/intel/oneapi/compiler/latest/env/vars.sh &> $log_file
 	pushd ./TSVC_2_intel_remarks/ &> $log_file
