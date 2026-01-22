@@ -152,6 +152,27 @@ def compile_code(state: VectorizationState):
     return result_dict
 
 
+# Helper: Parse runtime from validation script output
+def parse_runtime_from_output(output: str) -> float | None:
+    """
+    Parse RUNTIME_S: <value> from validation script stdout.
+
+    Args:
+        output: stdout from the validation script
+
+    Returns:
+        Runtime in seconds as float, or None if not found/invalid
+    """
+    import re
+    match = re.search(r'RUNTIME_S:\s*([\d.]+)', output)
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
 # Node: run_code
 def run_code(state: VectorizationState):
     '''
@@ -160,6 +181,7 @@ def run_code(state: VectorizationState):
 
     In function_drafts[current_iteration],
     1. run_success
+    2. runtime_s (parsed from RUNTIME_S: <value> in stdout)
 
     '''
     logger = state["logger"]
@@ -238,6 +260,13 @@ def run_code(state: VectorizationState):
 
         os.chdir(cur_working_dir)
         cur_function_draft.run_success = result.returncode == 0
+
+        # Parse runtime from stdout if run succeeded
+        if cur_function_draft.run_success and result.stdout:
+            cur_function_draft.runtime_s = parse_runtime_from_output(result.stdout)
+            if cur_function_draft.runtime_s is not None:
+                logger.print(f"Runtime: {cur_function_draft.runtime_s:.6f}s")
+
         function_drafts[current_iteration] = cur_function_draft
         logger.log_state(state, "run_code", "after")
         return {
@@ -284,6 +313,7 @@ def reviewer(state: VectorizationState):
 
     # Read vectorization_success that was set by compile_code
     vectorization_success = cur_function_draft.vectorization_success
+    runtime_s = cur_function_draft.runtime_s
 
     if reviewer_feedback == "":
         prompt = get_reviewer_prompt(
@@ -293,7 +323,8 @@ def reviewer(state: VectorizationState):
             compiler_feedback,
             optimization_remarks,
             vectorization_success,
-            state["use_compiler_feedback"]
+            state["use_compiler_feedback"],
+            runtime_s
         )
 
         # Log prompt before API call (in case of failure)
@@ -562,11 +593,13 @@ def manager(state: VectorizationState):
     # Pretty print function_drafts
     drafts_str = ""
     for i, draft in function_drafts.items():
+        runtime_str = f"{draft.runtime_s:.6f}s" if draft.runtime_s is not None else "N/A"
         drafts_str += f"""
 ## Draft {i}
 - **Compile Success**: {draft.compile_success}
 - **Run Success**: {draft.run_success}
 - **Vectorization Success**: {draft.vectorization_success}
+- **Runtime**: {runtime_str}
 - **Dead End**: {draft.dead_end}
 - **Reviewer Feedback**: {draft.reviewer_feedback if draft.reviewer_feedback else "None"}
 
@@ -1079,21 +1112,35 @@ def engineer(state: VectorizationState):
 def finalize(state: VectorizationState):
     logger = state["logger"]
     logger.log_state(state, "finalize", "before")
-    
+
     function_drafts = state["function_drafts"]
 
     final_draft = None
-
     the_thing_i_want_to_return = 0
-    # Find the best draft
-    # Priority 1: First draft that is compiled, runs, and is vectorized
-    for i in range(len(function_drafts) - 1, -1, -1):
-        if function_drafts[i].compile_success and function_drafts[i].vectorization_success and function_drafts[i].run_success:
-            final_draft = function_drafts[i]
-            the_thing_i_want_to_return = i
-            break
 
-    # Priority 2: Fall back to draft 0
+    # Find all valid drafts (compile_success, run_success, vectorization_success all true)
+    valid_drafts = []
+    for i, draft in function_drafts.items():
+        if draft.compile_success and draft.run_success and draft.vectorization_success:
+            valid_drafts.append((i, draft))
+
+    if valid_drafts:
+        # Among valid drafts, pick the one with the lowest runtime
+        # If runtime is None, treat it as infinity (less preferred)
+        drafts_with_runtime = [(i, d) for i, d in valid_drafts if d.runtime_s is not None]
+
+        if drafts_with_runtime:
+            # Pick the draft with the lowest runtime
+            best_i, best_draft = min(drafts_with_runtime, key=lambda x: x[1].runtime_s)
+            final_draft = best_draft
+            the_thing_i_want_to_return = best_i
+        else:
+            # No runtime data available, fall back to most recent valid draft
+            best_i, best_draft = max(valid_drafts, key=lambda x: x[0])
+            final_draft = best_draft
+            the_thing_i_want_to_return = best_i
+
+    # Fall back to draft 0 if no valid drafts
     if final_draft is None:
         final_draft = function_drafts[0]
         the_thing_i_want_to_return = 0
@@ -1215,7 +1262,7 @@ def vectorize_benchmark(benchmark_dir: str,
         num_functions = len(initial_functions)
 
         print(f"Starting to vectorize {current_file}")
-        print("function,base_compile,base_run,base_vec,opt_compile,opt_run,opt_vec")
+        print("function,base_compile,base_run,base_vec,base_runtime,opt_compile,opt_run,opt_vec,opt_runtime")
 
         for func_idx in range(num_functions):
             # Re-read the file every time to get updated line numbers if it was modified
@@ -1259,9 +1306,7 @@ def vectorize_benchmark(benchmark_dir: str,
             logger.print(f"🚀 Starting vectorization workflow for function: {function['name']} in {os.path.basename(current_file)}")
             final_state = vectorization_graph.invoke(initial_state, config={"recursion_limit": 1000})
 
-            # TODO(akash): Here is where we print the Loop Table to stdout
-            # Loop,base_compile,base_run,base_vec,opt_compile,opt_run,opt_vec
-            # s111 ...
+            # Print the Loop Table to stdout
             final_function_drafts = final_state["function_drafts"]
             finalized_i = final_state["manager_chosen_i"]
             base_function_draft = final_function_drafts[0]
@@ -1269,12 +1314,14 @@ def vectorize_benchmark(benchmark_dir: str,
             base_compile = base_function_draft.compile_success
             base_run = base_function_draft.run_success
             base_vec = base_function_draft.vectorization_success
+            base_runtime = base_function_draft.runtime_s if base_function_draft.runtime_s is not None else "N/A"
             final_function_draft = final_function_drafts[finalized_i]
             opt_compile = final_function_draft.compile_success
             opt_run = final_function_draft.run_success
             opt_vec = final_function_draft.vectorization_success
+            opt_runtime = final_function_draft.runtime_s if final_function_draft.runtime_s is not None else "N/A"
 
-            print(f"{func_name},{base_compile},{base_run},{base_vec},{opt_compile},{opt_run},{opt_vec}")
+            print(f"{func_name},{base_compile},{base_run},{base_vec},{base_runtime},{opt_compile},{opt_run},{opt_vec},{opt_runtime}")
 
     return {"success": True}
 

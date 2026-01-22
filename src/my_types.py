@@ -1,4 +1,4 @@
-from typing import TypedDict, Dict
+from typing import TypedDict, Dict, Optional
 from logger import LLMLogger
 from langchain_openai import ChatOpenAI
 
@@ -29,6 +29,7 @@ class FunctionDraft:
     run_success: bool
     dead_end: bool
     vectorization_success: bool
+    runtime_s: float | None
     reviewer_feedback: str
     modified_function_text: FunctionInfo
 
@@ -37,6 +38,7 @@ class FunctionDraft:
         self.run_success = False
         self.dead_end = False
         self.vectorization_success = False
+        self.runtime_s = None
         self.reviewer_feedback = ""
         self.modified_function_text = function_info
 
@@ -46,6 +48,7 @@ class FunctionDraft:
             "run_success": self.run_success,
             "dead_end": self.dead_end,
             "vectorization_success": self.vectorization_success,
+            "runtime_s": self.runtime_s,
             "reviewer_feedback": self.reviewer_feedback,
             "modified_function_text": self.modified_function_text
         }
