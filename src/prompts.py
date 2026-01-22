@@ -62,7 +62,6 @@ You MUST return a JSON object in this format:
 ```
 
 The function's VECTORIZATION SUCCESS is: {vectorization_success}
-The function's RUNTIME is: {f"{runtime_s:.6f} seconds" if runtime_s is not None else "N/A"}
 
 RULES:
 - Set 'dead_end' to false if:
