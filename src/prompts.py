@@ -4,7 +4,7 @@ Prompt templates for the vectorization workflow.
 
 def get_reviewer_prompt(cur_function_info, make_command, program_slice,
                         compiler_feedback, optimization_remarks, vectorization_success,
-                        use_compiler_feedback=True):
+                        use_compiler_feedback=True, runtime_s=None):
     """
     Generate the reviewer prompt for evaluating autovectorization opportunities.
 
@@ -16,6 +16,7 @@ def get_reviewer_prompt(cur_function_info, make_command, program_slice,
         optimization_remarks: LLVM optimization remarks
         vectorization_success: Whether the function was successfully vectorized
         use_compiler_feedback: Whether to include compiler feedback and optimization remarks in the prompt
+        runtime_s: Runtime of the function in seconds, or None if not measured
 
     Returns:
         Formatted prompt string
@@ -83,6 +84,7 @@ You MUST return a JSON object in this format:
 ```
 
 The function's VECTORIZATION SUCCESS is: {vectorization_success}
+The function's RUNTIME is: {f"{runtime_s:.6f} seconds" if runtime_s is not None else "N/A"}
 
 RULES:
 - Set 'dead_end' to false if:
@@ -151,10 +153,11 @@ SELECTION CRITERIA:
    - run_success = true (must pass validation/correctness checks)
    - dead_end = false (must have a viable path forward for optimization)
    Drafts failing ANY of these criteria are invalid and MUST be excluded from consideration.
-2. Among valid drafts, prioritize those with the greatest potential for fast execution
+2. Among valid drafts, prioritize those with the fastest runtime (lowest Runtime value)
 3. Drafts already autovectorized (vectorization_success = true) typically have the best performance
-4. If no drafts are vectorized, choose the one closest to being vectorized based on reviewer feedback
-5. If multiple drafts are equally promising, consider reviewer feedback about optimization potential
+4. If runtime values are available, prefer the draft with the lowest runtime
+5. If no drafts are vectorized, choose the one closest to being vectorized based on reviewer feedback
+6. If multiple drafts have similar runtimes, consider reviewer feedback about optimization potential
 
 OUTPUT RULES:
 - Your output MUST be a JSON object in the following format.
