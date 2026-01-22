@@ -352,7 +352,7 @@ def find_target_files(directory: str) -> List[str]:
     return all_files
 
 
-def match_remark_files(target_file: str, remark_files: List[str]) -> List[str]:
+def match_remark_files(target_file: str, remark_files: List[str], use_clang_not_intel: bool) -> List[str]:
     """
     Find remark files corresponding to a target source file.
 
@@ -367,7 +367,10 @@ def match_remark_files(target_file: str, remark_files: List[str]) -> List[str]:
         List of matching remark file paths
     """
     target_prefix = os.path.splitext(os.path.basename(target_file))[0]
-    pattern = f"{target_prefix}*.opt.yaml"
+    if use_clang_not_intel:
+        pattern = f"{target_prefix}*.opt.yaml"
+    else:
+        pattern = f"{target_prefix}*.optrpt"
 
     matching = []
     for remark_file in remark_files:
@@ -465,7 +468,7 @@ def deduplicate_yaml_remarks(yaml_content: str) -> str:
         return yaml_content  # Return original on error
 
 
-def filter_remarks_by_function(yaml_file_path: str, func_name: str, include_loop_unroll: bool) -> str:
+def filter_remarks_by_function(yaml_file_path: str, func_name: str, include_loop_unroll: bool, use_clang_not_intel: bool) -> str:
     """
     Filter YAML optimization remarks to only include entries for a specific function.
     Includes loop-vectorize, slp-vectorizer, and loop-unroll remarks.
@@ -480,7 +483,16 @@ def filter_remarks_by_function(yaml_file_path: str, func_name: str, include_loop
         Filtered YAML content as string containing complete YAML documents,
         or empty string if no matches or filtering fails
     """
+    ### Case: INTEL
+    is_intel_opt_report = not use_clang_not_intel
+    if is_intel_opt_report:
+        with open(yaml_file_path, 'r') as f:
+            file_content = f.read()
+            regex = f"Begin optimization report for: {func_name}[\S\s]*?================================================================="
+            match_obj = re.search(regex, file_content)
+            return match_obj.group() if match_obj is not None else  ""
 
+    ### Main Case: CLANG
     if include_loop_unroll:
         query_part = "(.Pass == \"loop-vectorize\" or .Pass == \"slp-vectorizer\" or .Pass == \"loop-unroll\")"
     else:

@@ -24,7 +24,7 @@ from typing import List
 from my_types import llm, FunctionInfo, FunctionDraft, VectorizationState, SearchReplaceAction
 from logger import LLMLogger
 from prompts import get_reviewer_prompt, get_manager_prompt, get_engineer_prompt
-
+import re
 
 # Helper: Serialize VectorizationState to JSON
 def serialize_state_to_json(state: VectorizationState) -> dict:
@@ -83,6 +83,7 @@ def compile_code(state: VectorizationState):
     cur_working_dir = os.getcwd()
     make_command = state["make_command"]
     current_file = state["file_path"]
+    use_clang_not_intel = state["use_clang_not_intel"]
 
     current_iteration = state["current_iteration"]
     function_drafts = state["function_drafts"]
@@ -119,20 +120,26 @@ def compile_code(state: VectorizationState):
     cur_function_draft.compile_success = result.returncode == 0
 
     # 2. Extract optimization remarks
-    all_remark_files = find_files_with_ext(bench_path, [".yaml"])
-    relevant_remark_files: List[str] = match_remark_files(current_file, all_remark_files)
+    if use_clang_not_intel:
+        all_remark_files = find_files_with_ext(bench_path, [".yaml"])
+    else:
+        all_remark_files = find_files_with_ext(bench_path, [".optrpt"])
+    relevant_remark_files: List[str] = match_remark_files(current_file, all_remark_files, use_clang_not_intel)
     relevant_remarks: List[str] = []
     only_vec_remarks: List[str] = []
     for remark_file in relevant_remark_files:
         relevant_remarks.append(filter_remarks_by_function(remark_file,
                                                            cur_function_name,
-                                                           True))
+                                                           True,
+                                                           use_clang_not_intel))
         only_vec_remarks.append(filter_remarks_by_function(remark_file,
                                                            cur_function_name,
-                                                           False))
+                                                           False,
+                                                           use_clang_not_intel))
     optimization_remarks = "\n".join(relevant_remarks)
     only_vec_remarks = "\n".join(only_vec_remarks)
-    vectorization_success = "!Passed" in only_vec_remarks
+    vectorization_success = re.search(r"was vectorized", optimization_remarks, re.IGNORECASE) is not None
+
     cur_function_draft.vectorization_success = vectorization_success
 
     function_drafts[current_iteration] = cur_function_draft
@@ -1220,6 +1227,7 @@ def vectorize_benchmark(benchmark_dir: str,
                         max_iterations: int,
                         run_command: str,
                         use_compiler_feedback: bool = True,
+                        use_clang_not_intel: bool = True
                         ):
 
     abs_benchmark_dir = os.path.abspath(benchmark_dir)
@@ -1288,6 +1296,7 @@ def vectorize_benchmark(benchmark_dir: str,
                 make_command=make_command,
                 run_command=run_command,
                 use_compiler_feedback=use_compiler_feedback,
+                use_clang_not_intel=use_clang_not_intel,
 
                 program_slice=program_slice,
                 compiler_feedback="",
@@ -1378,6 +1387,14 @@ Examples:
              "but not provided to the LLM. (default: feedback enabled)"
     )
 
+    parser.add_argument(
+        "--use-intel",
+        action="store_true",
+        help="Tell the vectorizer you are using ICX/ICPX instead of Clang toolchain. "
+             "Useful for passing optimization remarks using ICX/ICPX formatting into "
+             "the LLM workflow. (default: Clang not ICX)"
+    )
+
     args = parser.parse_args()
 
     # Determine mode based on path type
@@ -1394,6 +1411,7 @@ Examples:
             max_iterations=args.iterations,
             run_command=args.run_command,
             use_compiler_feedback=not args.disable_compiler_feedback,
+            use_clang_not_intel=not args.use_intel
         )
     else:
         print(f"✗ Error: Directory not found: {args.path}")
