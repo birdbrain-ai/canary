@@ -19,9 +19,9 @@ import argparse
 import json
 import tempfile
 import sys
-from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
+from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors, extract_kernel
 from typing import List
-from my_types import llm, FunctionInfo, FunctionDraft, VectorizationState, SearchReplaceAction
+from my_types import llm, FunctionInfo, FunctionDraft, VectorizationState, SearchReplaceAction, KernelInfo
 from logger import LLMLogger
 from prompts import get_reviewer_prompt, get_manager_prompt, get_engineer_prompt
 import re
@@ -59,6 +59,52 @@ def serialize_state_to_json(state: VectorizationState) -> dict:
     }
 
     return serialized_state
+
+
+# Helper: Check if benchmark is TSVC
+def is_tsvc_benchmark(bench_path: str) -> bool:
+    """Check if the benchmark is a TSVC benchmark based on directory name."""
+    return "TSVC" in os.path.basename(bench_path)
+
+
+# Helper: Reconstruct function from modified kernel
+def reconstruct_function_from_kernel(
+    function_info: FunctionInfo,
+    kernel_info: KernelInfo,
+    modified_kernel: str
+) -> FunctionInfo:
+    """
+    Reconstruct the full function by replacing the kernel with modified kernel.
+
+    Args:
+        function_info: Original function info
+        kernel_info: Kernel boundaries within the function
+        modified_kernel: The modified kernel text
+
+    Returns:
+        New FunctionInfo with the modified kernel spliced in
+    """
+    lines = function_info["full_text"].splitlines()
+
+    # Replace kernel lines with modified kernel
+    new_lines = (
+        lines[:kernel_info["kernel_start_line"]] +
+        modified_kernel.splitlines() +
+        lines[kernel_info["kernel_end_line"] + 1:]
+    )
+
+    new_full_text = '\n'.join(new_lines)
+    new_num_lines = len(new_lines)
+    new_end_line = function_info["start_line"] + new_num_lines - 1
+
+    return FunctionInfo(
+        name=function_info["name"],
+        signature=function_info["signature"],
+        body=new_full_text,
+        full_text=new_full_text,
+        start_line=function_info["start_line"],
+        end_line=new_end_line
+    )
 
 
 # Node: compile_code
@@ -322,6 +368,9 @@ def reviewer(state: VectorizationState):
     vectorization_success = cur_function_draft.vectorization_success
     runtime_s = cur_function_draft.runtime_s
 
+    # Get kernel text if available (for TSVC benchmarks)
+    kernel_text = cur_function_draft.modified_kernel_text
+
     if reviewer_feedback == "":
         prompt = get_reviewer_prompt(
             cur_function_info,
@@ -331,7 +380,8 @@ def reviewer(state: VectorizationState):
             optimization_remarks,
             vectorization_success,
             state["use_compiler_feedback"],
-            runtime_s
+            runtime_s,
+            kernel_text
         )
 
         # Log prompt before API call (in case of failure)
@@ -601,6 +651,9 @@ def manager(state: VectorizationState):
     drafts_str = ""
     for i, draft in function_drafts.items():
         runtime_str = f"{draft.runtime_s:.6f}s" if draft.runtime_s is not None else "N/A"
+        # Show kernel if available, otherwise show full function
+        code_to_show = draft.modified_kernel_text if draft.modified_kernel_text else draft.modified_function_text.get("full_text", "")
+        code_label = "Kernel Code" if draft.modified_kernel_text else "Function Code"
         drafts_str += f"""
 ## Draft {i}
 - **Compile Success**: {draft.compile_success}
@@ -610,9 +663,9 @@ def manager(state: VectorizationState):
 - **Dead End**: {draft.dead_end}
 - **Reviewer Feedback**: {draft.reviewer_feedback if draft.reviewer_feedback else "None"}
 
-**Function Code:**
+**{code_label}:**
 ```c
-{draft.modified_function_text.get("full_text", "")}
+{code_to_show}
 ```
 
 ---
@@ -1011,13 +1064,14 @@ def engineer(state: VectorizationState):
 
     In function_drafts[current_iteration],
     1. modified_function_text
+    2. modified_kernel_text (if kernel available)
 
-    And, responsible for writing to file 
+    And, responsible for writing to file
     '''
-    
+
     logger = state["logger"]
     logger.log_state(state, "engineer", "before")
-    
+
     program_slice = state["program_slice"]
     make_command = state["make_command"]
 
@@ -1026,13 +1080,16 @@ def engineer(state: VectorizationState):
     current_function_draft = function_drafts[manager_chosen_i]
     reviewer_feedback = current_function_draft.reviewer_feedback
     current_function_info = current_function_draft.modified_function_text
+    kernel_info = current_function_draft.kernel_info
+    current_kernel_text = current_function_draft.modified_kernel_text
 
     prompt = get_engineer_prompt(
         None,  # numbered_function_body no longer used
         current_function_info,
         program_slice,
         make_command,
-        reviewer_feedback
+        reviewer_feedback,
+        current_kernel_text
     )
 
     current_iteration = state["current_iteration"]
@@ -1060,23 +1117,43 @@ def engineer(state: VectorizationState):
     # Parse engineer agent's outputs into search-replace actions
     actions = parse_search_replace_output(response, logger)
 
+    # Apply search-replace actions
+    new_kernel_text = current_kernel_text
+    new_func_info = current_function_info
+
     if actions is None:
-        logger.print("⚠️  Failed to parse engineer output, using original function")
-        new_func_info = current_function_info
+        logger.print("⚠️  Failed to parse engineer output, using original")
     elif len(actions) == 0:
         logger.print("ℹ️  Engineer suggested no modifications")
-        new_func_info = current_function_info
     else:
-        # Apply search-replace actions to create modified function
-        new_func_info = apply_search_replace_actions(current_function_info, actions, logger)
+        if current_kernel_text:
+            # Apply search-replace to kernel, then reconstruct function
+            # Create a temporary FunctionInfo-like dict for the kernel
+            kernel_as_func = FunctionInfo(
+                name=current_function_info["name"],
+                signature="",
+                body=current_kernel_text,
+                full_text=current_kernel_text,
+                start_line=0,
+                end_line=len(current_kernel_text.splitlines()) - 1
+            )
+            modified_kernel_func = apply_search_replace_actions(kernel_as_func, actions, logger)
+            new_kernel_text = modified_kernel_func["full_text"]
+            # Reconstruct full function from modified kernel
+            new_func_info = reconstruct_function_from_kernel(
+                current_function_info,
+                kernel_info,
+                new_kernel_text
+            )
+        else:
+            # No kernel - apply search-replace directly to function
+            new_func_info = apply_search_replace_actions(current_function_info, actions, logger)
 
     # Write the modified function back to the file
-    # Always write to ensure file stays in sync with function_drafts
     file_path = state["file_path"]
     current_iteration = state["current_iteration"]
 
     # Determine what's currently in the file by finding the last written draft
-    # The last written draft is the one from the previous iteration (current_iteration - 1)
     last_written_index = current_iteration - 1 if current_iteration > 0 else 0
     last_written_info = function_drafts[last_written_index].modified_function_text
 
@@ -1090,7 +1167,6 @@ def engineer(state: VectorizationState):
     )
     if success:
         logger.print(f"✅ Wrote modified function to {file_path}")
-        # Log the entire file content after writing
         logger.log_file_content(
             iteration=current_iteration,
             file_path=file_path,
@@ -1100,18 +1176,28 @@ def engineer(state: VectorizationState):
     else:
         logger.print(f"⚠️  Failed to write function to file, continuing anyway")
 
-    # Create new function draft with modified function
+    # Create new function draft with modified function and kernel
+    # Re-extract kernel to get updated line numbers (kernel size may have changed)
     current_iteration = state["current_iteration"]
-    function_drafts[current_iteration] = FunctionDraft(new_func_info)
+    new_kernel_info = extract_kernel(new_func_info["full_text"]) if kernel_info else None
+    new_draft = FunctionDraft(new_func_info, new_kernel_info)
+    # Only set modified_kernel_text if kernel extraction succeeded
+    # This keeps kernel_info and modified_kernel_text consistent
+    if new_kernel_info:
+        new_draft.modified_kernel_text = new_kernel_text
+    elif kernel_info:
+        # Kernel extraction failed after modification - outer loop structure may be broken
+        logger.print("⚠️  Warning: Could not re-extract kernel after modification - outer loop may have been altered")
+    function_drafts[current_iteration] = new_draft
 
     result_dict = {
         "function_drafts": function_drafts
     }
-    
+
     after_state = state.copy()
     after_state.update(result_dict)
     logger.log_state(after_state, "engineer", "after")
-    
+
     return result_dict
 
 
@@ -1287,9 +1373,17 @@ def vectorize_benchmark(benchmark_dir: str,
                 continue
 
             function = functions[func_idx]
-            
+
+            # Extract kernel for TSVC benchmarks
+            kernel_info = None
+            if is_tsvc_benchmark(opt_dir):
+                kernel_info = extract_kernel(function["full_text"])
+                if kernel_info is None:
+                    logger.print(f"⚠️  Warning: Could not extract kernel from {function['name']} - no outer timing loop found, skipping")
+                    continue
+
             # Construct an initial state
-            initial_function_draft: FunctionDraft = FunctionDraft(function)
+            initial_function_draft: FunctionDraft = FunctionDraft(function, kernel_info)
             initial_state = VectorizationState(
                 bench_path=opt_dir,
                 file_path=current_file,

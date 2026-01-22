@@ -24,6 +24,12 @@ class FunctionInfo(TypedDict):
     end_line: int
 
 
+class KernelInfo(TypedDict):
+    kernel_text: str
+    kernel_start_line: int  # Relative to function start
+    kernel_end_line: int    # Relative to function start
+
+
 class FunctionDraft:
     compile_success: bool
     run_success: bool
@@ -32,8 +38,10 @@ class FunctionDraft:
     runtime_s: float | None
     reviewer_feedback: str
     modified_function_text: FunctionInfo
+    kernel_info: KernelInfo | None
+    modified_kernel_text: str | None
 
-    def __init__(self, function_info):
+    def __init__(self, function_info, kernel_info=None):
         self.compile_success = False
         self.run_success = False
         self.dead_end = False
@@ -41,6 +49,8 @@ class FunctionDraft:
         self.runtime_s = None
         self.reviewer_feedback = ""
         self.modified_function_text = function_info
+        self.kernel_info = kernel_info
+        self.modified_kernel_text = kernel_info["kernel_text"] if kernel_info else None
 
     def to_dict(self):
         return {
@@ -50,7 +60,9 @@ class FunctionDraft:
             "vectorization_success": self.vectorization_success,
             "runtime_s": self.runtime_s,
             "reviewer_feedback": self.reviewer_feedback,
-            "modified_function_text": self.modified_function_text
+            "modified_function_text": self.modified_function_text,
+            "kernel_info": self.kernel_info,
+            "modified_kernel_text": self.modified_kernel_text
         }
 
 

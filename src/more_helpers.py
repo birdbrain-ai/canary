@@ -3,7 +3,7 @@ from typing import List
 import re
 import os
 import fnmatch
-from my_types import FunctionInfo
+from my_types import FunctionInfo, KernelInfo
 
 
 def extract_file_context(file_content: str) -> str:
@@ -310,6 +310,61 @@ def extract_functions(file_content: str) -> List[FunctionInfo]:
             i += 1
 
     return functions
+
+
+def extract_kernel(function_text: str) -> KernelInfo | None:
+    """
+    Extract the kernel from a TSVC function by finding the outer timing loop
+    and extracting its body.
+
+    Args:
+        function_text: Complete function text
+
+    Returns:
+        KernelInfo with kernel text and line positions, or None if no outer loop found
+    """
+    lines = function_text.splitlines()
+
+    # Find the outer timing loop line
+    outer_loop_pattern = re.compile(r'for\s*\(\s*int\s+nl.*nl\s*<.*iterations\s*;\s*nl')
+    outer_loop_idx = None
+    for i, line in enumerate(lines):
+        if outer_loop_pattern.search(line):
+            outer_loop_idx = i
+            break
+
+    if outer_loop_idx is None:
+        return None
+
+    # Count braces starting from outer loop line to find kernel boundaries
+    brace_count = 0
+    kernel_start = None
+    kernel_end = None
+
+    for i in range(outer_loop_idx, len(lines)):
+        for char in lines[i]:
+            if char == '{':
+                if brace_count == 0:
+                    kernel_start = i + 1  # Kernel starts after opening brace
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    kernel_end = i - 1  # Kernel ends before closing brace
+                    break
+        if kernel_end is not None:
+            break
+
+    if kernel_start is None or kernel_end is None or kernel_end < kernel_start:
+        return None
+
+    kernel_text = '\n'.join(lines[kernel_start:kernel_end + 1])
+
+    return KernelInfo(
+        kernel_text=kernel_text,
+        kernel_start_line=kernel_start,
+        kernel_end_line=kernel_end
+    )
 
 
 def find_files_with_ext(directory: str, file_exts: List[str]) -> List[str]:

@@ -4,7 +4,7 @@ Prompt templates for the vectorization workflow.
 
 def get_reviewer_prompt(cur_function_info, make_command, program_slice,
                         compiler_feedback, optimization_remarks, vectorization_success,
-                        use_compiler_feedback=True, runtime_s=None):
+                        use_compiler_feedback=True, runtime_s=None, kernel_text=None):
     """
     Generate the reviewer prompt for evaluating autovectorization opportunities.
 
@@ -17,6 +17,7 @@ def get_reviewer_prompt(cur_function_info, make_command, program_slice,
         vectorization_success: Whether the function was successfully vectorized
         use_compiler_feedback: Whether to include compiler feedback and optimization remarks in the prompt
         runtime_s: Runtime of the function in seconds, or None if not measured
+        kernel_text: Kernel code if available (for TSVC benchmarks), or None
 
     Returns:
         Formatted prompt string
@@ -38,9 +39,17 @@ Third, OPTIMIZATION REMARKS:
 
 {opt_remarks_content}"""
 
-    return f"""You are reviewing THIS FUNCTION for opportunities to autovectorize it. If there are further opportunities to autovectorize the function, you MUST provide a NUMBERED LIST of suggested changes.
+    # Show kernel if available, otherwise show full function
+    if kernel_text:
+        code_section = f"""You are reviewing THIS KERNEL for opportunities to autovectorize it. This is the inner kernel of a timing loop - focus only on vectorizing this code. Do NOT modify the outer timing loop structure.
 
-{cur_function_info["full_text"]}
+{kernel_text}"""
+    else:
+        code_section = f"""You are reviewing THIS FUNCTION for opportunities to autovectorize it. If there are further opportunities to autovectorize the function, you MUST provide a NUMBERED LIST of suggested changes.
+
+{cur_function_info["full_text"]}"""
+
+    return f"""{code_section}
 
 The function is compiled with Intel's ICX compiler, using the following command: {make_command}
 
@@ -168,7 +177,7 @@ YOUR OUTPUT:
 
 
 def get_engineer_prompt(numbered_function_body, current_function_info,
-                        program_slice, make_command, reviewer_feedback):
+                        program_slice, make_command, reviewer_feedback, kernel_text=None):
     """
     Generate the engineer prompt for modifying functions to improve vectorization.
 
@@ -178,17 +187,31 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
         program_slice: Surrounding program context
         make_command: Compilation command string
         reviewer_feedback: Feedback from the reviewer
+        kernel_text: Kernel code if available (for TSVC benchmarks), or None
 
     Returns:
         Formatted prompt string
     """
 
     # Credit for example: https://johnnysswlab.com/loop-optimizations-interpreting-the-compiler-optimization-report/
-    
-    return f"""Modify this function to enable autovectorization.
+
+    # Show kernel if available, otherwise show full function
+    if kernel_text:
+        code_section = f"""Modify this kernel to enable autovectorization. This is the inner kernel of a timing loop.
+
+KERNEL:
+{kernel_text}"""
+        search_instruction = "- Your SEARCH block must match code that actually exists in the KERNEL section above."
+        outer_loop_warning = "- Do NOT add or remove outer timing loops. Focus only on the kernel code shown above."
+    else:
+        code_section = f"""Modify this function to enable autovectorization.
 
 FUNCTION:
-{current_function_info["full_text"]}
+{current_function_info["full_text"]}"""
+        search_instruction = "- Your SEARCH block must match code that actually exists in the FUNCTION section above."
+        outer_loop_warning = ""
+
+    return f"""{code_section}
 
 CONTEXT:
 {program_slice}
@@ -200,13 +223,14 @@ REVIEWER FEEDBACK:
 
 CRITICAL INSTRUCTIONS:
 - Output EXACTLY ONE search-replace block. Do NOT output multiple blocks.
-- Your SEARCH block must match code that actually exists in the FUNCTION section above.
+{search_instruction}
 - If the same code appears multiple times in the function, include enough surrounding lines in your SEARCH to make it unique - otherwise the replacement will FAIL
 - Follow the reviewer feedback - implement the suggested changes
 - Preserve the semantic behavior of the function - only make changes that improve vectorization without altering what the function computes
 - If no change needed, output: NO_CHANGES
 - PRAGMA PLACEMENT: ALL pragmas MUST be placed ABOVE the loop header, NEVER below it
 - DO NOT use memcpy() - it requires string.h which cannot be included in this context
+{outer_loop_warning}
 
 FORMAT:
 <<<<<<< SEARCH
