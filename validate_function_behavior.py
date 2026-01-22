@@ -160,14 +160,14 @@ def build_tsvc(directory, make_command='make'):
 
 def run_and_extract_checksum(executable_path, function_name):
     """
-    Run TSVC executable and extract checksum for the target function.
+    Run TSVC executable and extract checksum and runtime for the target function.
 
     Args:
         executable_path: Path to tsvc executable
         function_name: Name of the function to extract checksum for
 
     Returns:
-        Checksum value as float, or None if not found
+        Tuple of (checksum, runtime_s) as floats, or (None, None) if not found
     """
     try:
         result = subprocess.run(
@@ -180,33 +180,34 @@ def run_and_extract_checksum(executable_path, function_name):
         if result.returncode != 0:
             print(f"Execution failed with code {result.returncode}", file=sys.stderr)
             print(f"stderr: {result.stderr}", file=sys.stderr)
-            return None
+            return None, None
 
-        # Parse output to find the checksum for our function
+        # Parse output to find the checksum and runtime for our function
         # Format: "s000      1.150  512066944.000000"
-        # We need to extract the checksum (last column) for the matching function
+        # Column 0: function name, Column 1: time (sec), Column 2: checksum
         for line in result.stdout.split('\n'):
             # Match lines that start with the function name (with possible whitespace)
             if line.strip().startswith(function_name):
-                # Split by whitespace and get the last column (checksum)
+                # Split by whitespace
                 parts = line.split()
                 if len(parts) >= 3:
                     try:
+                        runtime_s = float(parts[1])
                         checksum = float(parts[-1])
-                        return checksum
+                        return checksum, runtime_s
                     except ValueError:
                         continue
 
         print(f"Could not find checksum for function {function_name} in output", file=sys.stderr)
         print(f"Output:\n{result.stdout}", file=sys.stderr)
-        return None
+        return None, None
 
     except subprocess.TimeoutExpired:
         print("Execution timed out", file=sys.stderr)
-        return None
+        return None, None
     except Exception as e:
         print(f"Execution failed: {e}", file=sys.stderr)
-        return None
+        return None, None
 
 
 def compare_checksums(baseline, modified, tolerance=1e-6):
@@ -308,12 +309,13 @@ def main():
             exec_name = 'tsvc_vec_default'
             baseline_exec = os.path.join(baseline_dir, 'bin', compiler, exec_name)
 
-        baseline_checksum = run_and_extract_checksum(baseline_exec, function_name)
+        baseline_checksum, baseline_runtime = run_and_extract_checksum(baseline_exec, function_name)
         if baseline_checksum is None:
             print("Failed to get baseline checksum", file=sys.stderr)
             sys.exit(2)
 
         print(f"Baseline checksum: {baseline_checksum}")
+        print(f"Baseline runtime: {baseline_runtime}s")
 
         # Save baseline checksum to a file for future iterations
         with open(os.path.join(cwd, f'.baseline_checksum_{function_name}'), 'w') as f:
@@ -357,9 +359,9 @@ def main():
         shutil.rmtree(test_dir)
         sys.exit(2)
 
-    # Run test to get checksum
+    # Run test to get checksum and runtime
     test_exec = os.path.join(test_dir, 'bin', compiler, exec_name)
-    modified_checksum = run_and_extract_checksum(test_exec, function_name)
+    modified_checksum, modified_runtime = run_and_extract_checksum(test_exec, function_name)
     if modified_checksum is None:
         print("Failed to get modified checksum", file=sys.stderr)
         # Clean up before exit
@@ -367,10 +369,13 @@ def main():
         sys.exit(2)
 
     print(f"Modified checksum: {modified_checksum}")
+    print(f"Modified runtime: {modified_runtime}s")
 
     # Compare checksums
     if compare_checksums(baseline_checksum, modified_checksum, tolerance=1e-6):
         print(f"✓ Checksums match! (diff: {abs(baseline_checksum - modified_checksum):.2e})")
+        # Output runtime in the format expected by vectorizer.py
+        print(f"RUNTIME_S: {modified_runtime}")
         result_code = 0
     else:
         print(f"✗ Checksums differ! (diff: {abs(baseline_checksum - modified_checksum):.2e})")
