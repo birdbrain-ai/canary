@@ -1091,11 +1091,14 @@ def engineer(state: VectorizationState):
             lint_errors=lint_errors
         )
 
+        # Use attempt number in call_type to avoid overwriting logs
+        call_type = f"engineer_{attempt}" if attempt > 0 else "engineer"
+
         # Log prompt before API call (in case of failure)
         logger.log_llm_prompt(
             iteration=current_iteration,
             file_path=file_path,
-            call_type="engineer",
+            call_type=call_type,
             prompt=prompt,
             function_name=current_function_info["name"]
         )
@@ -1106,7 +1109,7 @@ def engineer(state: VectorizationState):
         logger.log_llm_call(
             iteration=current_iteration,
             file_path=file_path,
-            call_type="engineer",
+            call_type=call_type,
             prompt=prompt,
             response=response,
             function_name=current_function_info["name"]
@@ -1149,13 +1152,21 @@ def engineer(state: VectorizationState):
             logger.log_file_content(
                 iteration=current_iteration,
                 file_path=file_path,
-                call_type="engineer",
+                call_type=call_type,
                 function_name=current_function_info["name"]
             )
             break  # Success! Exit the retry loop
         else:
             logger.print(f"⚠️  Syntax errors detected in generated code")
             logger.print(f"    {syntax_errors[:500]}...")
+
+            # Log the broken file for debugging before restoring
+            logger.log_file_content(
+                iteration=current_iteration,
+                file_path=file_path,
+                call_type=call_type,
+                function_name=current_function_info["name"]
+            )
 
             # Store the failed attempt for the next iteration
             if actions and len(actions) > 0:
