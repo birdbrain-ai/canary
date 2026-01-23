@@ -168,7 +168,8 @@ YOUR OUTPUT:
 
 
 def get_engineer_prompt(numbered_function_body, current_function_info,
-                        program_slice, make_command, reviewer_feedback):
+                        program_slice, make_command, reviewer_feedback,
+                        previous_search_replace=None, lint_errors=None):
     """
     Generate the engineer prompt for modifying functions to improve vectorization.
 
@@ -178,14 +179,38 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
         program_slice: Surrounding program context
         make_command: Compilation command string
         reviewer_feedback: Feedback from the reviewer
+        previous_search_replace: Optional dict with 'search' and 'replace' from failed attempt
+        lint_errors: Optional string with syntax errors from the failed attempt
 
     Returns:
         Formatted prompt string
     """
 
     # Credit for example: https://johnnysswlab.com/loop-optimizations-interpreting-the-compiler-optimization-report/
-    
+
+    # Build the lint error section if there was a previous failed attempt
+    lint_section = ""
+    if previous_search_replace and lint_errors:
+        lint_section = f"""
+PREVIOUS ATTEMPT FAILED - FIX THE SYNTAX ERRORS:
+
+Your previous search-replace produced syntax errors. Here is what you tried:
+
+<<<<<<< SEARCH
+{previous_search_replace['search']}
+=======
+{previous_search_replace['replace']}
+>>>>>>> REPLACE
+
+SYNTAX ERRORS:
+{lint_errors}
+
+You MUST fix these syntax errors in your new attempt. Output a corrected search-replace block.
+
+"""
+
     return f"""Modify this function to enable autovectorization.
+{lint_section}
 
 FUNCTION:
 {current_function_info["full_text"]}
