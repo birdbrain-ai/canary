@@ -1093,7 +1093,8 @@ def engineer(state: VectorizationState):
             make_command,
             reviewer_feedback,
             previous_search_replace=previous_search_replace,
-            lint_errors=lint_errors
+            lint_errors=lint_errors,
+            use_clang_not_intel=use_clang_not_intel
         )
 
         # Use attempt number in call_type to avoid overwriting logs

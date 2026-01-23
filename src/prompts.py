@@ -169,7 +169,8 @@ YOUR OUTPUT:
 
 def get_engineer_prompt(numbered_function_body, current_function_info,
                         program_slice, make_command, reviewer_feedback,
-                        previous_search_replace=None, lint_errors=None):
+                        previous_search_replace=None, lint_errors=None,
+                        use_clang_not_intel=True):
     """
     Generate the engineer prompt for modifying functions to improve vectorization.
 
@@ -186,8 +187,38 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
         Formatted prompt string
     """
 
-    # Credit for example: https://johnnysswlab.com/loop-optimizations-interpreting-the-compiler-optimization-report/
+    clang_examples=""
+    extra_info=""
+    
+    if use_clang_not_intel:
+        clang_examples="""EXAMPLE 4 - Add pragma:
+<<<<<<< SEARCH
+for (int i = 0; i < n; i++) {{
+    a[i] = b[i] + c[i];
+}}
+=======
+#pragma clang loop vectorize(enable)
+for (int i = 0; i < n; i++) {{
+    a[i] = b[i] + c[i];
+}}
+>>>>>>> REPLACE
 
+EXAMPLE 5 - Loop unrolling:
+<<<<<<< SEARCH
+for (int i = 0; i < LEN_1D-1; i++) {{
+    a[i] = b[i] * c[i  ] * d[i];
+    b[i] = a[i] * a[i+1] * d[i];
+}}
+=======
+#pragma clang loop unroll(enable)
+for (int i = 0; i < LEN_1D-1; i++) {{
+    a[i] = b[i] * c[i  ] * d[i];
+    b[i] = a[i] * a[i+1] * d[i];
+}}
+        """
+        extra_info="- UNROLL SYNTAX: Use \"#pragma clang loop unroll(enable)\" NOT \"#pragma clang loop unroll(4)\" or any integer value"
+    
+    # Credit for example: https://johnnysswlab.com/loop-optimizations-interpreting-the-compiler-optimization-report/
     # Build the lint error section if there was a previous failed attempt
     lint_section = ""
     if previous_search_replace and lint_errors:
@@ -233,7 +264,8 @@ CRITICAL INSTRUCTIONS:
 - If no change needed, output: NO_CHANGES
 - PRAGMA PLACEMENT: ALL pragmas MUST be placed ABOVE the loop header, NEVER below it
 - DO NOT use memcpy() - it requires string.h which cannot be included in this context
-
+{extra_info}
+    
 FORMAT:
 <<<<<<< SEARCH
 exact code to find
@@ -286,6 +318,6 @@ for (int i = 0; i < LEN_1D - 1; i++) {{
 }}
 >>>>>>> REPLACE
 
-
+{clang_examples}    
 YOUR OUTPUT:
     """
