@@ -26,6 +26,43 @@ from logger import LLMLogger
 from prompts import get_reviewer_prompt, get_manager_prompt, get_engineer_prompt
 import re
 
+# Maximum number of retry attempts for syntax errors in engineer
+MAX_LINT_RETRIES = 3
+
+
+# Helper: Check syntax of a file using the compiler
+def check_syntax(file_path: str, use_clang_not_intel: bool, logger=None) -> tuple[bool, str]:
+    """
+    Check syntax of a C/C++ file using the compiler's syntax-only mode.
+
+    Args:
+        file_path: Path to the source file to check
+        use_clang_not_intel: If True, use clang; if False, use icx
+        logger: Optional logger for debug output
+
+    Returns:
+        Tuple of (success: bool, errors: str)
+    """
+    compiler = "clang" if use_clang_not_intel else "icx"
+    cmd = f"{compiler} -fsyntax-only {file_path}"
+
+    result = subprocess.run(
+        cmd,
+        shell=True,
+        capture_output=True,
+        text=True,
+    )
+
+    if result.returncode == 0:
+        return (True, "")
+    else:
+        # Combine stderr (where compiler errors go) with any stdout
+        errors = result.stderr
+        if result.stdout:
+            errors = result.stdout + "\n" + errors
+        return (False, errors.strip())
+
+
 # Helper: Serialize VectorizationState to JSON
 def serialize_state_to_json(state: VectorizationState) -> dict:
     """
@@ -1012,14 +1049,17 @@ def engineer(state: VectorizationState):
     In function_drafts[current_iteration],
     1. modified_function_text
 
-    And, responsible for writing to file 
+    And, responsible for writing to file
     '''
-    
+
     logger = state["logger"]
     logger.log_state(state, "engineer", "before")
-    
+
     program_slice = state["program_slice"]
     make_command = state["make_command"]
+    file_path = state["file_path"]
+    use_clang_not_intel = state["use_clang_not_intel"]
+    current_iteration = state["current_iteration"]
 
     manager_chosen_i = state["manager_chosen_i"]
     function_drafts = state["function_drafts"]
@@ -1027,91 +1067,142 @@ def engineer(state: VectorizationState):
     reviewer_feedback = current_function_draft.reviewer_feedback
     current_function_info = current_function_draft.modified_function_text
 
-    prompt = get_engineer_prompt(
-        None,  # numbered_function_body no longer used
-        current_function_info,
-        program_slice,
-        make_command,
-        reviewer_feedback
-    )
-
-    current_iteration = state["current_iteration"]
-    # Log prompt before API call (in case of failure)
-    logger.log_llm_prompt(
-        iteration=current_iteration,
-        file_path=state["file_path"],
-        call_type="engineer",
-        prompt=prompt,
-        function_name=current_function_info["name"]
-    )
-
-    response: str = llm.invoke(prompt).content
-
-    # Log complete call after success
-    logger.log_llm_call(
-        iteration=current_iteration,
-        file_path=state["file_path"],
-        call_type="engineer",
-        prompt=prompt,
-        response=response,
-        function_name=current_function_info["name"]
-    )
-
-    # Parse engineer agent's outputs into search-replace actions
-    actions = parse_search_replace_output(response, logger)
-
-    if actions is None:
-        logger.print("⚠️  Failed to parse engineer output, using original function")
-        new_func_info = current_function_info
-    elif len(actions) == 0:
-        logger.print("ℹ️  Engineer suggested no modifications")
-        new_func_info = current_function_info
-    else:
-        # Apply search-replace actions to create modified function
-        new_func_info = apply_search_replace_actions(current_function_info, actions, logger)
-
-    # Write the modified function back to the file
-    # Always write to ensure file stays in sync with function_drafts
-    file_path = state["file_path"]
-    current_iteration = state["current_iteration"]
-
     # Determine what's currently in the file by finding the last written draft
     # The last written draft is the one from the previous iteration (current_iteration - 1)
     last_written_index = current_iteration - 1 if current_iteration > 0 else 0
     last_written_info = function_drafts[last_written_index].modified_function_text
 
-    # Use the last written draft's coordinates for replacement
-    success = write_function_to_file(
-        file_path,
-        new_func_info,
-        replace_start=last_written_info["start_line"],
-        replace_end=last_written_info["end_line"],
-        logger=logger
-    )
-    if success:
-        logger.print(f"✅ Wrote modified function to {file_path}")
-        # Log the entire file content after writing
-        logger.log_file_content(
+    # Retry loop for syntax errors
+    lint_errors = None
+    previous_search_replace = None
+    new_func_info = current_function_info  # Default to original if all attempts fail
+
+    for attempt in range(MAX_LINT_RETRIES):
+        if attempt > 0:
+            logger.print(f"🔄 Retry attempt {attempt + 1}/{MAX_LINT_RETRIES} due to syntax errors")
+
+        prompt = get_engineer_prompt(
+            None,  # numbered_function_body no longer used
+            current_function_info,
+            program_slice,
+            make_command,
+            reviewer_feedback,
+            previous_search_replace=previous_search_replace,
+            lint_errors=lint_errors
+        )
+
+        # Log prompt before API call (in case of failure)
+        logger.log_llm_prompt(
             iteration=current_iteration,
             file_path=file_path,
             call_type="engineer",
+            prompt=prompt,
             function_name=current_function_info["name"]
         )
-    else:
-        logger.print(f"⚠️  Failed to write function to file, continuing anyway")
+
+        response: str = llm.invoke(prompt).content
+
+        # Log complete call after success
+        logger.log_llm_call(
+            iteration=current_iteration,
+            file_path=file_path,
+            call_type="engineer",
+            prompt=prompt,
+            response=response,
+            function_name=current_function_info["name"]
+        )
+
+        # Parse engineer agent's outputs into search-replace actions
+        actions = parse_search_replace_output(response, logger)
+
+        if actions is None:
+            logger.print("⚠️  Failed to parse engineer output, using original function")
+            new_func_info = current_function_info
+            break  # No point retrying if we can't parse the output
+        elif len(actions) == 0:
+            logger.print("ℹ️  Engineer suggested no modifications")
+            new_func_info = current_function_info
+            break  # No changes means no syntax errors possible
+        else:
+            # Apply search-replace actions to create modified function
+            new_func_info = apply_search_replace_actions(current_function_info, actions, logger)
+
+        # Write the modified function to the file
+        success = write_function_to_file(
+            file_path,
+            new_func_info,
+            replace_start=last_written_info["start_line"],
+            replace_end=last_written_info["end_line"],
+            logger=logger
+        )
+
+        if not success:
+            logger.print(f"⚠️  Failed to write function to file, continuing anyway")
+            break
+
+        # Check syntax
+        syntax_ok, syntax_errors = check_syntax(file_path, use_clang_not_intel, logger)
+
+        if syntax_ok:
+            logger.print(f"✅ Wrote modified function to {file_path}")
+            # Log the entire file content after writing
+            logger.log_file_content(
+                iteration=current_iteration,
+                file_path=file_path,
+                call_type="engineer",
+                function_name=current_function_info["name"]
+            )
+            break  # Success! Exit the retry loop
+        else:
+            logger.print(f"⚠️  Syntax errors detected in generated code")
+            logger.print(f"    {syntax_errors[:500]}...")
+
+            # Store the failed attempt for the next iteration
+            if actions and len(actions) > 0:
+                previous_search_replace = {
+                    "search": actions[0]["search"],
+                    "replace": actions[0]["replace"]
+                }
+            lint_errors = syntax_errors
+
+            # Restore the previous function text to the file
+            restore_success = write_function_to_file(
+                file_path,
+                last_written_info,
+                replace_start=last_written_info["start_line"],
+                replace_end=new_func_info["end_line"],  # Use new end line since we wrote it
+                logger=logger
+            )
+            if restore_success:
+                logger.print(f"🔙 Restored previous function text")
+            else:
+                logger.print(f"⚠️  Failed to restore previous function, continuing anyway")
+                break  # Can't continue safely if we can't restore
+
+            # If this was the last attempt, use the original function
+            if attempt == MAX_LINT_RETRIES - 1:
+                logger.print(f"⚠️  Max retries ({MAX_LINT_RETRIES}) reached, using original function")
+                new_func_info = current_function_info
+                # Write the original function back
+                write_function_to_file(
+                    file_path,
+                    current_function_info,
+                    replace_start=last_written_info["start_line"],
+                    replace_end=last_written_info["end_line"],
+                    logger=logger
+                )
 
     # Create new function draft with modified function
-    current_iteration = state["current_iteration"]
     function_drafts[current_iteration] = FunctionDraft(new_func_info)
 
     result_dict = {
         "function_drafts": function_drafts
     }
-    
+
     after_state = state.copy()
     after_state.update(result_dict)
     logger.log_state(after_state, "engineer", "after")
-    
+
     return result_dict
 
 
