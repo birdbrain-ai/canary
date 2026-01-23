@@ -1119,9 +1119,8 @@ def engineer(state: VectorizationState):
         actions = parse_search_replace_output(response, logger)
 
         if actions is None:
-            logger.print("⚠️  Failed to parse engineer output, using original function")
-            new_func_info = current_function_info
-            break  # No point retrying if we can't parse the output
+            logger.print("⚠️  Failed to parse engineer output, retrying...")
+            continue
         elif len(actions) == 0:
             logger.print("ℹ️  Engineer suggested no modifications")
             new_func_info = current_function_info
