@@ -73,7 +73,7 @@ RULES:
 - When dead_end is false, provide a NUMBERED LIST of CONCRETE SUGGESTIONS in the reviewer_feedback field
 - When dead_end is true, you may leave reviewer_feedback empty or briefly explain why no progress can be made
 - All suggestions must preserve the semantic behavior of the function - only suggest changes that improve vectorization without altering what the function computes
-- DO NOT TOUCH THE OUTERMOST LOOP. I CANNOT OVERSTATE HOW TERRIBLE IT WOULD BE IF YOU TOUCHED THE OUTERMOST LOOP. THAT MEANS: DO NOT CHANGE THE NUMBER OF ITERATIONS THAT THE OUTER LOOP RUNS FOR, AND DO NOT CHANGE THE DUMMY CALL, OR THE NUMBER OF TIMES THAT THE DUMMY FUNCTIONS IS CALLED.
+- DO NOT MAKE SUGGESTIONS THAT TOUCH THE OUTERMOST LOOP. I CANNOT OVERSTATE HOW TERRIBLE IT WOULD BE IF YOU TOUCHED THE OUTERMOST LOOP. THAT MEANS: DO NOT CHANGE THE NUMBER OF ITERATIONS THAT THE OUTER LOOP RUNS FOR, AND DO NOT CHANGE THE DUMMY CALL, OR THE NUMBER OF TIMES THAT THE DUMMY FUNCTIONS IS CALLED.
 
 EXAMPLE OUTPUTS:
 {{
@@ -204,6 +204,7 @@ CRITICAL INSTRUCTIONS:
 - If the same code appears multiple times in the function, include enough surrounding lines in your SEARCH to make it unique - otherwise the replacement will FAIL
 - Follow the reviewer feedback - implement the suggested changes
 - Preserve the semantic behavior of the function - only make changes that improve vectorization without altering what the function computes
+- DO NOT MAKE SUGGESTIONS THAT TOUCH THE OUTERMOST LOOP. I CANNOT OVERSTATE HOW TERRIBLE IT WOULD BE IF YOU TOUCHED THE OUTERMOST LOOP. THAT MEANS: DO NOT CHANGE THE NUMBER OF ITERATIONS THAT THE OUTER LOOP RUNS FOR, AND DO NOT CHANGE THE DUMMY CALL, OR THE NUMBER OF TIMES THAT THE DUMMY FUNCTIONS IS CALLED.
 - If no change needed, output: NO_CHANGES
 - PRAGMA PLACEMENT: ALL pragmas MUST be placed ABOVE the loop header, NEVER below it
 - DO NOT use memcpy() - it requires string.h which cannot be included in this context
