@@ -175,7 +175,10 @@ def compile_code(state: VectorizationState):
                                                            use_clang_not_intel))
     optimization_remarks = "\n".join(relevant_remarks)
     only_vec_remarks = "\n".join(only_vec_remarks)
-    vectorization_success = re.search(r"was vectorized", optimization_remarks, re.IGNORECASE) is not None
+    if use_clang_not_intel:
+        vectorization_success = "!Passed" in only_vec_remarks
+    else:
+        vectorization_success = re.search(r"was vectorized", optimization_remarks, re.IGNORECASE) is not None
 
     cur_function_draft.vectorization_success = vectorization_success
 
@@ -345,6 +348,7 @@ def reviewer(state: VectorizationState):
     program_slice = state["program_slice"]
     compiler_feedback = state["compiler_feedback"]
     optimization_remarks = state["optimization_remarks"]
+    use_clang_not_intel = state["use_clang_not_intel"]
 
     # Early exit: if compile or run failed, mark as dead_end and skip LLM call
     if not cur_function_draft.compile_success or not cur_function_draft.run_success:
@@ -368,7 +372,8 @@ def reviewer(state: VectorizationState):
             optimization_remarks,
             vectorization_success,
             state["use_compiler_feedback"],
-            runtime_s
+            runtime_s,
+            use_clang_not_intel
         )
 
         # Log prompt before API call (in case of failure)
@@ -1272,7 +1277,7 @@ def finalize(state: VectorizationState):
     if success:
         logger.print(f"✅ Finalized and wrote function '{final_function_info['name']}' to {file_path}")
         if final_draft.vectorization_success:
-            logger.print(f"🎉 Function was successfully vectorized!")
+            logger.print(f"🎉 Function was successfully vectorized")
     else:
         logger.print(f"⚠️  Failed to write final function to file")
 

@@ -4,7 +4,7 @@ Prompt templates for the vectorization workflow.
 
 def get_reviewer_prompt(cur_function_info, make_command, program_slice,
                         compiler_feedback, optimization_remarks, vectorization_success,
-                        use_compiler_feedback=True, runtime_s=None):
+                        use_compiler_feedback=True, runtime_s=None, use_clang_not_intel=True):
     """
     Generate the reviewer prompt for evaluating autovectorization opportunities.
 
@@ -42,7 +42,7 @@ Third, OPTIMIZATION REMARKS:
 
 {cur_function_info["full_text"]}
 
-The function is compiled with Intel's ICX compiler, using the following command: {make_command}
+The function is compiled with {"the Clang compiler" if use_clang_not_intel else "Intel's ICX compiler"}, using the following command: {make_command}
 
 You have access to the following information:
 
