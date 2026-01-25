@@ -1130,7 +1130,16 @@ def engineer(state: VectorizationState):
         elif len(actions) == 0:
             logger.print("ℹ️  Engineer suggested no modifications")
             new_func_info = current_function_info
-            break  # No changes means no syntax errors possible
+            # Write to file to keep tracking in sync with file contents
+            # NOTE: This is the code that fixes the curly brace error
+            # write_function_to_file(
+            #     file_path,
+            #     new_func_info,
+            #     replace_start=last_written_info["start_line"],
+            #     replace_end=last_written_info["end_line"],
+            #     logger=logger
+            # )
+            break
         else:
             # Apply search-replace actions to create modified function
             new_func_info = apply_search_replace_actions(current_function_info, actions, logger)
