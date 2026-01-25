@@ -1080,7 +1080,7 @@ def engineer(state: VectorizationState):
     # Retry loop for syntax errors
     lint_errors = None
     previous_search_replace = None
-    new_func_info = current_function_info  # Default to original if all attempts fail
+    new_func_info = last_written_info  # Default to what's in the file if all attempts fail
 
     for attempt in range(MAX_LINT_RETRIES):
         if attempt > 0:
@@ -1130,7 +1130,15 @@ def engineer(state: VectorizationState):
         elif len(actions) == 0:
             logger.print("ℹ️  Engineer suggested no modifications")
             new_func_info = current_function_info
-            break  # No changes means no syntax errors possible
+            # Write to file to keep tracking in sync with file contents
+            write_function_to_file(
+                file_path,
+                new_func_info,
+                replace_start=last_written_info["start_line"],
+                replace_end=last_written_info["end_line"],
+                logger=logger
+            )
+            break
         else:
             # Apply search-replace actions to create modified function
             new_func_info = apply_search_replace_actions(current_function_info, actions, logger)
@@ -1145,7 +1153,8 @@ def engineer(state: VectorizationState):
         )
 
         if not success:
-            logger.print(f"⚠️  Failed to write function to file, continuing anyway")
+            logger.print(f"⚠️  Failed to write function to file, falling back to previous")
+            new_func_info = last_written_info  # Keep tracking in sync with file
             break
 
         # Check syntax
@@ -1207,7 +1216,7 @@ def engineer(state: VectorizationState):
                     replace_end=last_written_info["end_line"],
                     logger=logger
                 )
-
+                break
     # Create new function draft with modified function
     function_drafts[current_iteration] = FunctionDraft(new_func_info)
 
