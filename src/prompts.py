@@ -169,8 +169,9 @@ YOUR OUTPUT:
 
 def get_engineer_prompt(numbered_function_body, current_function_info,
                         program_slice, make_command, reviewer_feedback,
-                        previous_search_replace=None, lint_errors=None,
-                        use_clang_not_intel=True):
+                        compiler_feedback=None, optimization_remarks=None,
+                        perf_data=None, previous_search_replace=None,
+                        lint_errors=None, use_clang_not_intel=True):
     """
     Generate the engineer prompt for modifying functions to improve vectorization.
 
@@ -240,8 +241,7 @@ You MUST fix these syntax errors in your new attempt. Output a corrected search-
 
 """
 
-    return f"""Modify this function to enable autovectorization.
-{lint_section}
+    return f"""Modify this function to enable autovectorization and performance.
 
 FUNCTION:
 {current_function_info["full_text"]}
@@ -249,11 +249,19 @@ FUNCTION:
 CONTEXT:
 {program_slice}
 
+{lint_section}
+
 COMPILED WITH: {make_command}
 
-REVIEWER FEEDBACK:
-{reviewer_feedback}
+COMPILER FEEDBACK:
+{compiler_feedback}
 
+OPTIMIZATION REMARKS:
+{optimization_remarks}
+
+PERF DATA:
+{perf_data}    
+    
 CRITICAL INSTRUCTIONS:
 - Output EXACTLY ONE search-replace block. Do NOT output multiple blocks.
 - Your SEARCH block must match code that actually exists in the FUNCTION section above.
@@ -261,7 +269,6 @@ CRITICAL INSTRUCTIONS:
 - Follow the reviewer feedback - implement the suggested changes
 - Preserve the semantic behavior of the function - only make changes that improve vectorization without altering what the function computes
 - DO NOT TOUCH THE OUTERMOST LOOP. I CANNOT OVERSTATE HOW TERRIBLE IT WOULD BE IF YOU TOUCHED THE OUTERMOST LOOP. THAT MEANS THE FOLLOWING. DO NOT CHANGE THE NUMBER OF ITERATIONS THAT THE OUTER LOOP RUNS FOR. DO NOT CHANGE THE DUMMY CALL. DO NOT CHANGE THE NUMBER OF TIMES THAT THE DUMMY FUNCTION IS CALLED.
-- If no change needed, output: NO_CHANGES
 - PRAGMA PLACEMENT: ALL pragmas MUST be placed ABOVE the loop header, NEVER below it
 - DO NOT use memcpy() - it requires string.h which cannot be included in this context
 {extra_info}

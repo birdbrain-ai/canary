@@ -1,14 +1,14 @@
 #!/bin/bash
 
-ai_pragmas_dir="$HOME/tank/ai-pragmas"
+ai_pragmas_dir="$HOME/tank/ai-pragmas-simple"
 clang_no_remarks_dir="$HOME/tank/TSVC_2_clang_no_remarks"
 clang_remarks_dir="$HOME/tank/TSVC_2_clang_remarks"
 intel_no_remarks_dir="$HOME/tank/TSVC_2_intel_no_remarks"
 intel_remarks_dir="$HOME/tank/TSVC_2_intel_remarks"
 
 vectorize_with_clang_no_remarks() {
-	python3 "$ai_pragmas_dir/src/vectorizer.py" \
-			--iterations 3 \
+	python3 "$ai_pragmas_dir/src/vectorizer-engineer.py" \
+			--iterations 1 \
 			--make-command "make COMPILER=clang" \
 			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
 			--disable-compiler-feedback \
@@ -17,7 +17,7 @@ vectorize_with_clang_no_remarks() {
 
 vectorize_with_clang_remarks() {
 	python3 "$ai_pragmas_dir/src/vectorizer.py" \
-			--iterations 3 \
+			--iterations 1 \
 			--make-command "make COMPILER=clang" \
 			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
 			"$1"
@@ -25,7 +25,7 @@ vectorize_with_clang_remarks() {
 
 vectorize_with_intel_no_remarks() {
 	python3 "$ai_pragmas_dir/src/vectorizer.py" \
-			--iterations 3 \
+			--iterations 1 \
 			--make-command "make COMPILER=intel" \
 			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
 			--disable-compiler-feedback \
@@ -35,7 +35,7 @@ vectorize_with_intel_no_remarks() {
 
 vectorize_with_intel_remarks() {
 	python3 "$ai_pragmas_dir/src/vectorizer.py" \
-			--iterations 3 \
+			--iterations 1 \
 			--make-command "make COMPILER=intel" \
 			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
 			--use-intel \

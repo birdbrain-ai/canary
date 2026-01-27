@@ -4,7 +4,7 @@ from langchain_openai import ChatOpenAI
 
 
 llm = ChatOpenAI(
-    model="Qwen/Qwen3-8B",
+    model="deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
     api_key="",
     base_url="http://localhost:8000/v1",
 )
