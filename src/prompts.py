@@ -188,11 +188,10 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
         Formatted prompt string
     """
 
-    clang_examples=""
     extra_info=""
     
     if use_clang_not_intel:
-        clang_examples="""EXAMPLE 4 - Add pragma:
+        prompt_examples="""EXAMPLE 1 - clang loop vectorize pragma GO RIGHT ABOVE THE LOOP
 <<<<<<< SEARCH
 for (int i = 0; i < n; i++) {{
     a[i] = b[i] + c[i];
@@ -205,7 +204,7 @@ for (int i = 0; i < n; i++) {{
 }}
 >>>>>>> REPLACE
 
-EXAMPLE 5 - Loop unrolling:
+EXAMPLE 2 - clang loop unroll pragma GO RIGHT ABOVE THE LOOP
 <<<<<<< SEARCH
 for (int i = 0; i < LEN_1D-1; i++) {{
     a[i] = b[i] * c[i  ] * d[i];
@@ -218,9 +217,56 @@ for (int i = 0; i < LEN_1D-1; i++) {{
     a[i] = b[i] * c[i  ] * d[i];
     b[i] = a[i] * a[i+1] * d[i];
 }}
-        """
-        extra_info="- UNROLL SYNTAX: Use \"#pragma clang loop unroll(enable)\" NOT \"#pragma clang loop unroll(4)\" or any integer value"
-    
+>>>>>>> REPLACE
+"""
+        extra_info="""
+You must ONLY use Clang-specific pragmas or source code modifications that preserve semantics to enable auto-vectorization. DO NOT use OpenMP or SIMD intrinsics.
+Key Directives:
+- Use `#pragma clang loop vectorize(enable)` to force vectorization.
+- Use `#pragma clang loop interleave(enable)` to assist the interleaver.
+- Use `#pragma clang loop unroll(enable)` for loop expansion.
+- Use `__restrict`, and source code modifications that preserve semantics like introducing temporaries for source-level fixes.
+"""
+    else:
+        prompt_examples="""EXAMPLE 1 - intel vector pragmas GO RIGHT ABOVE THE LOOP
+<<<<<<< SEARCH
+for (int i = 0; i < n; i++) {{
+    a[i] = b[i] + c[i];
+}}
+=======
+// Inserting this pragma will ignore assumed dependencies and override Intel's cost model
+#pragma ivdep
+#pragma vector always
+for (int i = 0; i < n; i++) {{
+    a[i] = b[i] + c[i];
+}}
+>>>>>>> REPLACE
+
+EXAMPLE 2 - intel unroll pragmas GO RIGHT ABOVE THE LOOP
+<<<<<<< SEARCH
+for (int i = 0; i < LEN_1D-1; i++) {{
+    a[i] = b[i] * c[i  ] * d[i];
+    b[i] = a[i] * a[i+1] * d[i];
+}}
+=======
+// Unrolling the loop helps the compiler recognize SIMD patterns in complex blocks
+#pragma unroll
+for (int i = 0; i < LEN_1D-1; i++) {{
+    a[i] = b[i] * c[i  ] * d[i];
+    b[i] = a[i] * a[i+1] * d[i];
+}}
+>>>>>>> REPLACE
+
+"""
+
+        extra_info="""
+You must ONLY use Intel-specific pragmas or source code modifications that preserve semantics to enable auto-vectorization. DO NOT use OpenMP or SIMD intrinsics.
+Key Directives:
+- Use `#pragma ivdep` to ignore potential vector dependencies.
+- Use `#pragma vector always` to override the compiler's internal cost model.
+- Use `#pragma unroll` to expose instruction-level parallelism.
+- Use `__restrict`, `__attribute__((aligned(64)))` for pointer/data optimization, and source code modifications that preserve semantics like introducing temporaries for source-level fixes."""
+        
     # Credit for example: https://johnnysswlab.com/loop-optimizations-interpreting-the-compiler-optimization-report/
     # Build the lint error section if there was a previous failed attempt
     lint_section = ""
@@ -243,17 +289,14 @@ You MUST fix these syntax errors in your new attempt. Output a corrected search-
 
 """
 
-    return f"""Modify this function to enable autovectorization and performance.
+    return f"""Modify this function to enable autovectorization and improve performance.
 
 FUNCTION (starts on line {current_function_info["start_line"]}):
-
 {current_function_info["full_text"]}
 
 CONTEXT:
 {program_slice}
-
 {lint_section}
-
 COMPILED WITH: {make_command}
 
 COMPILER FEEDBACK:
@@ -261,9 +304,6 @@ COMPILER FEEDBACK:
 
 OPTIMIZATION REMARKS:
 {optimization_remarks}
-
-PERF DATA:
-{perf_data}    
 
 CRITICAL INSTRUCTIONS:
 - Output EXACTLY ONE search-replace block. Do NOT output multiple blocks.
@@ -276,7 +316,7 @@ CRITICAL INSTRUCTIONS:
 - PRAGMA PLACEMENT: ALL pragmas MUST be placed ABOVE the loop header, NEVER below it.
 - DO NOT use memcpy() - it requires string.h which cannot be included in this context.
 {extra_info}
-    
+
 FORMAT:
 <<<<<<< SEARCH
 exact code to find
@@ -284,54 +324,8 @@ exact code to find
 replacement code
 >>>>>>> REPLACE
 
-EXAMPLES:
+CORRECT EXAMPLES:
 
-EXAMPLE 1 - Fix dependency:
-<<<<<<< SEARCH
-for (int i = 1; i < n; i++) {{
-    a[i] = a[i-1] + b[i];
-}}
-=======
-// The ith iteration depends on the i-1th iteration. Storing the previous result in a temporary variable breaks the dependnecy.
-float temp = a[0];
-for (int i = 1; i < n; i++) {{
-    temp = temp + b[i];
-    a[i] = temp;
-}}
->>>>>>> REPLACE
-
-EXAMPLE 2 - Loop splitting:
-<<<<<<< SEARCH
-for (int i = 0; i < n; i++) {{
-    a[i] = a[i - 1] * b[i];
-    c[i] = a[i] + e[i];
-}}
-=======
-// A false dependency is blocking vectorization. Loop splitting should permit the compiler to vectorize this code.
-for (int i = 0; i < n; i++) {{
-    a[i] = a[i - 1] * b[i];
-}}
-for (int i = 0; i < n; i++) {{
-    c[i] = a[i] + e[i];
-}}
->>>>>>> REPLACE
-
-EXAMPLE 3 - Loop rerolling:
-<<<<<<< SEARCH
-for (int i = 0; i < LEN_1D - 5; i += 5) {{
-    a[i] = a[i + 1] * a[i];
-    a[i + 1] = a[i + 2] * a[i + 1];
-    a[i + 2] = a[i + 3] * a[i + 2];
-    a[i + 3] = a[i + 4] * a[i + 3];
-    a[i + 4] = a[i + 5] * a[i + 4];
-}}
-=======
-// Loop rerolling makes this for loop more easily vectorizable
-for (int i = 0; i < LEN_1D - 1; i++) {{
-    a[i] = a[i + 1] * a[i];
-}}
->>>>>>> REPLACE
-
-{clang_examples}    
+{prompt_examples}
 YOUR OUTPUT:
-    """
+"""
