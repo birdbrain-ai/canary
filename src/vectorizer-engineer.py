@@ -669,7 +669,7 @@ def engineer(state: VectorizationState):
     perf_info = current_function_draft.reviewer_feedback
     opt_remarks = state["optimization_remarks"]
     compiler_feedback = state["compiler_feedback"]
-    # TODO: change this to something meaningful
+    use_compiler_feedback = state["use_compiler_feedback"]
     current_function_info = current_function_draft.modified_function_text
 
     # Determine what's currently in the file by finding the last written draft
@@ -688,6 +688,11 @@ def engineer(state: VectorizationState):
         return {
             "current_iteration": current_iteration + 1
         }
+
+    if not use_compiler_feedback:
+        compiler_feedback = ""
+        opt_remarks = ""
+
     
     for attempt in range(MAX_LINT_RETRIES):
         if attempt > 0:

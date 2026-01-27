@@ -1,10 +1,10 @@
 #!/bin/bash
 
 ai_pragmas_dir="$HOME/tank/ai-pragmas-simple"
-clang_no_remarks_dir="$HOME/tank/TSVC_2_clang_no_remarks"
-clang_remarks_dir="$HOME/tank/TSVC_2_clang_remarks"
-intel_no_remarks_dir="$HOME/tank/TSVC_2_intel_no_remarks"
-intel_remarks_dir="$HOME/tank/TSVC_2_intel_remarks"
+clang_no_remarks_dir="$HOME/tank/temp_0.7_TSVC_2_clang_no_remarks"
+clang_remarks_dir="$HOME/tank/temp_0.7_TSVC_2_clang_remarks"
+intel_no_remarks_dir="$HOME/tank/temp_0.7_TSVC_2_intel_no_remarks"
+intel_remarks_dir="$HOME/tank/temp_0.7_TSVC_2_intel_remarks"
 
 vectorize_with_clang_no_remarks() {
 	python3 "$ai_pragmas_dir/src/vectorizer-engineer.py" \
@@ -16,7 +16,7 @@ vectorize_with_clang_no_remarks() {
 }
 
 vectorize_with_clang_remarks() {
-	python3 "$ai_pragmas_dir/src/vectorizer.py" \
+	python3 "$ai_pragmas_dir/src/vectorizer-engineer.py" \
 			--iterations 1 \
 			--make-command "make COMPILER=clang" \
 			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
@@ -24,7 +24,7 @@ vectorize_with_clang_remarks() {
 }
 
 vectorize_with_intel_no_remarks() {
-	python3 "$ai_pragmas_dir/src/vectorizer.py" \
+	python3 "$ai_pragmas_dir/src/vectorizer-engineer.py" \
 			--iterations 1 \
 			--make-command "make COMPILER=intel" \
 			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
@@ -34,7 +34,7 @@ vectorize_with_intel_no_remarks() {
 }
 
 vectorize_with_intel_remarks() {
-	python3 "$ai_pragmas_dir/src/vectorizer.py" \
+	python3 "$ai_pragmas_dir/src/vectorizer-engineer.py" \
 			--iterations 1 \
 			--make-command "make COMPILER=intel" \
 			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
@@ -44,11 +44,17 @@ vectorize_with_intel_remarks() {
 
 echo "Starting experiment for CoDAIM!"
 
+NUM_ATTEMPTS=10
 
 for compiler in clang intel; do
 	for remarks in no yes; do
+		# Skip all configurations except compiler=intel, remarks=yes
+		if [[ "$compiler" != "intel" || "$remarks" != "yes" ]]; then
+			continue
+		fi
+
 		echo "VECTORIZING WITH $compiler WITH $remarks REMARKS"
-		
+
 		# Set target directory
 		if [[ "$compiler" == "clang" && "$remarks" == "no" ]]; then
 			target_dir="$clang_no_remarks_dir"
@@ -74,22 +80,28 @@ for compiler in clang intel; do
 
 		vec_subdirs=("${vec_dir}/$(basename "${target_dir}")"_{s,v}*)
 
-		echo "Spawning vectorizers"
+		echo "Spawning vectorizers ($NUM_ATTEMPTS attempts per function)"
 
 		for dir in "${vec_subdirs[@]}"; do
-			if [[ "$compiler" == "clang" && "$remarks" == "no" ]]; then
-				vectorize_with_clang_no_remarks "$dir" &
-			elif [[ "$compiler" == "clang" && "$remarks" == "yes" ]]; then
-				vectorize_with_clang_remarks "$dir" &
-			elif [[ "$compiler" == "intel" && "$remarks" == "no" ]]; then
-				vectorize_with_intel_no_remarks "$dir" &
-			elif [[ "$compiler" == "intel" && "$remarks" == "yes" ]]; then
-				vectorize_with_intel_remarks "$dir" &
-			fi
+			for attempt in $(seq -w 1 $NUM_ATTEMPTS); do
+				attempt_dir="${dir}_attempt_${attempt}"
+				cp -r "$dir" "$attempt_dir"
+
+				log_file="$attempt_dir/output.log"
+				if [[ "$compiler" == "clang" && "$remarks" == "no" ]]; then
+					vectorize_with_clang_no_remarks "$attempt_dir" > "$log_file" 2>&1 &
+				elif [[ "$compiler" == "clang" && "$remarks" == "yes" ]]; then
+					vectorize_with_clang_remarks "$attempt_dir" > "$log_file" 2>&1 &
+				elif [[ "$compiler" == "intel" && "$remarks" == "no" ]]; then
+					vectorize_with_intel_no_remarks "$attempt_dir" > "$log_file" 2>&1 &
+				elif [[ "$compiler" == "intel" && "$remarks" == "yes" ]]; then
+					vectorize_with_intel_remarks "$attempt_dir" > "$log_file" 2>&1 &
+				fi
+			done
 		done
 
 		wait
-		
+
 		popd
 	done
 done
