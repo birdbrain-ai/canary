@@ -48,11 +48,6 @@ NUM_ATTEMPTS=10
 
 for compiler in clang intel; do
 	for remarks in no yes; do
-		# Skip all configurations except compiler=intel, remarks=yes
-		if [[ "$compiler" != "intel" || "$remarks" != "yes" ]]; then
-			continue
-		fi
-
 		echo "VECTORIZING WITH $compiler WITH $remarks REMARKS"
 
 		# Set target directory

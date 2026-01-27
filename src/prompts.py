@@ -198,6 +198,7 @@ for (int i = 0; i < n; i++) {{
     a[i] = b[i] + c[i];
 }}
 =======
+// Inserting this pragma will override Clang's cost model, which will unlock vectorization
 #pragma clang loop vectorize(enable)
 for (int i = 0; i < n; i++) {{
     a[i] = b[i] + c[i];
@@ -211,6 +212,7 @@ for (int i = 0; i < LEN_1D-1; i++) {{
     b[i] = a[i] * a[i+1] * d[i];
 }}
 =======
+// Unrolling the loop might enable SLP vectorization
 #pragma clang loop unroll(enable)
 for (int i = 0; i < LEN_1D-1; i++) {{
     a[i] = b[i] * c[i  ] * d[i];
@@ -243,7 +245,8 @@ You MUST fix these syntax errors in your new attempt. Output a corrected search-
 
     return f"""Modify this function to enable autovectorization and performance.
 
-FUNCTION:
+FUNCTION (starts on line {current_function_info["start_line"]}):
+
 {current_function_info["full_text"]}
 
 CONTEXT:
@@ -261,16 +264,17 @@ OPTIMIZATION REMARKS:
 
 PERF DATA:
 {perf_data}    
-    
+
 CRITICAL INSTRUCTIONS:
 - Output EXACTLY ONE search-replace block. Do NOT output multiple blocks.
 - Your SEARCH block must match code that actually exists in the FUNCTION section above.
-- If the same code appears multiple times in the function, include enough surrounding lines in your SEARCH to make it unique - otherwise the replacement will FAIL
-- Follow the reviewer feedback - implement the suggested changes
-- Preserve the semantic behavior of the function - only make changes that improve vectorization without altering what the function computes
+- If the same code appears multiple times in the function, include enough surrounding lines in your SEARCH to make it unique - otherwise the replacement will FAIL.
+- Follow the reviewer feedback - implement the suggested changes.
+- Preserve the semantic behavior of the function - only make changes that improve vectorization without altering what the function computes.
+- Add comments explaining your thinking process - make clear why you think your change would make a loop easier to autovectorize. 
 - DO NOT TOUCH THE OUTERMOST LOOP. I CANNOT OVERSTATE HOW TERRIBLE IT WOULD BE IF YOU TOUCHED THE OUTERMOST LOOP. THAT MEANS THE FOLLOWING. DO NOT CHANGE THE NUMBER OF ITERATIONS THAT THE OUTER LOOP RUNS FOR. DO NOT CHANGE THE DUMMY CALL. DO NOT CHANGE THE NUMBER OF TIMES THAT THE DUMMY FUNCTION IS CALLED.
-- PRAGMA PLACEMENT: ALL pragmas MUST be placed ABOVE the loop header, NEVER below it
-- DO NOT use memcpy() - it requires string.h which cannot be included in this context
+- PRAGMA PLACEMENT: ALL pragmas MUST be placed ABOVE the loop header, NEVER below it.
+- DO NOT use memcpy() - it requires string.h which cannot be included in this context.
 {extra_info}
     
 FORMAT:
@@ -288,6 +292,7 @@ for (int i = 1; i < n; i++) {{
     a[i] = a[i-1] + b[i];
 }}
 =======
+// The ith iteration depends on the i-1th iteration. Storing the previous result in a temporary variable breaks the dependnecy.
 float temp = a[0];
 for (int i = 1; i < n; i++) {{
     temp = temp + b[i];
@@ -302,6 +307,7 @@ for (int i = 0; i < n; i++) {{
     c[i] = a[i] + e[i];
 }}
 =======
+// A false dependency is blocking vectorization. Loop splitting should permit the compiler to vectorize this code.
 for (int i = 0; i < n; i++) {{
     a[i] = a[i - 1] * b[i];
 }}
@@ -320,6 +326,7 @@ for (int i = 0; i < LEN_1D - 5; i += 5) {{
     a[i + 4] = a[i + 5] * a[i + 4];
 }}
 =======
+// Loop rerolling makes this for loop more easily vectorizable
 for (int i = 0; i < LEN_1D - 1; i++) {{
     a[i] = a[i + 1] * a[i];
 }}
