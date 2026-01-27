@@ -1,10 +1,10 @@
 #!/bin/bash
 
 ai_pragmas_dir="$HOME/tank/ai-pragmas-simple"
-clang_no_remarks_dir="$HOME/tank/temp_0.7_TSVC_2_clang_no_remarks"
-clang_remarks_dir="$HOME/tank/temp_0.7_TSVC_2_clang_remarks"
-intel_no_remarks_dir="$HOME/tank/temp_0.7_TSVC_2_intel_no_remarks"
-intel_remarks_dir="$HOME/tank/temp_0.7_TSVC_2_intel_remarks"
+clang_no_remarks_dir="$HOME/tank/temp_0.2_TSVC_2_clang_no_remarks"
+clang_remarks_dir="$HOME/tank/temp_0.2_TSVC_2_clang_remarks"
+intel_no_remarks_dir="$HOME/tank/temp_0.2_TSVC_2_intel_no_remarks"
+intel_remarks_dir="$HOME/tank/temp_0.2_TSVC_2_intel_remarks"
 
 vectorize_with_clang_no_remarks() {
 	python3 "$ai_pragmas_dir/src/vectorizer-engineer.py" \
