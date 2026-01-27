@@ -9,7 +9,11 @@ import tempfile
 import sys
 from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
 from typing import List
-from my_types import llm, FunctionInfo, FunctionDraft, VectorizationState, SearchReplaceAction
+# Note that we are defining llm as a global in this file
+from my_types import FunctionInfo, FunctionDraft, VectorizationState, SearchReplaceAction
+from langchain_openai import ChatOpenAI
+
+llm = None  # Initialized in main with configured temperature
 from logger import LLMLogger
 from prompts import get_reviewer_prompt, get_manager_prompt, get_engineer_prompt
 import re
@@ -1126,7 +1130,23 @@ Examples:
              "the LLM workflow. (default: Clang not ICX)"
     )
 
+    parser.add_argument(
+        "--temperature", "-t",
+        type=float,
+        default=1.0,
+        help="Temperature for the LLM (default: 1.0)"
+    )
+
     args = parser.parse_args()
+
+    # Initialize llm with the configured temperature
+    global llm
+    llm = ChatOpenAI(
+        model="Qwen/Qwen2.5-Coder-7B-Instruct",
+        api_key="",
+        base_url="http://localhost:8000/v1",
+        temperature=args.temperature
+    )
 
     # Determine mode based on path type
     if os.path.isdir(args.path):
