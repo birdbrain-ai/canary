@@ -309,6 +309,7 @@ def extract_functions(file_content: str) -> List[FunctionInfo]:
         else:
             i += 1
 
+    functions = [function for function in functions if (function["name"] != "time_function" and function["name"] != "main")]
     return functions
 
 
