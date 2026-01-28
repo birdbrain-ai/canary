@@ -193,30 +193,30 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
     if use_clang_not_intel:
         prompt_examples="""EXAMPLE 1 - clang loop vectorize pragma GO RIGHT ABOVE THE LOOP
 <<<<<<< SEARCH
-for (int i = 0; i < n; i++) {{
+for (int i = 0; i < n; i++) {
     a[i] = b[i] + c[i];
-}}
+}
 =======
 // Inserting this pragma will override Clang's cost model, which will unlock vectorization
 #pragma clang loop vectorize(enable)
-for (int i = 0; i < n; i++) {{
+for (int i = 0; i < n; i++) {
     a[i] = b[i] + c[i];
-}}
+}
 >>>>>>> REPLACE
 
 EXAMPLE 2 - clang loop unroll pragma GO RIGHT ABOVE THE LOOP
 <<<<<<< SEARCH
-for (int i = 0; i < LEN_1D-1; i++) {{
+for (int i = 0; i < LEN_1D-1; i++) {
     a[i] = b[i] * c[i  ] * d[i];
     b[i] = a[i] * a[i+1] * d[i];
-}}
+}
 =======
 // Unrolling the loop might enable SLP vectorization
 #pragma clang loop unroll(enable)
-for (int i = 0; i < LEN_1D-1; i++) {{
+for (int i = 0; i < LEN_1D-1; i++) {
     a[i] = b[i] * c[i  ] * d[i];
     b[i] = a[i] * a[i+1] * d[i];
-}}
+}
 >>>>>>> REPLACE
 """
         extra_info="""
@@ -237,44 +237,44 @@ Key Directives:
     else:
         prompt_examples="""EXAMPLE 1 - intel vector pragmas GO RIGHT ABOVE THE LOOP
 <<<<<<< SEARCH
-for (int i = 0; i < n; i++) {{
+for (int i = 0; i < n; i++) {
     a[i] = b[i] + c[i];
-}}
+}
 =======
 // Inserting this pragma will override Intel's cost model
 
 #pragma vector always
-for (int i = 0; i < n; i++) {{
+for (int i = 0; i < n; i++) {
     a[i] = b[i] + c[i];
-}}
+}
 >>>>>>> REPLACE
 
 EXAMPLE 2 - intel unroll pragmas GO RIGHT ABOVE THE LOOP
 <<<<<<< SEARCH
-for (int i = 0; i < LEN_1D-1; i++) {{
+for (int i = 0; i < LEN_1D-1; i++) {
     a[i] = b[i] * c[i  ] * d[i];
     b[i] = a[i] * a[i+1] * d[i];
-}}
+}
 =======
 // Unrolling the loop helps the compiler recognize SIMD patterns in complex blocks
 #pragma unroll
-for (int i = 0; i < LEN_1D-1; i++) {{
+for (int i = 0; i < LEN_1D-1; i++) {
     a[i] = b[i] * c[i  ] * d[i];
     b[i] = a[i] * a[i+1] * d[i];
-}}
+}
 >>>>>>> REPLACE
 
 EXAMPLE 3 - intel 
 <<<<<<< SEARCH
-for (int i = 0; i < n; i++) {{
+for (int i = 0; i < n; i++) {
     c[i] = b[i] * a[i];
-}}
+}
 =======
 // Inserting this pragma will ignore assumed vector dependencies
 #pragma ivdep
-for (int i = 0; i < n; i++) {{
+for (int i = 0; i < n; i++) {
     c[i] = b[i] * a[i];
-}}
+}
 >>>>>>> REPLACE
 """
 
