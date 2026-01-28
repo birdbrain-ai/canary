@@ -13,7 +13,7 @@ from typing import List
 from my_types import FunctionInfo, FunctionDraft, VectorizationState, SearchReplaceAction
 from langchain_openai import ChatOpenAI
 
-llm = None  # Initialized in main with configured temperature
+# llm = None  # Initialized in main with configured temperature
 from logger import LLMLogger
 from prompts import get_reviewer_prompt, get_manager_prompt, get_engineer_prompt
 import re

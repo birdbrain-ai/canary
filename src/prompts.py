@@ -220,11 +220,18 @@ for (int i = 0; i < LEN_1D-1; i++) {{
 >>>>>>> REPLACE
 """
         extra_info="""
+ALLOWED TECHNIQUES:
 You must ONLY use Clang-specific pragmas or source code modifications that preserve semantics to enable auto-vectorization. DO NOT use OpenMP or SIMD intrinsics.
 Key Directives:
-- Use `#pragma clang loop vectorize(enable)` to force vectorization.
-- Use `#pragma clang loop interleave(enable)` to assist the interleaver.
-- Use `#pragma clang loop unroll(enable)` for loop expansion.
+- Use `#pragma clang loop vectorize(enable)` to override Clang's cost model.
+- Use `#pragma clang loop vectorize_width(__count__)` where __count__ is a positive integer to give Clang a hint that executing __count__ iterations in parallel might be optimal. Example: `#pragma clang loop vectorize_width(4)`.
+- Use `#pragma clang loop vectorize(assume_safety)` to override Clang's legality checks. DO NOT USE THIS PRAGMA UNLESS YOU ARE CERTAIN THAT LOOP ITERATIONS ARE INDEPENDENT.
+- Use `#pragma clang loop interleave(enable)` to give Clang a hint that interleaving loop iterations might improve performance.
+- Use `#pragma clang loop interleave_width(__count__)` where __count__ is a positive integer to give Clang a hint that interleaving __count__ iterations of the loop might improve performance (for instance, it might take advantage of advanced hardware features). Example: `#pragma clang loop interleave_width(4)`.
+- Use `#pragma clang loop unroll(enable)` for partial loop expansion and `#pragma clang loop unroll(full)` to hint that Clang should fully unroll the loop.
+- Use `#pragma clang loop unroll_count(__count__)` where __count__ is a positive integer to give Clang a hint that unrolling the loop __count__ times might improve performance (for instance, it might enable SLP vectorization).
+- Use `#pragma clang loop distribute(enable)` to give Clang a hint that loop splitting would be beneficial.
+- Note: Multiple loop hints can be specified on one line, like: `#pragma clang loop vectorize_width(4) interleave_count(8)` 
 - Use `__restrict`, and source code modifications that preserve semantics like introducing temporaries for source-level fixes.
 """
     else:
@@ -234,8 +241,8 @@ for (int i = 0; i < n; i++) {{
     a[i] = b[i] + c[i];
 }}
 =======
-// Inserting this pragma will ignore assumed dependencies and override Intel's cost model
-#pragma ivdep
+// Inserting this pragma will override Intel's cost model
+
 #pragma vector always
 for (int i = 0; i < n; i++) {{
     a[i] = b[i] + c[i];
@@ -257,14 +264,27 @@ for (int i = 0; i < LEN_1D-1; i++) {{
 }}
 >>>>>>> REPLACE
 
+EXAMPLE 3 - intel 
+<<<<<<< SEARCH
+for (int i = 0; i < n; i++) {{
+    c[i] = b[i] * a[i];
+}}
+=======
+// Inserting this pragma will ignore assumed vector dependencies
+#pragma ivdep
+for (int i = 0; i < n; i++) {{
+    c[i] = b[i] * a[i];
+}}
+>>>>>>> REPLACE
 """
 
         extra_info="""
+ALLOWED TECHNIQUES:
 You must ONLY use Intel-specific pragmas or source code modifications that preserve semantics to enable auto-vectorization. DO NOT use OpenMP or SIMD intrinsics.
 Key Directives:
-- Use `#pragma ivdep` to ignore potential vector dependencies.
 - Use `#pragma vector always` to override the compiler's internal cost model.
 - Use `#pragma unroll` to expose instruction-level parallelism.
+- Use `#pragma ivdep` to ignore potential vector dependencies. DO NOT USE THIS PRAGMA UNLESS YOU ARE CERTAIN THAT LOOP ITERATIONS ARE INDEPENDENT.
 - Use `__restrict`, `__attribute__((aligned(64)))` for pointer/data optimization, and source code modifications that preserve semantics like introducing temporaries for source-level fixes."""
         
     # Credit for example: https://johnnysswlab.com/loop-optimizations-interpreting-the-compiler-optimization-report/
@@ -296,8 +316,8 @@ FUNCTION (starts on line {current_function_info["start_line"]}):
 
 CONTEXT:
 {program_slice}
-{lint_section}
-COMPILED WITH: {make_command}
+
+{lint_section}COMPILED WITH: {make_command}
 
 COMPILER FEEDBACK:
 {compiler_feedback}
@@ -309,9 +329,8 @@ CRITICAL INSTRUCTIONS:
 - Output EXACTLY ONE search-replace block. Do NOT output multiple blocks.
 - Your SEARCH block must match code that actually exists in the FUNCTION section above.
 - If the same code appears multiple times in the function, include enough surrounding lines in your SEARCH to make it unique - otherwise the replacement will FAIL.
-- Follow the reviewer feedback - implement the suggested changes.
 - Preserve the semantic behavior of the function - only make changes that improve vectorization without altering what the function computes.
-- Add comments explaining your thinking process - make clear why you think your change would make a loop easier to autovectorize. 
+- Add a brief comment explaining why the change enables vectorization.
 - DO NOT TOUCH THE OUTERMOST LOOP. I CANNOT OVERSTATE HOW TERRIBLE IT WOULD BE IF YOU TOUCHED THE OUTERMOST LOOP. THAT MEANS THE FOLLOWING. DO NOT CHANGE THE NUMBER OF ITERATIONS THAT THE OUTER LOOP RUNS FOR. DO NOT CHANGE THE DUMMY CALL. DO NOT CHANGE THE NUMBER OF TIMES THAT THE DUMMY FUNCTION IS CALLED.
 - PRAGMA PLACEMENT: ALL pragmas MUST be placed ABOVE the loop header, NEVER below it.
 - DO NOT use memcpy() - it requires string.h which cannot be included in this context.
@@ -327,5 +346,6 @@ replacement code
 CORRECT EXAMPLES:
 
 {prompt_examples}
+
 YOUR OUTPUT:
 """
