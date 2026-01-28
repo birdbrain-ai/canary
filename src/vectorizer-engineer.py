@@ -168,7 +168,7 @@ def compile_code(state: VectorizationState):
     for remark_file in relevant_remark_files:
         relevant_remarks.append(filter_remarks_by_function(remark_file,
                                                            cur_function_name,
-                                                           True,
+                                                           False,
                                                            use_clang_not_intel))
         only_vec_remarks.append(filter_remarks_by_function(remark_file,
                                                            cur_function_name,
