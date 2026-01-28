@@ -86,6 +86,9 @@ def main():
     pattern = "temp_0.2_TSVC_2_*_vec/*_logs/file_tsvc.c/func_[sv]*/iteration_1/09_finalize/state_after.json"
     json_files = sorted(tank_dir.glob(pattern))
 
+    # print("DEBUG INFO:")
+    # print(json_files)
+
     if not json_files:
         print("No state_after.json files found matching the pattern.", file=sys.stderr)
         sys.exit(1)

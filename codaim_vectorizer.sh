@@ -6,6 +6,7 @@ clang_remarks_dir="$HOME/tank/TSVC_2_clang_remarks"
 intel_no_remarks_dir="$HOME/tank/TSVC_2_intel_no_remarks"
 intel_remarks_dir="$HOME/tank/TSVC_2_intel_remarks"
 temperature="1.0"
+num_attempts=10
 
 # Help message
 usage() {
@@ -22,6 +23,7 @@ Options:
 	-in, --intel-no PATH 	Path to intel_no_remarks_dir. Default: $HOME/tank/TSVC_2_intel_no_remarks
 	-ir, --intel-rem PATH 	Path to intel_remarks_dir. Default: $HOME/tank/TSVC_2_intel_remarks
 	-t, --temperature int   The temperature to set the model to. Default: 1.0.
+	-n, --num-attempts int  Number of attempts per function. Default: 10.
 	-h, --help		  Display this help message.
 EOF
 	exit 0
@@ -54,6 +56,10 @@ while [[ $# -gt 0 ]]; do
 			temperature=$2
 			shift 2
 			;;
+		-n|--num-attempts)
+			num_attempts=$2
+			shift 2
+			;;
 		-h|--help)
 			usage
 			;;
@@ -66,7 +72,7 @@ vectorize_with_clang_no_remarks() {
 			--make-command "make COMPILER=clang" \
 			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
 			--disable-compiler-feedback \
-			--temperature "$temperature"
+			--temperature "$temperature" \
 			"$1"
 }
 
@@ -75,7 +81,7 @@ vectorize_with_clang_remarks() {
 			--iterations 1 \
 			--make-command "make COMPILER=clang" \
 			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
-			--temperature "$temperature"
+			--temperature "$temperature" \
 			"$1"
 }
 
@@ -86,7 +92,7 @@ vectorize_with_intel_no_remarks() {
 			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
 			--disable-compiler-feedback \
 			--use-intel \
-			--temperature "$temperature"
+			--temperature "$temperature" \
 			"$1"
 }
 
@@ -96,7 +102,7 @@ vectorize_with_intel_remarks() {
 			--make-command "make COMPILER=intel" \
 			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
 			--use-intel \
-			--temperature "$temperature"
+			--temperature "$temperature" \
 			"$1"
 }
 
@@ -109,6 +115,8 @@ echo "Clang No Remarks:  $clang_no_remarks_dir"
 echo "Clang Remarks:     $clang_remarks_dir"
 echo "Intel No Remarks:  $intel_no_remarks_dir"
 echo "Intel Remarks:     $intel_remarks_dir"
+echo "Temperature:       $temperature"
+echo "Num Attempts:      $num_attempts"
 echo "------------------------------------------------"
 
 
@@ -124,7 +132,7 @@ echo "Proceeding..."
 
 echo "Starting experiment for CoDAIM!"
 
-NUM_ATTEMPTS=10
+NUM_ATTEMPTS=$num_attempts
 
 for compiler in clang intel; do
 	for remarks in no yes; do
