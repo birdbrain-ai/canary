@@ -191,7 +191,8 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
     extra_info=""
     
     if use_clang_not_intel:
-        prompt_examples="""EXAMPLE 1 - clang loop vectorize pragma GO RIGHT ABOVE THE LOOP
+        prompt_examples="""
+EXAMPLE 1
 <<<<<<< SEARCH
 for (int i = 0; i < n; i++) {
     a[i] = b[i] + c[i];
@@ -204,7 +205,7 @@ for (int i = 0; i < n; i++) {
 }
 >>>>>>> REPLACE
 
-EXAMPLE 2 - clang loop unroll pragma GO RIGHT ABOVE THE LOOP
+EXAMPLE 2
 <<<<<<< SEARCH
 for (int i = 0; i < LEN_1D-1; i++) {
     a[i] = b[i] * c[i  ] * d[i];
@@ -235,21 +236,8 @@ Key Directives:
 - Use `__restrict`, and source code modifications that preserve semantics like introducing temporaries for source-level fixes.
 """
     else:
-        prompt_examples="""EXAMPLE 1 - intel vector pragmas GO RIGHT ABOVE THE LOOP
-<<<<<<< SEARCH
-for (int i = 0; i < n; i++) {
-    a[i] = b[i] + c[i];
-}
-=======
-// Inserting this pragma will override Intel's cost model
-
-#pragma vector always
-for (int i = 0; i < n; i++) {
-    a[i] = b[i] + c[i];
-}
->>>>>>> REPLACE
-
-EXAMPLE 2 - intel unroll pragmas GO RIGHT ABOVE THE LOOP
+        prompt_examples="""
+EXAMPLE 1
 <<<<<<< SEARCH
 for (int i = 0; i < LEN_1D-1; i++) {
     a[i] = b[i] * c[i  ] * d[i];
@@ -264,7 +252,7 @@ for (int i = 0; i < LEN_1D-1; i++) {
 }
 >>>>>>> REPLACE
 
-EXAMPLE 3 - intel 
+EXAMPLE 2
 <<<<<<< SEARCH
 for (int i = 0; i < n; i++) {
     c[i] = b[i] * a[i];
