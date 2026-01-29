@@ -3,6 +3,7 @@
 Parse vectorization state_after.json files and output results as CSV.
 """
 
+import argparse
 import json
 import csv
 import sys
@@ -78,12 +79,16 @@ def parse_state_file(json_path: Path) -> dict | None:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Parse vectorization state_after.json files and output results as CSV.")
+    parser.add_argument("vec_dir", help="Top-level *_vec directory pattern (e.g., 'temp_0.8_TSVC_2_*0128_afternoon_vec')")
+    args = parser.parse_args()
+
     home = Path.home()
     tank_dir = home / "tank"
 
     # Find all state_after.json files matching the pattern
-    # ~/tank/*_vec/*_logs/file_tsvc.c/func_[sv]*/iteration_1/09_finalize/state_after.json
-    pattern = "temp_0.2_TSVC_2_*_vec/*_logs/file_tsvc.c/func_[sv]*/iteration_1/09_finalize/state_after.json"
+    pattern = f"{args.vec_dir}/*_logs/file_tsvc.c/func_[sv]*/iteration_1/09_finalize/state_after.json"
+    print(pattern)
     json_files = sorted(tank_dir.glob(pattern))
 
     # print("DEBUG INFO:")
