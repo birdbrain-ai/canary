@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 Parse vectorization state_after.json files and output results as CSV.
+
+Uses deterministic path generation instead of filesystem walking for speed on NFS.
 """
 import argparse
 import json
 import csv
 import sys
 import time
-import subprocess
-import os
 import re
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor
@@ -23,7 +23,7 @@ def parse_state_file(json_path_str: str) -> dict | None:
         with open(json_path, 'r') as f:
             data = json.load(f)
     except (json.JSONDecodeError, FileNotFoundError) as e:
-        print(f"Warning: Could not parse {json_path}: {e}", file=sys.stderr)
+        # File doesn't exist or is invalid - this is expected for some paths
         return None
 
     function_drafts = data.get("function_drafts", {})
@@ -56,44 +56,76 @@ def parse_state_file(json_path_str: str) -> dict | None:
 
     return result
 
+
+def generate_paths_from_vec_dir(vec_dir: Path) -> list[str]:
+    """
+    Generate all possible state_after.json paths for a vec directory.
+
+    Instead of walking the filesystem, we:
+    1. List the top-level of vec_dir to get logs directories
+    2. List file_tsvc.c/ to get all func_* directories (includes helpers)
+    3. Generate the full paths deterministically
+    """
+    paths = []
+
+    try:
+        # List logs directories at top level
+        for entry in vec_dir.iterdir():
+            if not entry.name.endswith("_logs"):
+                continue
+
+            # List func_* directories inside file_tsvc.c/
+            file_tsvc_dir = entry / "file_tsvc.c"
+            try:
+                for func_entry in file_tsvc_dir.iterdir():
+                    if not func_entry.name.startswith("func_"):
+                        continue
+                    # Only include functions starting with s or v
+                    func_name = func_entry.name[5:]  # Remove "func_" prefix
+                    if not func_name or func_name[0] not in ('s', 'v'):
+                        continue
+
+                    # Generate the deterministic path to state_after.json
+                    state_path = func_entry / "iteration_1" / "09_finalize" / "state_after.json"
+                    paths.append(str(state_path))
+            except OSError:
+                # file_tsvc.c doesn't exist for this logs dir
+                continue
+
+    except OSError as e:
+        print(f"Warning: Could not list {vec_dir}: {e}", file=sys.stderr)
+
+    return paths
+
+
 def main():
     parser = argparse.ArgumentParser(description="Parse vectorization state_after.json files and output results as CSV.")
-    parser.add_argument("vec_dir", help="Top-level *_vec directory pattern (e.g., 'temp_0.8_TSVC_2_*0128_afternoon_vec')")
+    parser.add_argument("vec_dir", help="Top-level *_vec directory pattern (e.g., 'TSVC_2_*_vec')")
     args = parser.parse_args()
 
     tank_dir = Path.home() / "tank"
-    fd_bin = os.path.expanduser("~/.cargo/bin/fd")
 
-    # --- STEP 1: DISCOVERY (via FD) ---
+    # --- STEP 1: EXPAND GLOB TO FIND VEC DIRECTORIES ---
     t0 = time.perf_counter()
-    print(f"[*] Starting discovery in {tank_dir}...", file=sys.stderr)
+    print(f"[*] Finding vec directories matching '{args.vec_dir}'...", file=sys.stderr)
 
-    # Use fd for fast file discovery with high thread count for NFS latency
-    fd_cmd = [
-        fd_bin,
-        "-j", "512",
-        "-p", "-g", "**/iteration_1/09_finalize/state_after.json",
-        str(tank_dir),
-        "-g", f"**/{args.vec_dir}/**"
-    ]
+    vec_dirs = sorted(tank_dir.glob(args.vec_dir))
+    t1 = time.perf_counter()
+    print(f"[TIMING] glob for vec dirs: {t1 - t0:.3f}s (found {len(vec_dirs)} directories)", file=sys.stderr)
 
-    try:
-        proc = subprocess.run(fd_cmd, capture_output=True, text=True, check=True)
-        json_files_raw = proc.stdout.splitlines()
-    except subprocess.CalledProcessError as e:
-        print(f"Error running fd: {e.stderr}", file=sys.stderr)
+    if not vec_dirs:
+        print(f"No directories found matching pattern: {args.vec_dir}", file=sys.stderr)
         sys.exit(1)
 
-    t1 = time.perf_counter()
-    print(f"[TIMING] fd discovery: {t1 - t0:.3f}s", file=sys.stderr)
+    # --- STEP 2: GENERATE PATHS DETERMINISTICALLY ---
+    print(f"[*] Generating paths from {len(vec_dirs)} vec directories...", file=sys.stderr)
 
-    # Filter to match original glob pattern: *_logs/file_tsvc.c/func_[sv]*/iteration_1/09_finalize/state_after.json
-    # This ensures we only process files under file_tsvc.c with func_s* or func_v* directories
-    path_filter = re.compile(r'_logs/file_tsvc\.c/func_[sv][^/]*/iteration_1/09_finalize/state_after\.json$')
-    json_files_unsorted = [f for f in json_files_raw if path_filter.search(f)]
+    json_files_unsorted = []
+    for vec_dir in vec_dirs:
+        json_files_unsorted.extend(generate_paths_from_vec_dir(vec_dir))
 
     t2 = time.perf_counter()
-    print(f"[TIMING] filtering {len(json_files_raw)} -> {len(json_files_unsorted)} files: {t2 - t1:.3f}s", file=sys.stderr)
+    print(f"[TIMING] path generation: {t2 - t1:.3f}s (generated {len(json_files_unsorted)} paths)", file=sys.stderr)
 
     # Sort for consistent output ordering
     json_files = sorted(json_files_unsorted)
