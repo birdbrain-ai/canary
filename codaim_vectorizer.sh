@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Use a tmp directory on /tank to avoid filling up /tmp
+export TMPDIR="$HOME/tank/tmp"
+mkdir -p "$TMPDIR"
+
 ai_pragmas_dir="$HOME/tank/ai-pragmas"
 clang_no_remarks_dir="$HOME/tank/TSVC_2_clang_no_remarks"
 clang_remarks_dir="$HOME/tank/TSVC_2_clang_remarks"
