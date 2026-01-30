@@ -107,28 +107,28 @@ vectorize_with_intel_remarks() {
 }
 
 
-# --- Review Choices ---
-echo "------------------------------------------------"
-echo "CONFIGURATION SUMMARY:"
-echo "AI Pragmas Dir:    $ai_pragmas_dir"
-echo "Clang No Remarks:  $clang_no_remarks_dir"
-echo "Clang Remarks:     $clang_remarks_dir"
-echo "Intel No Remarks:  $intel_no_remarks_dir"
-echo "Intel Remarks:     $intel_remarks_dir"
-echo "Temperature:       $temperature"
-echo "Num Attempts:      $num_attempts"
-echo "------------------------------------------------"
+# # --- Review Choices ---
+# echo "------------------------------------------------"
+# echo "CONFIGURATION SUMMARY:"
+# echo "AI Pragmas Dir:    $ai_pragmas_dir"
+# echo "Clang No Remarks:  $clang_no_remarks_dir"
+# echo "Clang Remarks:     $clang_remarks_dir"
+# echo "Intel No Remarks:  $intel_no_remarks_dir"
+# echo "Intel Remarks:     $intel_remarks_dir"
+# echo "Temperature:       $temperature"
+# echo "Num Attempts:      $num_attempts"
+# echo "------------------------------------------------"
 
 
-# Prompt for confirmation
-read -p "Do you want to proceed with these settings? (y/n): " confirm
+# # Prompt for confirmation
+# read -p "Do you want to proceed with these settings? (y/n): " confirm
 
-if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-    echo "Operation cancelled by user."
-    exit 0
-fi
+# if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+#     echo "Operation cancelled by user."
+#     exit 0
+# fi
 
-echo "Proceeding..."
+# echo "Proceeding..."
 
 echo "Starting experiment for CoDAIM!"
 
