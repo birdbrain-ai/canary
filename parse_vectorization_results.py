@@ -7,6 +7,7 @@ import argparse
 import json
 import csv
 import sys
+import time
 from pathlib import Path
 
 
@@ -88,8 +89,17 @@ def main():
 
     # Find all state_after.json files matching the pattern
     pattern = f"{args.vec_dir}/*_logs/file_tsvc.c/func_[sv]*/iteration_1/09_finalize/state_after.json"
-    print(pattern)
-    json_files = sorted(tank_dir.glob(pattern))
+    # print(pattern)
+
+    t0 = time.perf_counter()
+    json_files_unsorted = list(tank_dir.glob(pattern))
+    t1 = time.perf_counter()
+    print(f"[TIMING] glob: {t1 - t0:.3f}s", file=sys.stderr)
+
+    t2 = time.perf_counter()
+    json_files = sorted(json_files_unsorted)
+    t3 = time.perf_counter()
+    print(f"[TIMING] sorting {len(json_files)} files: {t3 - t2:.3f}s", file=sys.stderr)
 
     # print("DEBUG INFO:")
     # print(json_files)
@@ -100,11 +110,14 @@ def main():
 
     print(f"Found {len(json_files)} state files to parse.", file=sys.stderr)
 
+    t4 = time.perf_counter()
     results = []
     for json_path in json_files:
         result = parse_state_file(json_path)
         if result:
             results.append(result)
+    t5 = time.perf_counter()
+    print(f"[TIMING] parsing {len(json_files)} JSON files: {t5 - t4:.3f}s", file=sys.stderr)
 
     if not results:
         print("No valid results to output.", file=sys.stderr)
@@ -126,10 +139,14 @@ def main():
         "draft_1_runtime_s",
     ]
 
+    t6 = time.perf_counter()
     writer = csv.DictWriter(sys.stdout, fieldnames=fieldnames)
     writer.writeheader()
     writer.writerows(results)
+    t7 = time.perf_counter()
+    print(f"[TIMING] CSV writing: {t7 - t6:.3f}s", file=sys.stderr)
 
+    print(f"[TIMING] total: {t7 - t0:.3f}s", file=sys.stderr)
     print(f"Wrote {len(results)} rows.", file=sys.stderr)
 
 
