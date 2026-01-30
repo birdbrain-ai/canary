@@ -33,6 +33,19 @@ void hard_to_vectorize(int A[ROWS][COLS], int c) {
   }
 }
 
+// Triggers SLP vectorization on the latest version of clang
+int ih(int* __restrict a, int* __restrict b) {
+    int a_i = a[0] - 35;
+    int a_i2 = a[1] + 35;
+    int b_i = b[0] - 35;
+    int b_i2 = b[1] + 35;
+    int c_i = b[2] + 35;
+    int ci2 = b[3] - 35;
+    int d_i = a[2] + 35;
+    int d_i2 = a[3] - 35;
+    return a_i + a_i2 + b_i + b_i2 + c_i + ci2 + d_i + d_i2;
+}
+
 int main() {
   int repeats = 500;
   

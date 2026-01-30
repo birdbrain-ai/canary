@@ -169,8 +169,9 @@ YOUR OUTPUT:
 
 def get_engineer_prompt(numbered_function_body, current_function_info,
                         program_slice, make_command, reviewer_feedback,
-                        previous_search_replace=None, lint_errors=None,
-                        use_clang_not_intel=True):
+                        compiler_feedback=None, optimization_remarks=None,
+                        perf_data=None, previous_search_replace=None,
+                        lint_errors=None, use_clang_not_intel=True):
     """
     Generate the engineer prompt for modifying functions to improve vectorization.
 
@@ -187,37 +188,59 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
         Formatted prompt string
     """
 
-    clang_examples=""
     extra_info=""
     
     if use_clang_not_intel:
-        clang_examples="""EXAMPLE 4 - Add pragma:
+        prompt_examples="""
 <<<<<<< SEARCH
-for (int i = 0; i < n; i++) {{
+for (int i = 0; i < n; i++) {
     a[i] = b[i] + c[i];
-}}
+}
 =======
-#pragma clang loop vectorize(enable)
-for (int i = 0; i < n; i++) {{
+// Brief comment explaining why this change enables vectorization
+#pragma clang loop [DIRECTIVES]
+for (int i = 0; i < n; i++) {
     a[i] = b[i] + c[i];
-}}
+}
 >>>>>>> REPLACE
-
-EXAMPLE 5 - Loop unrolling:
+"""
+        extra_info="""
+You must ONLY use Clang-specific pragmas or source code modifications that preserve semantics to enable auto-vectorization. DO NOT use OpenMP or SIMD intrinsics.
+Key Directives:
+- Use `#pragma clang loop vectorize(enable)` to override the compiler's internal cost model.
+- Use `#pragma clang loop vectorize_width(__count__)` where __count__ is a positive integer to give Clang a hint that executing __count__ iterations in parallel might be optimal. Example: `#pragma clang loop vectorize_width(4)`.
+- Use `#pragma clang loop vectorize(assume_safety)` to ignore potential dependencies. DO NOT USE THIS PRAGMA UNLESS YOU ARE CERTAIN THAT LOOP ITERATIONS ARE INDEPENDENT.
+- Use `#pragma clang loop interleave(enable)` to give Clang a hint that interleaving loop iterations might improve performance.
+- Use `#pragma clang loop interleave_width(__count__)` where __count__ is a positive integer to give Clang a hint that interleaving __count__ iterations of the loop might improve performance (for instance, it might take advantage of advanced hardware features). Example: `#pragma clang loop interleave_width(4)`.
+- Use `#pragma clang loop unroll(enable)` to unroll the loop.
+- Use `#pragma clang loop unroll(full)` to fully unroll the loop if possible.
+- Use `#pragma clang loop unroll_count(__count__)` to unroll the loop __count__ times. 
+- Use `#pragma clang loop distribute(enable)` to give Clang a hint that loop distribution would be beneficial.
+- Use `__restrict`, and source code modifications that preserve semantics like introducing temporaries for source-level fixes.
+"""
+    else:
+        prompt_examples="""
 <<<<<<< SEARCH
-for (int i = 0; i < LEN_1D-1; i++) {{
-    a[i] = b[i] * c[i  ] * d[i];
-    b[i] = a[i] * a[i+1] * d[i];
-}}
+for (int i = 0; i < n; i++) {
+    c[i] = b[i] * a[i];
+}
 =======
-#pragma clang loop unroll(enable)
-for (int i = 0; i < LEN_1D-1; i++) {{
-    a[i] = b[i] * c[i  ] * d[i];
-    b[i] = a[i] * a[i+1] * d[i];
-}}
-        """
-        extra_info="- UNROLL SYNTAX: Use \"#pragma clang loop unroll(enable)\" NOT \"#pragma clang loop unroll(4)\" or any integer value"
-    
+// Brief comment explaining why this change enables vectorization
+#pragma [DIRECTIVES]
+for (int i = 0; i < n; i++) {
+    c[i] = b[i] * a[i];
+}
+>>>>>>> REPLACE
+"""
+
+        extra_info="""
+You must ONLY use Intel-specific pragmas or source code modifications that preserve semantics to enable auto-vectorization. DO NOT use OpenMP or SIMD intrinsics.
+Key Directives:
+- Use `#pragma vector always` to override the compiler's internal cost model.
+- Use `#pragma unroll` to unroll the loop.
+- Use `#pragma ivdep` to ignore potential dependencies. DO NOT USE THIS PRAGMA UNLESS YOU ARE CERTAIN THAT LOOP ITERATIONS ARE INDEPENDENT.
+- Use `__restrict`, `__attribute__((aligned(64)))` for pointer/data optimization, and source code modifications that preserve semantics like introducing temporaries for source-level fixes."""
+        
     # Credit for example: https://johnnysswlab.com/loop-optimizations-interpreting-the-compiler-optimization-report/
     # Build the lint error section if there was a previous failed attempt
     lint_section = ""
@@ -239,85 +262,64 @@ SYNTAX ERRORS:
 You MUST fix these syntax errors in your new attempt. Output a corrected search-replace block.
 
 """
+    return f"""You are a performance engineer responsible for enabling vectorization in a function. You should preserve the semantic behavior of the function while making it faster.
 
-    return f"""Modify this function to enable autovectorization.
-{lint_section}
 
-FUNCTION:
+VECTORIZE THIS FUNCTION (starts on line {current_function_info["start_line"]}):
 {current_function_info["full_text"]}
 
-CONTEXT:
+
+PROGRAM CONTEXT:
 {program_slice}
 
-COMPILED WITH: {make_command}
+{lint_section}
 
-REVIEWER FEEDBACK:
-{reviewer_feedback}
 
-CRITICAL INSTRUCTIONS:
-- Output EXACTLY ONE search-replace block. Do NOT output multiple blocks.
-- Your SEARCH block must match code that actually exists in the FUNCTION section above.
-- If the same code appears multiple times in the function, include enough surrounding lines in your SEARCH to make it unique - otherwise the replacement will FAIL
-- Follow the reviewer feedback - implement the suggested changes
-- Preserve the semantic behavior of the function - only make changes that improve vectorization without altering what the function computes
-- DO NOT TOUCH THE OUTERMOST LOOP. I CANNOT OVERSTATE HOW TERRIBLE IT WOULD BE IF YOU TOUCHED THE OUTERMOST LOOP. THAT MEANS THE FOLLOWING. DO NOT CHANGE THE NUMBER OF ITERATIONS THAT THE OUTER LOOP RUNS FOR. DO NOT CHANGE THE DUMMY CALL. DO NOT CHANGE THE NUMBER OF TIMES THAT THE DUMMY FUNCTION IS CALLED.
-- If no change needed, output: NO_CHANGES
-- PRAGMA PLACEMENT: ALL pragmas MUST be placed ABOVE the loop header, NEVER below it
-- DO NOT use memcpy() - it requires string.h which cannot be included in this context
-{extra_info}
-    
-FORMAT:
+COMPILER FEEDBACK:
+{compiler_feedback}
+
+
+OPTIMIZATION REMARKS:
+{optimization_remarks}
+
+
+FORMATTING RULES:
+- Output EXACTLY ONE search-replace block in this format:
 <<<<<<< SEARCH
 exact code to find
 =======
 replacement code
 >>>>>>> REPLACE
 
-EXAMPLES:
+- Your SEARCH BLOCK must match code that actually exists in the FUNCTION section below.
+- Your SEARCH BLOCK should only occur ONCE in the function. Otherwise the replacement will fail.
 
-EXAMPLE 1 - Fix dependency:
-<<<<<<< SEARCH
-for (int i = 1; i < n; i++) {{
-    a[i] = a[i-1] + b[i];
-}}
-=======
-float temp = a[0];
-for (int i = 1; i < n; i++) {{
-    temp = temp + b[i];
-    a[i] = temp;
-}}
->>>>>>> REPLACE
+FORMATTING EXAMPLE:
+{prompt_examples}
 
-EXAMPLE 2 - Loop splitting:
-<<<<<<< SEARCH
-for (int i = 0; i < n; i++) {{
-    a[i] = a[i - 1] * b[i];
-    c[i] = a[i] + e[i];
-}}
-=======
-for (int i = 0; i < n; i++) {{
-    a[i] = a[i - 1] * b[i];
-}}
-for (int i = 0; i < n; i++) {{
-    c[i] = a[i] + e[i];
-}}
->>>>>>> REPLACE
 
-EXAMPLE 3 - Loop rerolling:
-<<<<<<< SEARCH
-for (int i = 0; i < LEN_1D - 5; i += 5) {{
-    a[i] = a[i + 1] * a[i];
-    a[i + 1] = a[i + 2] * a[i + 1];
-    a[i + 2] = a[i + 3] * a[i + 2];
-    a[i + 3] = a[i + 4] * a[i + 3];
-    a[i + 4] = a[i + 5] * a[i + 4];
-}}
-=======
-for (int i = 0; i < LEN_1D - 1; i++) {{
-    a[i] = a[i + 1] * a[i];
-}}
->>>>>>> REPLACE
+CODING INSTRUCTIONS:
+- DO NOT CHANGE THE OUTER LOOP. DO NOT CHANGE THE NUMBER OF ITERATIONS THE OUTER LOOP RUNS FOR. DO NOT MODIFY THE DUMMY CALL. DO NOT CHANGE THE NUMBER OF TIMES THAT THE DUMMY FUNCTION IS CALLED.
+- PRAGMA PLACEMENT: ALL pragmas MUST be placed ABOVE the loop header, NEVER below it.
+- Add a brief comment explaining why your change enables vectorization in your REPLACE BLOCK.
 
-{clang_examples}    
+
+{"CLANG" if use_clang_not_intel else "ICX"}-SPECIFIC RULES:
+{extra_info}
+
+
+LOOP TRANSFORMATIONS YOU MAY APPLY:
+1. Loop Reversal - Change iteration direction from forward to backward or vice versa
+2. Loop Interchange - Swap the order of nested loops
+3. Loop Distribution/Fission - Split one loop into multiple separate loops
+4. Loop Fusion/Collapsing - Combine multiple loops into a single loop
+5. Loop Peeling - Extract boundary iterations into separate code
+6. Loop Unrolling - Expand loop body to process multiple iterations per cycle
+7. Loop Rerolling - Convert manually unrolled code back into a compact loop
+8. Strip Mining/Tiling - Break loop into outer loop over chunks and inner loop within each chunk
+9. Scalar Expansion - Replace scalar variable with array to give each iteration its own storage
+10. If-Conversion - Transform conditional branches into predicated/masked operations
+
+
 YOUR OUTPUT:
-    """
+"""

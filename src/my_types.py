@@ -4,11 +4,13 @@ from langchain_openai import ChatOpenAI
 
 
 llm = ChatOpenAI(
-    model="Qwen/Qwen3-8B",
+    model="Qwen/Qwen2.5-Coder-7B-Instruct",
     api_key="",
-    base_url="http://localhost:8000/v1",
+    base_url="http://localhost:8000/v1"
+    # temperature=0.7
 )
 
+print(llm.temperature)
 
 class SearchReplaceAction(TypedDict):
     search: str  # The exact text to search for
@@ -65,6 +67,7 @@ class VectorizationState(TypedDict):
     program_slice: str # const
     compiler_feedback: str
     optimization_remarks: str
+    # perf_data: str
 
     current_iteration: int
     max_iterations: int # const

@@ -309,6 +309,7 @@ def extract_functions(file_content: str) -> List[FunctionInfo]:
         else:
             i += 1
 
+    functions = [function for function in functions if (function["name"] != "time_function" and function["name"] != "main")]
     return functions
 
 
@@ -494,9 +495,9 @@ def filter_remarks_by_function(yaml_file_path: str, func_name: str, include_loop
 
     ### Main Case: CLANG
     if include_loop_unroll:
-        query_part = "(.Pass == \"loop-vectorize\" or .Pass == \"slp-vectorizer\" or .Pass == \"loop-unroll\")"
+        query_part = "(.Pass == \"loop-vectorize\" or .Pass == \"loop-unroll\")"
     else:
-        query_part = "(.Pass == \"loop-vectorize\" or .Pass == \"slp-vectorizer\")"
+        query_part = "(.Pass == \"loop-vectorize\")"
     
     try:
         # Query 1: Get docs with exact function name match (handles unmangled names)
@@ -509,7 +510,7 @@ def filter_remarks_by_function(yaml_file_path: str, func_name: str, include_loop
 
         exact_matches = result_exact.stdout if result_exact.returncode == 0 else ""
 
-        # Query 2: Get all loop-vectorize, slp-vectorizer, and loop-unroll docs, then filter by demangling
+        # Query 2: Get all docs, then filter by demangling
         result_all = subprocess.run(
             ["yq", f"select({query_part})", yaml_file_path],
             capture_output=True,
