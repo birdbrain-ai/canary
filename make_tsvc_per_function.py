@@ -112,6 +112,7 @@ def filter_tsvc_content(content: str, keep_function: str, all_functions: list[st
 
     for i, line in enumerate(lines):
         if i in lines_to_remove:
+            new_lines.append('')
             continue
 
         # Check if this is a time_function call
