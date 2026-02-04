@@ -142,6 +142,10 @@ for compiler in clang intel; do
 	for remarks in no yes; do
 		echo "VECTORIZING WITH $compiler WITH $remarks REMARKS"
 
+		if [[ "$compiler" != "clang" || "$remarks" != "yes" ]]; then
+			continue;
+		fi
+		
 		# Set target directory
 		if [[ "$compiler" == "clang" && "$remarks" == "no" ]]; then
 			target_dir="$clang_no_remarks_dir"
