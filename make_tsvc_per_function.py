@@ -12,7 +12,14 @@ import sys
 import shutil
 import re
 import os
+import argparse
 from pathlib import Path
+
+# Functions to include when --oracle-exp is enabled
+ORACLE_EXP_FUNCTIONS = {
+    's1113', 's114', 's116', 's141', 's161', 's212',
+    's1213', 's241', 's244', 's1244', 's277', 's281'
+}
 
 # Mapping of benchmark functions to their helper functions
 FUNCTION_HELPERS = {
@@ -152,11 +159,19 @@ def create_single_function_copy(src_dir: str, dst_dir: str, function_name: str, 
 
 
 def main():
-    if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} <tsvc_directory>", file=sys.stderr)
-        sys.exit(1)
+    parser = argparse.ArgumentParser(
+        description='Creates per-function copies of TSVC benchmark directory.'
+    )
+    parser.add_argument('tsvc_directory', help='Path to the TSVC directory')
+    parser.add_argument(
+        '--oracle-exp',
+        action='store_true',
+        help='Only create folders for oracle experiment functions: '
+             's1113, s114, s116, s141, s161, s212, s1213, s241, s244, s1244, s277, s281'
+    )
+    args = parser.parse_args()
 
-    src_dir = sys.argv[1].rstrip('/')
+    src_dir = args.tsvc_directory.rstrip('/')
 
     if not os.path.isdir(src_dir):
         print(f"Error: {src_dir} is not a directory", file=sys.stderr)
@@ -171,19 +186,26 @@ def main():
     all_functions = extract_loop_functions(tsvc_c_path)
     print(f"Found {len(all_functions)} benchmark functions")
 
+    # Filter functions if --oracle-exp is enabled
+    if args.oracle_exp:
+        functions_to_process = [f for f in all_functions if f in ORACLE_EXP_FUNCTIONS]
+        print(f"Oracle experiment mode: processing {len(functions_to_process)} functions")
+    else:
+        functions_to_process = all_functions
+
     # Create output directory: {src_dir}_vec/
     output_dir = f"{src_dir}_vec"
     os.makedirs(output_dir, exist_ok=True)
     print(f"Output directory: {output_dir}")
 
     # Create a copy for each function inside the output directory
-    for i, func_name in enumerate(all_functions):
+    for i, func_name in enumerate(functions_to_process):
         # Create {src_dir}_vec/{src_dir}_{func_name}/
         dst_dir = os.path.join(output_dir, f"{os.path.basename(src_dir)}_{func_name}")
-        print(f"[{i+1}/{len(all_functions)}] Creating {dst_dir}")
+        print(f"[{i+1}/{len(functions_to_process)}] Creating {dst_dir}")
         create_single_function_copy(src_dir, dst_dir, func_name, all_functions)
 
-    print(f"Done. Created {len(all_functions)} directories in {output_dir}.")
+    print(f"Done. Created {len(functions_to_process)} directories in {output_dir}.")
 
 
 if __name__ == '__main__':
