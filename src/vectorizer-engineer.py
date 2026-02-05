@@ -672,12 +672,6 @@ def engineer(state: VectorizationState):
     current_function_draft = function_drafts[0]
     perf_info = current_function_draft.reviewer_feedback
     opt_remarks = state["optimization_remarks"]
-    # TODO: Remove this
-    # Filter out the distribute pragma suggestion - we don't want the LLM to use this
-    opt_remarks = opt_remarks.replace(
-        "Use #pragma clang loop distribute(enable) to allow loop distribution to attempt to isolate the offending operations into a separate loop",
-        ""
-    )
     compiler_feedback = state["compiler_feedback"]
     use_compiler_feedback = state["use_compiler_feedback"]
     current_function_info = current_function_draft.modified_function_text
