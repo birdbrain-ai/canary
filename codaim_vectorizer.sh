@@ -167,7 +167,7 @@ for compiler in clang intel; do
 			source ~/tank/intel/oneapi/compiler/latest/env/vars.sh
 		fi
 
-		python3 "$ai_pragmas_dir"/make_tsvc_per_function.py "$target_dir"
+		python3 "$ai_pragmas_dir"/make_tsvc_per_function.py "$target_dir" --oracle-exp
 
 		vec_subdirs=("${vec_dir}/$(basename "${target_dir}")"_{s,v}*)
 
