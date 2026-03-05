@@ -360,13 +360,9 @@ def parse_search_replace_output(output: str, logger = None) -> list[SearchReplac
     """
     import re
 
-    # Strip <think>...</think> blocks before parsing
-    # This ensures we only parse the actual output, not draft versions from the reasoning process
-    output = re.sub(r'<think>.*?</think>', '', output, flags=re.DOTALL)
-
-    # Also handle unclosed <think> tags (LLM got stuck in infinite loop)
-    # If there's a <think> without a closing tag, strip everything from <think> onwards
-    output = re.sub(r'<think>.*', '', output, flags=re.DOTALL)
+    # Strip thinking tokens: everything up to and including </think> (Qwen3.5 style)
+    if '</think>' in output:
+        output = output.split('</think>', 1)[1]
 
     # Check for NO_CHANGES
     if "NO_CHANGES" in output.strip():
@@ -1142,7 +1138,7 @@ Examples:
     # Initialize llm with the configured temperature
     global llm
     llm = ChatOpenAI(
-        model="Qwen/Qwen2.5-Coder-7B-Instruct",
+        model="Qwen/Qwen3.5-27B",
         api_key="",
         base_url="http://localhost:8000/v1",
         temperature=args.temperature

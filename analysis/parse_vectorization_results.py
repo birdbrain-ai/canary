@@ -103,13 +103,13 @@ def main():
     parser.add_argument("vec_dir", help="Top-level *_vec directory pattern (e.g., 'TSVC_2_*_vec')")
     args = parser.parse_args()
 
-    tank_dir = Path.home() / "tank"
+    base_dir = Path("/pool/akash")
 
     # --- STEP 1: EXPAND GLOB TO FIND VEC DIRECTORIES ---
     t0 = time.perf_counter()
     print(f"[*] Finding vec directories matching '{args.vec_dir}'...", file=sys.stderr)
 
-    vec_dirs = sorted(tank_dir.glob(args.vec_dir))
+    vec_dirs = sorted(base_dir.glob(args.vec_dir))
     t1 = time.perf_counter()
     print(f"[TIMING] glob for vec dirs: {t1 - t0:.3f}s (found {len(vec_dirs)} directories)", file=sys.stderr)
 

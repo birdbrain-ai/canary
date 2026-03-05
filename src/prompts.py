@@ -2,6 +2,92 @@
 Prompt templates for the vectorization workflow.
 """
 
+# Oracle experiment: remark supplements for specific functions
+# These provide additional hints to the model beyond standard compiler remarks
+# None means no additional remark (also implies removing loop distribution suggestion)
+ORACLE_REMARK_SUPPLEMENTS = {
+    's1113': """assumed read-after-write dependence between a [tsvc.c:140:13]
+            a[i] = a[LEN_1D/2] + b[i];
+            ^
+and a [tsvc.c:140:20]
+            a[i] = a[LEN_1D/2] + b[i];
+                   ^
+
+suggestion: consider loop splitting. load a into a[LEN_1D/2] temporary before the loop, split the loop at iteration LEN_1D/2, and update the temporary for the second split.
+""",
+
+    's114': None,  # NO_REMARK (remove loop distribution suggestion)
+
+    's116': """assumed write-after-read dependence between a [tsvc.c:225:24]
+           a[i + 4] = a[i + 5] * a[i + 4];
+                      ^
+and a [tsvc.c:221:31]
+           a[i] = a[i + 1] * a[i];
+                             ^
+
+suggestion: consider using a temporary to store a[i + 5].
+    """,
+
+    's141': None,  # NO_REMARK (remove loop distribution suggestion)
+
+    's161': None,  # NO_REMARK (remove loop distribution suggestion)
+
+    's212': """assumed write-after-read dependence between a [tsvc.c:838:21]
+            b[i] += a[i + 1] * d[i];
+                    ^
+and a [tsvc.c:837:13]
+            a[i] *= c[i];
+            ^
+
+suggestion: consider using a temporary to store a[i + 1].
+    """,
+
+    's1213': """consider statement reordering for vectorization.""",
+
+    's241': """assumed write-after-read dependence between a [tsvc.c:1065:27]
+            b[i] = a[i] * a[i+1] * d[i];
+                          ^
+and a [tsvc.c:1064:13]
+            a[i] = b[i] * c[i  ] * d[i];
+            ^
+
+suggestion: consider using a temporary to store a[i + 1].
+""",
+
+    's244': """assumed write-after-read dependence between a [tsvc.c:1130:29]
+           a[i+1] = b[i] + a[i+1] * d[i];
+                           ^
+and a [tsvc.c:1128:12]
+           a[i] = b[i] + c[i] * d[i];
+           ^
+
+assumed write-after-write dependence between a [tsvc.c:1130:29]
+           a[i+1] = b[i] + a[i+1] * d[i];
+                           ^
+and a [tsvc.c:1128:13]
+           a[i] = b[i] + c[i] * d[i];
+           ^
+
+suggestion: consider statement reordering to break the data dependency on a. 
+    """,
+
+    's1244': """assumed write-after-read dependence between a [tsvc.c:1148:13]
+
+           a[i] = b[i] + c[i] * c[i] + b[i]*b[i] + c[i];
+           ^
+and a [tsvc.c:1149:27]
+
+           d[i] = a[i] + a[i+1];
+                         ^
+
+suggestion: consider using a temporary to store a[i+1].
+""",
+
+    's277': None,  # NO_REMARK (remove loop distribution suggestion)
+
+    's281': """consider restructuring the loop into multiple, simpler loops.""",
+}
+
 def get_reviewer_prompt(cur_function_info, make_command, program_slice,
                         compiler_feedback, optimization_remarks, vectorization_success,
                         use_compiler_feedback=True, runtime_s=None, use_clang_not_intel=True):
@@ -189,7 +275,29 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
     """
 
     extra_info=""
-    
+
+    # The distribute pragma suggestion to filter/replace
+    distribute_suggestion = "Use #pragma clang loop distribute(enable) to allow loop distribution to attempt to isolate the offending operations into a separate loop"
+
+    # Handle oracle experiment remark supplements
+    function_name = current_function_info.get("name")
+    oracle_supplement = ORACLE_REMARK_SUPPLEMENTS.get(function_name) if function_name else None
+
+    if function_name in ('s281', 's1213') and oracle_supplement:
+        # For s281 and s1213: replace the distribute suggestion with the oracle supplement
+        if optimization_remarks and use_clang_not_intel:
+            optimization_remarks = optimization_remarks.replace(distribute_suggestion, oracle_supplement)
+    else:
+        # For all other functions: filter out the distribute suggestion
+        if optimization_remarks and use_clang_not_intel:
+            optimization_remarks = optimization_remarks.replace(distribute_suggestion, "")
+        # Add oracle supplement to compiler_feedback if present
+        if oracle_supplement:
+            if compiler_feedback:
+                compiler_feedback = compiler_feedback + "\n\n" + oracle_supplement
+            else:
+                compiler_feedback = oracle_supplement
+
     if use_clang_not_intel:
         prompt_examples="""
 <<<<<<< SEARCH

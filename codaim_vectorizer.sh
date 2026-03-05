@@ -142,6 +142,10 @@ for compiler in clang intel; do
 	for remarks in no yes; do
 		echo "VECTORIZING WITH $compiler WITH $remarks REMARKS"
 
+		if [[ "$compiler" != "clang" || "$remarks" != "yes" ]]; then
+			continue;
+		fi
+		
 		# Set target directory
 		if [[ "$compiler" == "clang" && "$remarks" == "no" ]]; then
 			target_dir="$clang_no_remarks_dir"
@@ -165,12 +169,22 @@ for compiler in clang intel; do
 
 		python3 "$ai_pragmas_dir"/make_tsvc_per_function.py "$target_dir"
 
-		vec_subdirs=("${vec_dir}/$(basename "${target_dir}")"_{s,v}*)
+		all_dirs=("${vec_dir}/$(basename "${target_dir}")"_{s,v}*)
+		vec_subdirs=()
+		for d in "${all_dirs[@]}"; do
+			[[ "$d" != *_attempt_* ]] && vec_subdirs+=("$d")
+		done
 
-		echo "Spawning vectorizers ($NUM_ATTEMPTS attempts per function)"
+		MAX_JOBS=${MAX_JOBS:-8}
+		echo "Spawning vectorizers ($NUM_ATTEMPTS attempts per function, max $MAX_JOBS parallel)"
 
 		for dir in "${vec_subdirs[@]}"; do
 			for attempt in $(seq -w 1 $NUM_ATTEMPTS); do
+				# Wait for a slot to open up
+				while [[ $(jobs -rp | wc -l) -ge $MAX_JOBS ]]; do
+					sleep 0.5
+				done
+
 				attempt_dir="${dir}_attempt_${attempt}"
 				cp -r "$dir" "$attempt_dir"
 
