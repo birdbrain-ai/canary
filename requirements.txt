@@ -1,6 +1,0 @@
-# Install LangGraph dependencies
-langgraph
-langchain-community
-langchain-core
-langchain-ollama
-langchain-openai

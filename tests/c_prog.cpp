@@ -1,4 +1,4 @@
-// #include <iostream>
+#include <iostream>
 // #include <cstdlib>
 // #include <vector>
 
@@ -18,6 +18,7 @@ constexpr int COLS = 47;
 // Likely vectorizes
 void vec_friendly(int A[ROWS][COLS], int c) {
   for (int i = 0; i < ROWS - 2; i += 2)
+#pragma clang loop vectorize(enable)
 	for (int j = 0; j < COLS; ++j) {
 	  A[i][j] += 50 + c;
 	  A[i + 1][j] += 49 + c;
@@ -62,7 +63,7 @@ int main() {
 	hard_to_vectorize(A, r); 
   }
 
-  // std::cout << "Hi\n";
+  std::cout << "Hi\n";
   
   return 0;
 }
