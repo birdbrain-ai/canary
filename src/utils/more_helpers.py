@@ -317,7 +317,6 @@ def extract_functions(file_content: str) -> List[FunctionInfo]:
         else:
             i += 1
 
-    # functions = [function for function in functions if (function["name"] != "time_function" and function["name"] != "main")]
     return functions
 
 
@@ -353,11 +352,7 @@ def find_target_files(directory: str) -> List[str]:
     """
     all_files = find_files_with_ext(directory, [".h", ".c", ".cpp", ".hxx", ".hpp"])
 
-    # TODO(akash): make this configurable - i hate hard coding tsvc here
-    # For TSVC benchmarks, only process tsvc.c (skip dummy.c, common.c, etc.)
-    # if "TSVC" in directory:
-    #     all_files = [f for f in all_files if f.endswith("tsvc.c")]
-
+    # File filtering is handled by the caller via --skip-files
     return all_files
 
 

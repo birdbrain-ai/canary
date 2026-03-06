@@ -1023,8 +1023,12 @@ def vectorize_benchmark(benchmark_dir: str,
                         run_command: str,
                         use_compiler_feedback: bool = True,
                         use_clang_not_intel: bool = True,
-                        results_dir: str = "results"
+                        results_dir: str = "results",
+                        skip_files: set = None,
+                        skip_functions: set = None,
                         ):
+    skip_files = skip_files or set()
+    skip_functions = skip_functions or set()
 
     abs_benchmark_dir = os.path.abspath(benchmark_dir)
     benchmark_name = os.path.basename(abs_benchmark_dir)
@@ -1056,12 +1060,16 @@ def vectorize_benchmark(benchmark_dir: str,
     logger = LLMLogger(log_dir)
 
     target_files = find_target_files(opt_dir)
+    if skip_files:
+        target_files = [f for f in target_files if os.path.basename(f) not in skip_files]
     for current_file in target_files:
         # Initial read to find out how many functions we have
         loader = TextLoader(current_file, encoding='utf-8')
         document = loader.load()
         initial_code: str = document[0].page_content
         initial_functions: List[FunctionInfo] = extract_functions(initial_code)
+        if skip_functions:
+            initial_functions = [f for f in initial_functions if f["name"] not in skip_functions]
         num_functions = len(initial_functions)
 
         print(f"Starting to vectorize {current_file}")
@@ -1076,7 +1084,9 @@ def vectorize_benchmark(benchmark_dir: str,
             # Re-extract context and functions to handle line number shifts
             program_slice: str = extract_file_context(code)
             functions: List[FunctionInfo] = extract_functions(code)
-            
+            if skip_functions:
+                functions = [f for f in functions if f["name"] not in skip_functions]
+
             if func_idx >= len(functions):
                 logger.print(f"⚠️  Warning: Expected {num_functions} functions but found {len(functions)} in {current_file} at index {func_idx}")
                 continue
@@ -1223,6 +1233,20 @@ Examples:
         help="Directory for output results (default: results)"
     )
 
+    parser.add_argument(
+        "--skip-files",
+        type=str,
+        default="",
+        help="Comma-separated filenames to skip (basename match, e.g. 'dummy.c,common.c')"
+    )
+
+    parser.add_argument(
+        "--skip-functions",
+        type=str,
+        default="",
+        help="Comma-separated function names to skip (e.g. 'main,time_function')"
+    )
+
     args = parser.parse_args()
 
     # Initialize llm with the configured temperature
@@ -1245,6 +1269,9 @@ Examples:
         results_dir = os.path.abspath(args.results_dir)
         os.makedirs(results_dir, exist_ok=True)
 
+        skip_files = set(f.strip() for f in args.skip_files.split(",") if f.strip())
+        skip_functions = set(f.strip() for f in args.skip_functions.split(",") if f.strip())
+
         result = vectorize_benchmark(
             args.path,
             args.make_command,
@@ -1252,7 +1279,9 @@ Examples:
             run_command=args.run_command,
             use_compiler_feedback=(args.compiler_feedback == "on"),
             use_clang_not_intel=(args.compiler == "clang"),
-            results_dir=results_dir
+            results_dir=results_dir,
+            skip_files=skip_files,
+            skip_functions=skip_functions,
         )
     else:
         print(f"✗ Error: Directory not found: {args.path}")

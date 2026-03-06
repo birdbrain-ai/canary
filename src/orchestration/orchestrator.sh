@@ -19,6 +19,8 @@ iterations=1
 results_dir="results"
 max_jobs=8
 num_attempts=10
+skip_files="common.c,dummy.c,array_defs.h,common.h"
+skip_functions="time_function,main"
 
 usage() {
 	cat <<EOF
@@ -44,6 +46,8 @@ Vectorizer options (forwarded to vectorizer.py):
   --temperature T                LLM temperature (default: $temperature)
   --iterations N                 Refinement iterations per function (default: $iterations)
   --results-dir DIR              Output directory (default: $results_dir)
+  --skip-files LIST              Comma-separated filenames to skip (default: $skip_files)
+  --skip-functions LIST          Comma-separated function names to skip (default: $skip_functions)
   -h, --help                     Display this help message
 EOF
 	exit 0
@@ -71,6 +75,8 @@ while [[ $# -gt 0 ]]; do
 		--name)              name=$2;                shift 2 ;;
 		--max-jobs)          max_jobs=$2;            shift 2 ;;
 		--num-attempts)      num_attempts=$2;        shift 2 ;;
+		--skip-files)        skip_files=$2;          shift 2 ;;
+		--skip-functions)    skip_functions=$2;      shift 2 ;;
 		-h|--help)           usage ;;
 		*) echo "Unknown option: $1"; exit 1 ;;
 	esac
@@ -149,6 +155,8 @@ for dir in "${subdirs[@]}"; do
 			--temperature "$temperature" \
 			--iterations "$iterations" \
 			--results-dir "$vec_dir" \
+			${skip_files:+--skip-files "$skip_files"} \
+			${skip_functions:+--skip-functions "$skip_functions"} \
 			> "$log_file" 2>&1 &
 	done
 done
