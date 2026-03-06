@@ -1052,7 +1052,7 @@ def vectorize_benchmark(benchmark_dir: str,
     vectorization_graph = create_vectorization_graph()
 
     # Initialize logger once for the entire benchmark
-    log_dir = os.path.join(current_dir, f"{benchmark_name}_logs")
+    log_dir = os.path.join(parent_dir, f"{benchmark_name}_logs")
     logger = LLMLogger(log_dir)
 
     target_files = find_target_files(opt_dir)
@@ -1203,7 +1203,7 @@ Examples:
     # Initialize llm with the configured temperature
     global llm
     llm = ChatOpenAI(
-        model="Qwen/Qwen2.5-Coder-7B",
+        model="Qwen/Qwen2.5-Coder-7B-Instruct",
         api_key="",
         base_url="http://localhost:8001/v1",
         temperature=args.temperature

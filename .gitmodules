@@ -1,0 +1,3 @@
+[submodule "benchmarks/TSVC_2"]
+	path = benchmarks/TSVC_2
+	url = git@github.com:AkashDeoNU/TSVC_2.git
