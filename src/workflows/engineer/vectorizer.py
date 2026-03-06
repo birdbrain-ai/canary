@@ -7,16 +7,81 @@ import argparse
 import json
 import tempfile
 import sys
-from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
-from typing import List
-# Note that we are defining llm as a global in this file
-from my_types import FunctionInfo, FunctionDraft, VectorizationState, SearchReplaceAction
+
+# Add src/ to path so we can import from utils
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+from utils.more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
+from typing import TypedDict, Dict, List
 from langchain_openai import ChatOpenAI
 
-# llm = None  # Initialized in main with configured temperature
-from logger import LLMLogger
-from prompts import get_reviewer_prompt, get_manager_prompt, get_engineer_prompt
+from utils.logger import LLMLogger
+from prompts import get_engineer_prompt
 import re
+
+
+class SearchReplaceAction(TypedDict):
+    search: str  # The exact text to search for
+    replace: str  # The replacement text
+
+
+class FunctionInfo(TypedDict):
+    name: str
+    signature: str
+    body: str
+    full_text: str
+    start_line: int
+    end_line: int
+
+
+class FunctionDraft:
+    compile_success: bool
+    run_success: bool
+    dead_end: bool
+    vectorization_success: bool
+    runtime_s: float | None
+    reviewer_feedback: str
+    modified_function_text: FunctionInfo
+
+    def __init__(self, function_info):
+        self.compile_success = False
+        self.run_success = False
+        self.dead_end = False
+        self.vectorization_success = False
+        self.runtime_s = None
+        self.reviewer_feedback = ""
+        self.modified_function_text = function_info
+
+    def to_dict(self):
+        return {
+            "compile_success": self.compile_success,
+            "run_success": self.run_success,
+            "dead_end": self.dead_end,
+            "vectorization_success": self.vectorization_success,
+            "runtime_s": self.runtime_s,
+            "reviewer_feedback": self.reviewer_feedback,
+            "modified_function_text": self.modified_function_text
+        }
+
+
+class VectorizationState(TypedDict):
+    bench_path: str # const
+    file_path: str # const
+    make_command: str # const
+    run_command: str # const
+    use_compiler_feedback: bool # const
+    use_clang_not_intel: bool # const
+
+    program_slice: str # const
+    compiler_feedback: str
+    optimization_remarks: str
+
+    current_iteration: int
+    max_iterations: int # const
+    manager_chosen_i: int
+
+    function_drafts: Dict[int, FunctionDraft]
+    logger: 'LLMLogger'
 
 MAX_LINT_RETRIES = 3
 
@@ -122,14 +187,14 @@ def compile_code(state: VectorizationState):
     if current_iteration == 1 and function_drafts[0].vectorization_success:
         return {}
     
-    rm_result = subprocess.run(
+    subprocess.run(
         "find . -name '*.opt.yaml' -type f -delete",
         shell=True,
         capture_output=True,
         text=True,
     )
 
-    rm_result = subprocess.run(
+    subprocess.run(
         "find . -name '*.optrpt' -type f -delete",
         shell=True,
         capture_output=True,
@@ -303,7 +368,7 @@ def run_code(state: VectorizationState):
                logger.print(result.stderr, end='')
         # Early exit: Timeout, so run failed
         except subprocess.TimeoutExpired:
-            logger.print(f"Running the benchmark took too much time")
+            logger.print("Running the benchmark took too much time")
             cur_function_draft.run_success = False
             function_drafts[current_iteration] = cur_function_draft
             logger.log_state(state, "run_code", "after")
@@ -398,7 +463,7 @@ def parse_search_replace_output(output: str, logger = None) -> list[SearchReplac
         "replace": replace_text
     }
 
-    msg = f"✅ Parsed 1 search-replace block"
+    msg = "✅ Parsed 1 search-replace block"
     if logger:
         logger.print(msg)
     else:
@@ -768,7 +833,7 @@ def engineer(state: VectorizationState):
         )
 
         if not success:
-            logger.print(f"⚠️  Failed to write function to file, falling back to previous")
+            logger.print("⚠️  Failed to write function to file, falling back to previous")
             new_func_info = last_written_info  # Keep tracking in sync with file
             break
 
@@ -786,8 +851,8 @@ def engineer(state: VectorizationState):
             )
             break  # Success! Exit the retry loop
         else:
-            logger.print(f"⚠️  Syntax errors detected in generated code")
-            logger.print(f"    {syntax_errors[:500]}...")
+            logger.print("⚠️  Syntax errors detected in generated code")
+            logger.print("    {syntax_errors[:500]}...")
 
             # Log the broken file for debugging before restoring
             logger.log_file_content(
@@ -814,9 +879,9 @@ def engineer(state: VectorizationState):
                 logger=logger
             )
             if restore_success:
-                logger.print(f"🔙 Restored previous function text")
+                logger.print("🔙 Restored previous function text")
             else:
-                logger.print(f"⚠️  Failed to restore previous function, continuing anyway")
+                logger.print("⚠️  Failed to restore previous function, continuing anyway")
                 break  # Can't continue safely if we can't restore
 
             # If this was the last attempt, use the original function
@@ -904,9 +969,9 @@ def finalize(state: VectorizationState):
     if success:
         logger.print(f"✅ Finalized and wrote function '{final_function_info['name']}' to {file_path}")
         if final_draft.vectorization_success:
-            logger.print(f"🎉 Function was successfully vectorized")
+            logger.print("🎉 Function was successfully vectorized")
     else:
-        logger.print(f"⚠️  Failed to write final function to file")
+        logger.print("⚠️  Failed to write final function to file")
 
     logger.log_state(state, "finalize", "after")
     return {
@@ -957,13 +1022,17 @@ def vectorize_benchmark(benchmark_dir: str,
                         max_iterations: int,
                         run_command: str,
                         use_compiler_feedback: bool = True,
-                        use_clang_not_intel: bool = True
+                        use_clang_not_intel: bool = True,
+                        results_dir: str = "results",
+                        skip_files: set = None,
+                        skip_functions: set = None,
                         ):
+    skip_files = skip_files or set()
+    skip_functions = skip_functions or set()
 
     abs_benchmark_dir = os.path.abspath(benchmark_dir)
     benchmark_name = os.path.basename(abs_benchmark_dir)
-    parent_dir = os.path.dirname(abs_benchmark_dir)
-    opt_dir = os.path.join(parent_dir, f"{benchmark_name}_opt")
+    opt_dir = os.path.join(results_dir, f"{benchmark_name}_opt")
     current_dir = os.getcwd()
 
     print(f"{'='*60}\n")
@@ -972,7 +1041,7 @@ def vectorize_benchmark(benchmark_dir: str,
     print(f"Max iterations: {max_iterations}")
     print(f"Absolute Benchmark: {abs_benchmark_dir}")
     print(f"Benchmark name: {benchmark_name}")
-    print(f"Parent Dir: {parent_dir}")
+    print(f"Results Dir: {results_dir}")
     print(f"Opt Dir: {opt_dir}")
     print(f"Current Dir: {current_dir}")
     print(f"{'='*60}\n")
@@ -987,16 +1056,20 @@ def vectorize_benchmark(benchmark_dir: str,
     vectorization_graph = create_vectorization_graph()
 
     # Initialize logger once for the entire benchmark
-    log_dir = os.path.join(current_dir, f"{benchmark_name}_logs")
+    log_dir = os.path.join(results_dir, f"{benchmark_name}_logs")
     logger = LLMLogger(log_dir)
 
     target_files = find_target_files(opt_dir)
+    if skip_files:
+        target_files = [f for f in target_files if os.path.basename(f) not in skip_files]
     for current_file in target_files:
         # Initial read to find out how many functions we have
         loader = TextLoader(current_file, encoding='utf-8')
         document = loader.load()
         initial_code: str = document[0].page_content
         initial_functions: List[FunctionInfo] = extract_functions(initial_code)
+        if skip_functions:
+            initial_functions = [f for f in initial_functions if f["name"] not in skip_functions]
         num_functions = len(initial_functions)
 
         print(f"Starting to vectorize {current_file}")
@@ -1011,7 +1084,9 @@ def vectorize_benchmark(benchmark_dir: str,
             # Re-extract context and functions to handle line number shifts
             program_slice: str = extract_file_context(code)
             functions: List[FunctionInfo] = extract_functions(code)
-            
+            if skip_functions:
+                functions = [f for f in functions if f["name"] not in skip_functions]
+
             if func_idx >= len(functions):
                 logger.print(f"⚠️  Warning: Expected {num_functions} functions but found {len(functions)} in {current_file} at index {func_idx}")
                 continue
@@ -1075,8 +1150,10 @@ Examples:
   # Benchmark directory mode (recommended):
   python vectorizer.py my_benchmark --make-command "make" --iterations 3
 
-  # Legacy single-file mode:
-  python vectorizer.py my_file.cpp --iterations 3
+  # With custom model and results directory:
+  python vectorizer.py my_benchmark --make-command "make" --iterations 3 \\
+    --model-name "meta-llama/Llama-3-8B" --model-url "http://localhost:8000/v1" \\
+    --results-dir results
         """
     )
 
@@ -1110,20 +1187,22 @@ Examples:
     )
 
     parser.add_argument(
-        "--disable-compiler-feedback",
-        action="store_true",
-        help="Disable compiler feedback and optimization remarks in LLM prompts. "
-             "Useful for experimental testing to measure the impact of compiler feedback "
-             "on vectorization effectiveness. Feedback is still collected for logging, "
-             "but not provided to the LLM. (default: feedback enabled)"
+        "--compiler-feedback",
+        type=str,
+        choices=["on", "off"],
+        default="on",
+        help="Whether to provide compiler feedback and optimization remarks in LLM prompts. "
+             "When 'off', feedback is still collected for logging but not provided to the LLM. "
+             "(default: on)"
     )
 
     parser.add_argument(
-        "--use-intel",
-        action="store_true",
-        help="Tell the vectorizer you are using ICX/ICPX instead of Clang toolchain. "
-             "Useful for passing optimization remarks using ICX/ICPX formatting into "
-             "the LLM workflow. (default: Clang not ICX)"
+        "--compiler",
+        type=str,
+        choices=["clang", "intel"],
+        default="clang",
+        help="Compiler toolchain to use for optimization remarks formatting. "
+             "(default: clang)"
     )
 
     parser.add_argument(
@@ -1133,14 +1212,49 @@ Examples:
         help="Temperature for the LLM (default: 1.0)"
     )
 
+    parser.add_argument(
+        "--model-name",
+        type=str,
+        default="Qwen/Qwen2.5-Coder-7B-Instruct",
+        help="Model name for the LLM (default: Qwen/Qwen2.5-Coder-7B-Instruct)"
+    )
+
+    parser.add_argument(
+        "--model-url",
+        type=str,
+        default="http://localhost:8001/v1",
+        help="Base URL for the LLM API (default: http://localhost:8001/v1)"
+    )
+
+    parser.add_argument(
+        "--results-dir",
+        type=str,
+        default="results",
+        help="Directory for output results (default: results)"
+    )
+
+    parser.add_argument(
+        "--skip-files",
+        type=str,
+        default="",
+        help="Comma-separated filenames to skip (basename match, e.g. 'dummy.c,common.c')"
+    )
+
+    parser.add_argument(
+        "--skip-functions",
+        type=str,
+        default="",
+        help="Comma-separated function names to skip (e.g. 'main,time_function')"
+    )
+
     args = parser.parse_args()
 
     # Initialize llm with the configured temperature
     global llm
     llm = ChatOpenAI(
-        model="Qwen/Qwen3.5-27B",
+        model=args.model_name,
         api_key="",
-        base_url="http://localhost:8000/v1",
+        base_url=args.model_url,
         temperature=args.temperature
     )
 
@@ -1152,13 +1266,22 @@ Examples:
             print("Example: python vectorizer.py my_benchmark --make-command 'make'")
             exit(1)
 
+        results_dir = os.path.abspath(args.results_dir)
+        os.makedirs(results_dir, exist_ok=True)
+
+        skip_files = set(f.strip() for f in args.skip_files.split(",") if f.strip())
+        skip_functions = set(f.strip() for f in args.skip_functions.split(",") if f.strip())
+
         result = vectorize_benchmark(
             args.path,
             args.make_command,
             max_iterations=args.iterations,
             run_command=args.run_command,
-            use_compiler_feedback=not args.disable_compiler_feedback,
-            use_clang_not_intel=not args.use_intel
+            use_compiler_feedback=(args.compiler_feedback == "on"),
+            use_clang_not_intel=(args.compiler == "clang"),
+            results_dir=results_dir,
+            skip_files=skip_files,
+            skip_functions=skip_functions,
         )
     else:
         print(f"✗ Error: Directory not found: {args.path}")
