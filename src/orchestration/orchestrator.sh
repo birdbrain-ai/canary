@@ -10,6 +10,7 @@ AI_PRAGMAS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # Defaults
 name="TSVC_$(date +%Y-%m-%d_%H-%M-%S)"
 compiler="clang"
+vectorizer_compiler="clang"
 compiler_feedback="on"
 model_name="Qwen/Qwen2.5-Coder-7B-Instruct"
 model_url="http://localhost:8001/v1"
@@ -35,7 +36,8 @@ Orchestration options:
   --num-attempts N               Attempts per function (default: $num_attempts)
 
 Vectorizer options (forwarded to vectorizer.py):
-  --compiler {clang,intel}       Compiler toolchain (default: $compiler)
+  --compiler NAME                Compiler for make COMPILER= (clang, clang_trunk, intel, etc.) (default: $compiler)
+  --vectorizer-compiler NAME     Remark format for vectorizer (clang, intel) (default: $vectorizer_compiler)
   --compiler-feedback {on,off}   Compiler feedback in LLM prompts (default: $compiler_feedback)
   --model-name NAME              LLM model name (default: $model_name)
   --model-url URL                LLM API base URL (default: $model_url)
@@ -58,8 +60,9 @@ shift
 
 while [[ $# -gt 0 ]]; do
 	case $1 in
-		--compiler)          compiler=$2;          shift 2 ;;
-		--compiler-feedback) compiler_feedback=$2;  shift 2 ;;
+		--compiler)          compiler=$2;              shift 2 ;;
+		--vectorizer-compiler) vectorizer_compiler=$2; shift 2 ;;
+		--compiler-feedback) compiler_feedback=$2;     shift 2 ;;
 		--model-name)        model_name=$2;         shift 2 ;;
 		--model-url)         model_url=$2;          shift 2 ;;
 		--temperature)       temperature=$2;        shift 2 ;;
@@ -78,11 +81,17 @@ if [[ ! -d "$tsvc_dir" ]]; then
 	exit 1
 fi
 
-# --- Copy TSVC into results and split into per-function benchmarks ---
+# --- Create timestamped experiment directory ---
 
-mkdir -p "$results_dir"
-tsvc_copy="$results_dir/$name"
+timestamp=$(date +%Y-%m-%d_%H-%M-%S)
+experiment_dir="$results_dir/${timestamp}_${name}"
+mkdir -p "$experiment_dir"
 
+# --- Copy TSVC into experiment dir and split into per-function benchmarks ---
+
+tsvc_copy="$experiment_dir/$(basename "$tsvc_dir")"
+
+echo "Experiment dir: $experiment_dir"
 echo "Copying $tsvc_dir to $tsvc_copy..."
 cp -r "$tsvc_dir" "$tsvc_copy"
 
@@ -105,21 +114,18 @@ echo "Found ${#subdirs[@]} per-function benchmarks"
 echo "Running $num_attempts attempts each, max $max_jobs parallel jobs"
 echo "Compiler: $compiler | Feedback: $compiler_feedback | Model: $model_name | Temp: $temperature | Iters: $iterations"
 
-# --- Set make command based on compiler ---
+# --- Set make command and source compiler environment ---
 
-if [[ "$compiler" == "intel" ]]; then
-	make_command="make COMPILER=intel"
-	# Source Intel environment if available
+make_command="make COMPILER=$compiler"
+
+# Source Intel environment if needed
+if [[ "$compiler" == intel ]]; then
 	if [[ -f ~/tank/intel/oneapi/compiler/latest/env/vars.sh ]]; then
 		source ~/tank/intel/oneapi/compiler/latest/env/vars.sh
 	fi
-else
-	make_command="make COMPILER=clang"
 fi
 
 # --- Run vectorizer on each function ---
-
-mkdir -p "$results_dir"
 
 for dir in "${subdirs[@]}"; do
 	for attempt in $(seq -w 1 "$num_attempts"); do
@@ -136,13 +142,13 @@ for dir in "${subdirs[@]}"; do
 		python3 "$AI_PRAGMAS_DIR/src/workflows/engineer/vectorizer.py" \
 			"$attempt_dir" \
 			--make-command "$make_command" \
-			--compiler "$compiler" \
+			--compiler "$vectorizer_compiler" \
 			--compiler-feedback "$compiler_feedback" \
 			--model-name "$model_name" \
 			--model-url "$model_url" \
 			--temperature "$temperature" \
 			--iterations "$iterations" \
-			--results-dir "$results_dir" \
+			--results-dir "$attempt_dir" \
 			> "$log_file" 2>&1 &
 	done
 done
