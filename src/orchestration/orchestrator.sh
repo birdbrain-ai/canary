@@ -93,6 +93,32 @@ timestamp=$(date +%Y-%m-%d_%H-%M-%S)
 experiment_dir="$results_dir/${timestamp}_${name}"
 mkdir -p "$experiment_dir"
 
+# --- Save experiment metadata ---
+
+cat > "$experiment_dir/metadata.json" <<EOF
+{
+  "name": "$name",
+  "timestamp": "$timestamp",
+  "tsvc_dir": "$(realpath "$tsvc_dir")",
+  "compiler": "$compiler",
+  "vectorizer_compiler": "$vectorizer_compiler",
+  "compiler_feedback": "$compiler_feedback",
+  "model_name": "$model_name",
+  "model_url": "$model_url",
+  "temperature": $temperature,
+  "iterations": $iterations,
+  "num_attempts": $num_attempts,
+  "max_jobs": $max_jobs,
+  "skip_files": "$skip_files",
+  "skip_functions": "$skip_functions",
+  "results_dir": "$results_dir",
+  "git_commit": "$(git -C "$AI_PRAGMAS_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")",
+  "hostname": "$(hostname)"
+}
+EOF
+
+echo "Saved experiment metadata to $experiment_dir/metadata.json"
+
 # --- Copy TSVC into experiment dir and split into per-function benchmarks ---
 
 tsvc_copy="$experiment_dir/$(basename "$tsvc_dir")"
