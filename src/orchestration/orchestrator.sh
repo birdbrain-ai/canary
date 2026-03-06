@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AI_PRAGMAS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Defaults
+name="TSVC_$(date +%Y-%m-%d_%H-%M-%S)"
 compiler="clang"
 compiler_feedback="on"
 model_name="Qwen/Qwen2.5-Coder-7B-Instruct"
@@ -29,6 +30,7 @@ Arguments:
   tsvc_dir                       Path to the TSVC benchmark directory
 
 Orchestration options:
+  --name NAME                    Name for this experiment copy (default: TSVC_<timestamp>)
   --max-jobs N                   Max parallel vectorizer jobs (default: $max_jobs)
   --num-attempts N               Attempts per function (default: $num_attempts)
 
@@ -63,6 +65,7 @@ while [[ $# -gt 0 ]]; do
 		--temperature)       temperature=$2;        shift 2 ;;
 		--iterations)        iterations=$2;         shift 2 ;;
 		--results-dir)       results_dir=$2;        shift 2 ;;
+		--name)              name=$2;                shift 2 ;;
 		--max-jobs)          max_jobs=$2;            shift 2 ;;
 		--num-attempts)      num_attempts=$2;        shift 2 ;;
 		-h|--help)           usage ;;
@@ -75,12 +78,18 @@ if [[ ! -d "$tsvc_dir" ]]; then
 	exit 1
 fi
 
-# --- Split TSVC into per-function benchmarks ---
+# --- Copy TSVC into results and split into per-function benchmarks ---
 
-echo "Splitting $tsvc_dir into per-function benchmarks..."
-python3 "$AI_PRAGMAS_DIR/src/orchestration/make_tsvc_per_function.py" "$tsvc_dir"
+mkdir -p "$results_dir"
+tsvc_copy="$results_dir/$name"
 
-vec_dir="${tsvc_dir%/}_vec"
+echo "Copying $tsvc_dir to $tsvc_copy..."
+cp -r "$tsvc_dir" "$tsvc_copy"
+
+echo "Splitting $tsvc_copy into per-function benchmarks..."
+python3 "$AI_PRAGMAS_DIR/src/orchestration/make_tsvc_per_function.py" "$tsvc_copy"
+
+vec_dir="${tsvc_copy}_vec"
 if [[ ! -d "$vec_dir" ]]; then
 	echo "Error: expected split output at $vec_dir"
 	exit 1
