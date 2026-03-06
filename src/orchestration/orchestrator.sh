@@ -148,7 +148,7 @@ for dir in "${subdirs[@]}"; do
 			--model-url "$model_url" \
 			--temperature "$temperature" \
 			--iterations "$iterations" \
-			--results-dir "$attempt_dir" \
+			--results-dir "$vec_dir" \
 			> "$log_file" 2>&1 &
 	done
 done
