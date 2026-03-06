@@ -1022,13 +1022,13 @@ def vectorize_benchmark(benchmark_dir: str,
                         max_iterations: int,
                         run_command: str,
                         use_compiler_feedback: bool = True,
-                        use_clang_not_intel: bool = True
+                        use_clang_not_intel: bool = True,
+                        results_dir: str = "results"
                         ):
 
     abs_benchmark_dir = os.path.abspath(benchmark_dir)
     benchmark_name = os.path.basename(abs_benchmark_dir)
-    parent_dir = os.path.dirname(abs_benchmark_dir)
-    opt_dir = os.path.join(parent_dir, f"{benchmark_name}_opt")
+    opt_dir = os.path.join(results_dir, f"{benchmark_name}_opt")
     current_dir = os.getcwd()
 
     print(f"{'='*60}\n")
@@ -1037,7 +1037,7 @@ def vectorize_benchmark(benchmark_dir: str,
     print(f"Max iterations: {max_iterations}")
     print(f"Absolute Benchmark: {abs_benchmark_dir}")
     print(f"Benchmark name: {benchmark_name}")
-    print(f"Parent Dir: {parent_dir}")
+    print(f"Results Dir: {results_dir}")
     print(f"Opt Dir: {opt_dir}")
     print(f"Current Dir: {current_dir}")
     print(f"{'='*60}\n")
@@ -1052,7 +1052,7 @@ def vectorize_benchmark(benchmark_dir: str,
     vectorization_graph = create_vectorization_graph()
 
     # Initialize logger once for the entire benchmark
-    log_dir = os.path.join(parent_dir, f"{benchmark_name}_logs")
+    log_dir = os.path.join(results_dir, f"{benchmark_name}_logs")
     logger = LLMLogger(log_dir)
 
     target_files = find_target_files(opt_dir)
@@ -1140,8 +1140,10 @@ Examples:
   # Benchmark directory mode (recommended):
   python vectorizer.py my_benchmark --make-command "make" --iterations 3
 
-  # Legacy single-file mode:
-  python vectorizer.py my_file.cpp --iterations 3
+  # With custom model and results directory:
+  python vectorizer.py my_benchmark --make-command "make" --iterations 3 \\
+    --model-name "meta-llama/Llama-3-8B" --model-url "http://localhost:8000/v1" \\
+    --results-dir results
         """
     )
 
@@ -1175,20 +1177,22 @@ Examples:
     )
 
     parser.add_argument(
-        "--disable-compiler-feedback",
-        action="store_true",
-        help="Disable compiler feedback and optimization remarks in LLM prompts. "
-             "Useful for experimental testing to measure the impact of compiler feedback "
-             "on vectorization effectiveness. Feedback is still collected for logging, "
-             "but not provided to the LLM. (default: feedback enabled)"
+        "--compiler-feedback",
+        type=str,
+        choices=["on", "off"],
+        default="on",
+        help="Whether to provide compiler feedback and optimization remarks in LLM prompts. "
+             "When 'off', feedback is still collected for logging but not provided to the LLM. "
+             "(default: on)"
     )
 
     parser.add_argument(
-        "--use-intel",
-        action="store_true",
-        help="Tell the vectorizer you are using ICX/ICPX instead of Clang toolchain. "
-             "Useful for passing optimization remarks using ICX/ICPX formatting into "
-             "the LLM workflow. (default: Clang not ICX)"
+        "--compiler",
+        type=str,
+        choices=["clang", "intel"],
+        default="clang",
+        help="Compiler toolchain to use for optimization remarks formatting. "
+             "(default: clang)"
     )
 
     parser.add_argument(
@@ -1198,14 +1202,35 @@ Examples:
         help="Temperature for the LLM (default: 1.0)"
     )
 
+    parser.add_argument(
+        "--model-name",
+        type=str,
+        default="Qwen/Qwen2.5-Coder-7B-Instruct",
+        help="Model name for the LLM (default: Qwen/Qwen2.5-Coder-7B-Instruct)"
+    )
+
+    parser.add_argument(
+        "--model-url",
+        type=str,
+        default="http://localhost:8001/v1",
+        help="Base URL for the LLM API (default: http://localhost:8001/v1)"
+    )
+
+    parser.add_argument(
+        "--results-dir",
+        type=str,
+        default="results",
+        help="Directory for output results (default: results)"
+    )
+
     args = parser.parse_args()
 
     # Initialize llm with the configured temperature
     global llm
     llm = ChatOpenAI(
-        model="Qwen/Qwen2.5-Coder-7B-Instruct",
+        model=args.model_name,
         api_key="",
-        base_url="http://localhost:8001/v1",
+        base_url=args.model_url,
         temperature=args.temperature
     )
 
@@ -1217,13 +1242,17 @@ Examples:
             print("Example: python vectorizer.py my_benchmark --make-command 'make'")
             exit(1)
 
+        results_dir = os.path.abspath(args.results_dir)
+        os.makedirs(results_dir, exist_ok=True)
+
         result = vectorize_benchmark(
             args.path,
             args.make_command,
             max_iterations=args.iterations,
             run_command=args.run_command,
-            use_compiler_feedback=not args.disable_compiler_feedback,
-            use_clang_not_intel=not args.use_intel
+            use_compiler_feedback=(args.compiler_feedback == "on"),
+            use_clang_not_intel=(args.compiler == "clang"),
+            results_dir=results_dir
         )
     else:
         print(f"✗ Error: Directory not found: {args.path}")
