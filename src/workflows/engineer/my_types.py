@@ -1,5 +1,11 @@
+import os
+import sys
+
+# Add src/ to path so we can import from utils
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
 from typing import TypedDict, Dict, Optional
-from logger import LLMLogger
+from utils.logger import LLMLogger
 from langchain_openai import ChatOpenAI
 
 

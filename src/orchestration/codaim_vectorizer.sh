@@ -21,7 +21,7 @@ A tool to run the vectorizer engineer with configurable directories. This
 will automatically vectorize each TSVC function in parallel.
 
 Options:
-	-a, --a-dir PATH	Path to ai-pragmas dir. This has necessary utilities like 'make_tsvc_per_function.py' and 'src/vectorizer-engineer.py'. Default: $HOME/tank/ai-pragmas-simple
+	-a, --a-dir PATH	Path to ai-pragmas dir. This has necessary utilities like 'src/orchestration/make_tsvc_per_function.py' and 'src/workflows/engineer/vectorizer-engineer.py'. Default: $HOME/tank/ai-pragmas-simple
 	-cn, --clang-no PATH	Path to clang_no_remarks_dir. Default: $HOME/tank/TSVC_2_clang_no_remarks
 	-cr, --clang-rem PATH	Path to clang_remarks_dir. Default: $HOME/tank/TSVC_2_clang_remarks
 	-in, --intel-no PATH 	Path to intel_no_remarks_dir. Default: $HOME/tank/TSVC_2_intel_no_remarks
@@ -71,29 +71,29 @@ while [[ $# -gt 0 ]]; do
 done
 
 vectorize_with_clang_no_remarks() {
-	python3 "$ai_pragmas_dir/src/vectorizer-engineer.py" \
+	python3 "$ai_pragmas_dir/src/workflows/engineer/vectorizer-engineer.py" \
 			--iterations 1 \
 			--make-command "make COMPILER=clang" \
-			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
+			--run-command "$ai_pragmas_dir/src/tsvc/validate_function_behavior.py" \
 			--disable-compiler-feedback \
 			--temperature "$temperature" \
 			"$1"
 }
 
 vectorize_with_clang_remarks() {
-	python3 "$ai_pragmas_dir/src/vectorizer-engineer.py" \
+	python3 "$ai_pragmas_dir/src/workflows/engineer/vectorizer-engineer.py" \
 			--iterations 1 \
 			--make-command "make COMPILER=clang" \
-			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
+			--run-command "$ai_pragmas_dir/src/tsvc/validate_function_behavior.py" \
 			--temperature "$temperature" \
 			"$1"
 }
 
 vectorize_with_intel_no_remarks() {
-	python3 "$ai_pragmas_dir/src/vectorizer-engineer.py" \
+	python3 "$ai_pragmas_dir/src/workflows/engineer/vectorizer-engineer.py" \
 			--iterations 1 \
 			--make-command "make COMPILER=intel" \
-			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
+			--run-command "$ai_pragmas_dir/src/tsvc/validate_function_behavior.py" \
 			--disable-compiler-feedback \
 			--use-intel \
 			--temperature "$temperature" \
@@ -101,10 +101,10 @@ vectorize_with_intel_no_remarks() {
 }
 
 vectorize_with_intel_remarks() {
-	python3 "$ai_pragmas_dir/src/vectorizer-engineer.py" \
+	python3 "$ai_pragmas_dir/src/workflows/engineer/vectorizer-engineer.py" \
 			--iterations 1 \
 			--make-command "make COMPILER=intel" \
-			--run-command "$ai_pragmas_dir/validate_function_behavior.py" \
+			--run-command "$ai_pragmas_dir/src/tsvc/validate_function_behavior.py" \
 			--use-intel \
 			--temperature "$temperature" \
 			"$1"
@@ -167,7 +167,7 @@ for compiler in clang intel; do
 			source ~/tank/intel/oneapi/compiler/latest/env/vars.sh
 		fi
 
-		python3 "$ai_pragmas_dir"/make_tsvc_per_function.py "$target_dir"
+		python3 "$ai_pragmas_dir"/src/orchestration/make_tsvc_per_function.py "$target_dir"
 
 		all_dirs=("${vec_dir}/$(basename "${target_dir}")"_{s,v}*)
 		vec_subdirs=()

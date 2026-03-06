@@ -6,7 +6,6 @@ import shutil
 import argparse
 import json
 import tempfile
-import sys
 from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
 from typing import List
 # Note that we are defining llm as a global in this file
@@ -15,7 +14,7 @@ from langchain_openai import ChatOpenAI
 
 # llm = None  # Initialized in main with configured temperature
 from logger import LLMLogger
-from prompts import get_reviewer_prompt, get_manager_prompt, get_engineer_prompt
+from prompts import get_engineer_prompt
 import re
 
 MAX_LINT_RETRIES = 3
@@ -122,14 +121,14 @@ def compile_code(state: VectorizationState):
     if current_iteration == 1 and function_drafts[0].vectorization_success:
         return {}
     
-    rm_result = subprocess.run(
+    subprocess.run(
         "find . -name '*.opt.yaml' -type f -delete",
         shell=True,
         capture_output=True,
         text=True,
     )
 
-    rm_result = subprocess.run(
+    subprocess.run(
         "find . -name '*.optrpt' -type f -delete",
         shell=True,
         capture_output=True,
@@ -303,7 +302,7 @@ def run_code(state: VectorizationState):
                logger.print(result.stderr, end='')
         # Early exit: Timeout, so run failed
         except subprocess.TimeoutExpired:
-            logger.print(f"Running the benchmark took too much time")
+            logger.print("Running the benchmark took too much time")
             cur_function_draft.run_success = False
             function_drafts[current_iteration] = cur_function_draft
             logger.log_state(state, "run_code", "after")
@@ -398,7 +397,7 @@ def parse_search_replace_output(output: str, logger = None) -> list[SearchReplac
         "replace": replace_text
     }
 
-    msg = f"✅ Parsed 1 search-replace block"
+    msg = "✅ Parsed 1 search-replace block"
     if logger:
         logger.print(msg)
     else:
@@ -768,7 +767,7 @@ def engineer(state: VectorizationState):
         )
 
         if not success:
-            logger.print(f"⚠️  Failed to write function to file, falling back to previous")
+            logger.print("⚠️  Failed to write function to file, falling back to previous")
             new_func_info = last_written_info  # Keep tracking in sync with file
             break
 
@@ -786,8 +785,8 @@ def engineer(state: VectorizationState):
             )
             break  # Success! Exit the retry loop
         else:
-            logger.print(f"⚠️  Syntax errors detected in generated code")
-            logger.print(f"    {syntax_errors[:500]}...")
+            logger.print("⚠️  Syntax errors detected in generated code")
+            logger.print("    {syntax_errors[:500]}...")
 
             # Log the broken file for debugging before restoring
             logger.log_file_content(
@@ -814,9 +813,9 @@ def engineer(state: VectorizationState):
                 logger=logger
             )
             if restore_success:
-                logger.print(f"🔙 Restored previous function text")
+                logger.print("🔙 Restored previous function text")
             else:
-                logger.print(f"⚠️  Failed to restore previous function, continuing anyway")
+                logger.print("⚠️  Failed to restore previous function, continuing anyway")
                 break  # Can't continue safely if we can't restore
 
             # If this was the last attempt, use the original function
@@ -904,9 +903,9 @@ def finalize(state: VectorizationState):
     if success:
         logger.print(f"✅ Finalized and wrote function '{final_function_info['name']}' to {file_path}")
         if final_draft.vectorization_success:
-            logger.print(f"🎉 Function was successfully vectorized")
+            logger.print("🎉 Function was successfully vectorized")
     else:
-        logger.print(f"⚠️  Failed to write final function to file")
+        logger.print("⚠️  Failed to write final function to file")
 
     logger.log_state(state, "finalize", "after")
     return {
@@ -1138,9 +1137,9 @@ Examples:
     # Initialize llm with the configured temperature
     global llm
     llm = ChatOpenAI(
-        model="Qwen/Qwen3.5-27B",
+        model="Qwen/Qwen2.5-Coder-7B",
         api_key="",
-        base_url="http://localhost:8000/v1",
+        base_url="http://localhost:8001/v1",
         temperature=args.temperature
     )
 

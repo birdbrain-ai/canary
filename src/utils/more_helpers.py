@@ -1,9 +1,17 @@
 import subprocess
-from typing import List
+from typing import List, TypedDict
 import re
 import os
 import fnmatch
-from my_types import FunctionInfo
+
+
+class FunctionInfo(TypedDict):
+    name: str
+    signature: str
+    body: str
+    full_text: str
+    start_line: int
+    end_line: int
 
 
 def extract_file_context(file_content: str) -> str:
