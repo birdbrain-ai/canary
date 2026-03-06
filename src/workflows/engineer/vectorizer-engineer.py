@@ -6,14 +6,18 @@ import shutil
 import argparse
 import json
 import tempfile
-from more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
+import sys
+
+# Add src/ to path so we can import from utils
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+from utils.more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
 from typing import List
 # Note that we are defining llm as a global in this file
 from my_types import FunctionInfo, FunctionDraft, VectorizationState, SearchReplaceAction
 from langchain_openai import ChatOpenAI
 
-# llm = None  # Initialized in main with configured temperature
-from logger import LLMLogger
+from utils.logger import LLMLogger
 from prompts import get_engineer_prompt
 import re
 
