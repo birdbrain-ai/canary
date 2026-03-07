@@ -5,7 +5,7 @@ export TMPDIR="$HOME/tank/tmp"
 mkdir -p "$TMPDIR"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-AI_PRAGMAS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+AI_PRAGMAS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 
 # Defaults
 name="TSVC_$(date +%Y-%m-%d_%H-%M-%S)"
@@ -16,7 +16,7 @@ model_name="Qwen/Qwen2.5-Coder-7B-Instruct"
 model_url="http://localhost:8001/v1"
 temperature="1.0"
 iterations=1
-results_dir="results"
+results_dir="$AI_PRAGMAS_DIR/results"
 max_jobs=8
 num_attempts=10
 skip_files="common.c,dummy.c,array_defs.h,common.h"
@@ -174,6 +174,7 @@ for dir in "${subdirs[@]}"; do
 		python3 "$AI_PRAGMAS_DIR/src/workflows/engineer/vectorizer.py" \
 			"$attempt_dir" \
 			--make-command "$make_command" \
+			--run-command "python3 $AI_PRAGMAS_DIR/src/tsvc/validate_function_behavior.py" \
 			--compiler "$vectorizer_compiler" \
 			--compiler-feedback "$compiler_feedback" \
 			--model-name "$model_name" \

@@ -1030,7 +1030,7 @@ def vectorize_benchmark(benchmark_dir: str,
     skip_files = skip_files or set()
     skip_functions = skip_functions or set()
 
-    abs_benchmark_dir = os.path.abspath(benchmark_dir)
+    abs_benchmark_dir = os.path.realpath(benchmark_dir)
     benchmark_name = os.path.basename(abs_benchmark_dir)
     opt_dir = os.path.join(results_dir, f"{benchmark_name}_opt")
     current_dir = os.getcwd()
@@ -1266,7 +1266,7 @@ Examples:
             print("Example: python vectorizer.py my_benchmark --make-command 'make'")
             exit(1)
 
-        results_dir = os.path.abspath(args.results_dir)
+        results_dir = os.path.realpath(args.results_dir)
         os.makedirs(results_dir, exist_ok=True)
 
         skip_files = set(f.strip() for f in args.skip_files.split(",") if f.strip())
