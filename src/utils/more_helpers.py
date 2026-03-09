@@ -653,33 +653,30 @@ def normalize_whitespace_for_matching(text: str) -> str:
     return re.sub(r'\s+', ' ', text.strip())
 
 
-def extract_line_number_from_diagnostic(line: str) -> int | None:
+def extract_file_and_line_from_diagnostic(line: str) -> tuple[str | None, int | None]:
     """
-    Extracts the line number from a compiler diagnostic line.
+    Extracts the filename and line number from a compiler diagnostic line.
 
     Expected formats:
     - file.c:123:45: warning: message (with column)
     - file.c:123: warning: message (without column)
-
-    Args:
-        line: Compiler diagnostic line
+    - /path/to/file.c:123:45: warning: message
 
     Returns:
-        Line number if found, None otherwise
+        (filename, line_number) tuple. Either or both may be None.
     """
     import re
-    # Pattern: filename:line:column: or filename:line:
-    # Look for :NUMBER: or :NUMBER:NUMBER: pattern
-    match = re.search(r':(\d+)(?::\d+)?:', line)
+    match = re.match(r'^(.+?):(\d+)(?::\d+)?:', line)
     if match:
-        return int(match.group(1))
-    return None
+        return match.group(1), int(match.group(2))
+    return None, None
 
 
 def extract_compilation_errors(
     stderr_output: str,
     line_range_start: int | None = None,
-    line_range_end: int | None = None
+    line_range_end: int | None = None,
+    target_file: str | None = None
 ) -> str:
     """
     Extracts 'error:' and 'warning:' lines from stderr along with context lines,
@@ -692,6 +689,8 @@ def extract_compilation_errors(
         stderr_output: Raw stderr from compiler
         line_range_start: Optional start line (inclusive) for filtering warnings/notes/remarks
         line_range_end: Optional end line (inclusive) for filtering warnings/notes/remarks
+        target_file: Optional file path to filter diagnostics to. Only diagnostics
+            from this file (matched by basename) will be included.
 
     Returns:
         Filtered error/warning text
@@ -701,6 +700,9 @@ def extract_compilation_errors(
 
     # Keywords that mark the start of a new diagnostic
     diagnostic_keywords = ["note:", "remark:", "warning:", "error:"]
+
+    # Pre-compute target basename for file matching
+    target_basename = os.path.basename(target_file) if target_file else None
 
     lines = stderr_output.splitlines()
     filtered_blocks = []
@@ -717,12 +719,17 @@ def extract_compilation_errors(
         is_remark = "remark:" in line
 
         if is_error or is_warning or is_note or is_remark:
-            # Extract line number from the diagnostic
-            line_number = extract_line_number_from_diagnostic(line)
+            # Extract file and line number from the diagnostic
+            diag_file, line_number = extract_file_and_line_from_diagnostic(line)
+
+            # Filter by target file (compare basenames to handle different path prefixes)
+            should_include = True
+            if target_basename is not None and diag_file is not None:
+                if os.path.basename(diag_file) != target_basename:
+                    should_include = False
 
             # Apply line range filtering only to non-errors
-            should_include = True
-            if not is_error and line_range_start is not None and line_range_end is not None:
+            if should_include and not is_error and line_range_start is not None and line_range_end is not None:
                 # Filter warnings, notes, and remarks by line range
                 if line_number is None:
                     # If we can't extract a line number, exclude it to be safe

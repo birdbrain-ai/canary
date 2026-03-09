@@ -216,7 +216,8 @@ def compile_code(state: VectorizationState):
     compilation_feedback = extract_compilation_errors(
         result.stderr,
         line_range_start=func_start_line_1indexed,
-        line_range_end=func_end_line_1indexed
+        line_range_end=func_end_line_1indexed,
+        target_file=current_file
     )
 
     # print(result)
