@@ -6,37 +6,37 @@ ORCHESTRATOR_DIR="${SCRIPT_DIR}/../src/orchestration/orchestrator.sh"
 
 "${ORCHESTRATOR_DIR}" \
  "${TSVC_DIR}" \
- --name "TSVC_2_qwen_3.5_no_remarks" \
+ --name "TSVC_2_qwen_3_coder_no_remarks" \
  --max-jobs 128 \
  --num-attempts 10 \
  --compiler clang_trunk \
  --vectorizer-compiler clang \
  --compiler-feedback off \
- --model-name "Qwen/Qwen3.5-27B" \
+ --model-name "Qwen/Qwen3-Coder-Next-FP8" \
  --model-url "http://localhost:8000/v1" \
  --temperature 0.8
 
 "${ORCHESTRATOR_DIR}" \
  "${TSVC_DIR}" \
- --name "TSVC_2_qwen_3.5_base_remarks" \
+ --name "TSVC_2_qwen_3_coder_base_remarks" \
  --max-jobs 128 \
  --num-attempts 10 \
  --compiler clang \
  --vectorizer-compiler clang \
  --compiler-feedback on \
- --model-name "Qwen/Qwen3.5-27B" \
+ --model-name "Qwen/Qwen3-Coder-Next-FP8" \
  --model-url "http://localhost:8000/v1" \
  --temperature 0.8
 
 "${ORCHESTRATOR_DIR}" \
  "${TSVC_DIR}" \
- --name "TSVC_2_qwen_3.5_new_remarks" \
+ --name "TSVC_2_qwen_3_coder_new_remarks" \
  --max-jobs 128 \
  --num-attempts 10 \
  --compiler clang_trunk \
  --vectorizer-compiler clang \
  --compiler-feedback on \
- --model-name "Qwen/Qwen3.5-27B" \
+ --model-name "Qwen/Qwen3-Coder-Next-FP8" \
  --model-url "http://localhost:8000/v1" \
  --temperature 0.8
 
