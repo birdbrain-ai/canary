@@ -666,7 +666,10 @@ def extract_file_and_line_from_diagnostic(line: str) -> tuple[str | None, int | 
         (filename, line_number) tuple. Either or both may be None.
     """
     import re
-    match = re.match(r'^(.+?):(\d+)(?::\d+)?:', line)
+    # Strip leading diagnostic keyword prefix (e.g. "warning: " before "file:line:col:")
+    # This handles clang backend plugin output like: "warning: tsvc.c:732:9: Dependence report..."
+    stripped = re.sub(r'^(?:warning|error|note|remark):\s*', '', line)
+    match = re.match(r'^(.+?):(\d+)(?::\d+)?:', stripped)
     if match:
         return match.group(1), int(match.group(2))
     return None, None
