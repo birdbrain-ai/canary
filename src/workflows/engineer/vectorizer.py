@@ -18,6 +18,7 @@ from langchain_openai import ChatOpenAI
 from utils.logger import LLMLogger
 from prompts import get_engineer_prompt
 import re
+import concurrent.futures
 
 
 class SearchReplaceAction(TypedDict):
@@ -201,12 +202,29 @@ def compile_code(state: VectorizationState):
         text=True,
     )
     
-    result = subprocess.run(
-        make_command,
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            make_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except subprocess.TimeoutExpired:
+        logger.print("⚠️  Compilation timed out after 600s")
+        cur_function_draft.compile_success = False
+        cur_function_draft.vectorization_success = False
+        function_drafts[current_iteration] = cur_function_draft
+        os.chdir(cur_working_dir)
+        result_dict = {
+            "compiler_feedback": "Compilation timed out after 600 seconds. The build process was killed. Consider simplifying the code to reduce compilation time.",
+            "optimization_remarks": "",
+            "function_drafts": function_drafts
+        }
+        after_state = state.copy()
+        after_state.update(result_dict)
+        logger.log_state(after_state, "compile_code", "after")
+        return result_dict
 
     # 1. Extract compilation feedback.
     # TODO(akash): obviously just replace this with a compiler option instead of filtering it manually. Just make the compiler only output warnings and errors instead of an insane quantity of notes.
@@ -790,7 +808,13 @@ def engineer(state: VectorizationState):
             function_name=current_function_info["name"]
         )
 
-        response: str = llm.invoke(prompt).content
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(lambda: llm.invoke(prompt).content)
+                response: str = future.result(timeout=3600)
+        except concurrent.futures.TimeoutError:
+            logger.print(f"⚠️  LLM call timed out after 3600s (attempt {attempt + 1}/{MAX_LINT_RETRIES})")
+            continue
 
         # Log complete call after success
         logger.log_llm_call(
@@ -1256,7 +1280,8 @@ Examples:
         model=args.model_name,
         api_key="",
         base_url=args.model_url,
-        temperature=args.temperature
+        temperature=args.temperature,
+        request_timeout=3600
     )
 
     # Determine mode based on path type
