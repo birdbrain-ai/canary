@@ -51,4 +51,4 @@ results/
 a.out
 
 # Sensitive scripts
-tunnel.sh
+language-models/tunnel.sh
