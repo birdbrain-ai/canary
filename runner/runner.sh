@@ -18,7 +18,7 @@ for temp in "${TEMPERATURES[@]}"; do
      --name "t${temp}_clang_base_remarks" \
      --max-jobs "$MAX_JOBS" \
      --num-attempts "$NUM_ATTEMPTS" \
-     --compiler clang \
+     --compiler clang_trunk \
      --vectorizer-compiler clang \
      --compiler-feedback on \
      --oracle-remarks off \
@@ -31,7 +31,7 @@ for temp in "${TEMPERATURES[@]}"; do
      --name "t${temp}_clang_no_remarks" \
      --max-jobs "$MAX_JOBS" \
      --num-attempts "$NUM_ATTEMPTS" \
-     --compiler clang \
+     --compiler clang_trunk \
      --vectorizer-compiler clang \
      --compiler-feedback off \
      --oracle-remarks off \
@@ -44,7 +44,7 @@ for temp in "${TEMPERATURES[@]}"; do
      --name "t${temp}_clang_oracle_remarks" \
      --max-jobs "$MAX_JOBS" \
      --num-attempts "$NUM_ATTEMPTS" \
-     --compiler clang \
+     --compiler clang_trunk \
      --vectorizer-compiler clang \
      --compiler-feedback on \
      --oracle-remarks on \
@@ -57,7 +57,7 @@ for temp in "${TEMPERATURES[@]}"; do
      --name "t${temp}_clang_new_remarks" \
      --max-jobs "$MAX_JOBS" \
      --num-attempts "$NUM_ATTEMPTS" \
-     --compiler clang_trunk \
+     --compiler clang_canary \
      --vectorizer-compiler clang \
      --compiler-feedback on \
      --oracle-remarks off \
