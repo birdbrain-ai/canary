@@ -12,9 +12,9 @@ ORCHESTRATOR_DIR="${SCRIPT_DIR}/../src/orchestration/orchestrator.sh"
  --compiler clang_trunk \
  --vectorizer-compiler clang \
  --compiler-feedback off \
- --model-name "Qwen/Qwen3-Coder-Next-FP8" \
+ --model-name "Qwen/Qwen3-Coder-30B-A3B-Instruct" \
  --model-url "http://localhost:8000/v1" \
- --temperature 0.8
+ --temperature 1.5
 
 "${ORCHESTRATOR_DIR}" \
  "${TSVC_DIR}" \
@@ -24,9 +24,9 @@ ORCHESTRATOR_DIR="${SCRIPT_DIR}/../src/orchestration/orchestrator.sh"
  --compiler clang \
  --vectorizer-compiler clang \
  --compiler-feedback on \
- --model-name "Qwen/Qwen3-Coder-Next-FP8" \
+ --model-name "Qwen/Qwen3-Coder-30B-A3B-Instruct" \
  --model-url "http://localhost:8000/v1" \
- --temperature 0.8
+ --temperature 1.5
 
 "${ORCHESTRATOR_DIR}" \
  "${TSVC_DIR}" \
@@ -36,9 +36,9 @@ ORCHESTRATOR_DIR="${SCRIPT_DIR}/../src/orchestration/orchestrator.sh"
  --compiler clang_trunk \
  --vectorizer-compiler clang \
  --compiler-feedback on \
- --model-name "Qwen/Qwen3-Coder-Next-FP8" \
+ --model-name "Qwen/Qwen3-Coder-30B-A3B-Instruct" \
  --model-url "http://localhost:8000/v1" \
- --temperature 0.8
+ --temperature 1.5
 
 
 
