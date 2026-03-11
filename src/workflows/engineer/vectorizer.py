@@ -72,6 +72,7 @@ class VectorizationState(TypedDict):
     run_command: str # const
     use_compiler_feedback: bool # const
     use_clang_not_intel: bool # const
+    use_oracle_remarks: bool # const
 
     program_slice: str # const
     compiler_feedback: str
@@ -793,6 +794,7 @@ def engineer(state: VectorizationState):
             perf_data=perf_info,
             previous_search_replace=previous_search_replace,
             lint_errors=lint_errors,
+            use_oracle_remarks=state.get("use_oracle_remarks", False),
             use_clang_not_intel=use_clang_not_intel
         )
 
@@ -1048,6 +1050,7 @@ def vectorize_benchmark(benchmark_dir: str,
                         run_command: str,
                         use_compiler_feedback: bool = True,
                         use_clang_not_intel: bool = True,
+                        use_oracle_remarks: bool = False,
                         results_dir: str = "results",
                         skip_files: set = None,
                         skip_functions: set = None,
@@ -1127,6 +1130,7 @@ def vectorize_benchmark(benchmark_dir: str,
                 run_command=run_command,
                 use_compiler_feedback=use_compiler_feedback,
                 use_clang_not_intel=use_clang_not_intel,
+                use_oracle_remarks=use_oracle_remarks,
 
                 program_slice=program_slice,
                 compiler_feedback="",
@@ -1259,6 +1263,16 @@ Examples:
     )
 
     parser.add_argument(
+        "--oracle-remarks",
+        type=str,
+        choices=["on", "off"],
+        default="off",
+        help="Whether to insert oracle remark supplements into the prompt. "
+             "These provide additional hand-crafted hints beyond standard compiler remarks. "
+             "(default: off)"
+    )
+
+    parser.add_argument(
         "--skip-files",
         type=str,
         default="",
@@ -1273,6 +1287,9 @@ Examples:
     )
 
     args = parser.parse_args()
+
+    assert not (args.oracle_remarks == "on" and args.compiler != "clang"), \
+        "Oracle remark supplements are only available for clang. Use --compiler clang or disable --oracle-remarks."
 
     # Initialize llm with the configured temperature
     global llm
@@ -1305,6 +1322,7 @@ Examples:
             run_command=args.run_command,
             use_compiler_feedback=(args.compiler_feedback == "on"),
             use_clang_not_intel=(args.compiler == "clang"),
+            use_oracle_remarks=(args.oracle_remarks == "on"),
             results_dir=results_dir,
             skip_files=skip_files,
             skip_functions=skip_functions,
