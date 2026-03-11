@@ -95,7 +95,8 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
                         compiler_feedback=None, optimization_remarks=None,
                         perf_data=None, previous_search_replace=None,
                         lint_errors=None, use_oracle_remarks=False,
-                        use_clang_not_intel=True):
+                        use_clang_not_intel=True,
+                        filter_distribute_suggestion=False):
     """
     Generate the engineer prompt for modifying functions to improve vectorization.
 
@@ -126,8 +127,8 @@ def get_engineer_prompt(numbered_function_body, current_function_info,
         if optimization_remarks and use_clang_not_intel:
             optimization_remarks = optimization_remarks.replace(distribute_suggestion, oracle_supplement)
     else:
-        # For all other functions: filter out the distribute suggestion
-        if optimization_remarks and use_clang_not_intel:
+        # Filter out the distribute suggestion if requested
+        if filter_distribute_suggestion and optimization_remarks and use_clang_not_intel:
             optimization_remarks = optimization_remarks.replace(distribute_suggestion, "")
         # Add oracle supplement to compiler_feedback if present
         if oracle_supplement:

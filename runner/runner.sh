@@ -48,6 +48,7 @@ for temp in "${TEMPERATURES[@]}"; do
      --vectorizer-compiler clang \
      --compiler-feedback on \
      --oracle-remarks on \
+     --filter-distribute-suggestion on \
      --model-name "$MODEL_NAME" \
      --model-url "$MODEL_URL" \
      --temperature "$temp"
@@ -61,6 +62,7 @@ for temp in "${TEMPERATURES[@]}"; do
      --vectorizer-compiler clang \
      --compiler-feedback on \
      --oracle-remarks off \
+     --filter-distribute-suggestion on \
      --model-name "$MODEL_NAME" \
      --model-url "$MODEL_URL" \
      --temperature "$temp"

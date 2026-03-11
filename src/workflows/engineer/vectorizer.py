@@ -73,6 +73,7 @@ class VectorizationState(TypedDict):
     use_compiler_feedback: bool # const
     use_clang_not_intel: bool # const
     use_oracle_remarks: bool # const
+    filter_distribute_suggestion: bool # const
 
     program_slice: str # const
     compiler_feedback: str
@@ -795,7 +796,8 @@ def engineer(state: VectorizationState):
             previous_search_replace=previous_search_replace,
             lint_errors=lint_errors,
             use_oracle_remarks=state.get("use_oracle_remarks", False),
-            use_clang_not_intel=use_clang_not_intel
+            use_clang_not_intel=use_clang_not_intel,
+            filter_distribute_suggestion=state.get("filter_distribute_suggestion", False)
         )
 
         # Use attempt number in call_type to avoid overwriting logs
@@ -1051,6 +1053,7 @@ def vectorize_benchmark(benchmark_dir: str,
                         use_compiler_feedback: bool = True,
                         use_clang_not_intel: bool = True,
                         use_oracle_remarks: bool = False,
+                        filter_distribute_suggestion: bool = False,
                         results_dir: str = "results",
                         skip_files: set = None,
                         skip_functions: set = None,
@@ -1131,6 +1134,7 @@ def vectorize_benchmark(benchmark_dir: str,
                 use_compiler_feedback=use_compiler_feedback,
                 use_clang_not_intel=use_clang_not_intel,
                 use_oracle_remarks=use_oracle_remarks,
+                filter_distribute_suggestion=filter_distribute_suggestion,
 
                 program_slice=program_slice,
                 compiler_feedback="",
@@ -1273,6 +1277,15 @@ Examples:
     )
 
     parser.add_argument(
+        "--filter-distribute-suggestion",
+        type=str,
+        choices=["on", "off"],
+        default="off",
+        help="Whether to filter out the 'distribute(enable)' suggestion from optimization remarks. "
+             "(default: off)"
+    )
+
+    parser.add_argument(
         "--skip-files",
         type=str,
         default="",
@@ -1323,6 +1336,7 @@ Examples:
             use_compiler_feedback=(args.compiler_feedback == "on"),
             use_clang_not_intel=(args.compiler == "clang"),
             use_oracle_remarks=(args.oracle_remarks == "on"),
+            filter_distribute_suggestion=(args.filter_distribute_suggestion == "on"),
             results_dir=results_dir,
             skip_files=skip_files,
             skip_functions=skip_functions,
