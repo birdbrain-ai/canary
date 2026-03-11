@@ -3,6 +3,10 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+echo "Killing any existing tunnel..."
+pkill -f "ssh.*erebus" 2>/dev/null || true
+sleep 1
+
 echo "Starting tunnel..."
 bash "$SCRIPT_DIR/tunnel.sh" &
 TUNNEL_PID=$!
