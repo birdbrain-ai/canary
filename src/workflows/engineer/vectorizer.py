@@ -811,9 +811,9 @@ def engineer(state: VectorizationState):
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(lambda: llm.invoke(prompt).content)
-                response: str = future.result(timeout=3600)
+                response: str = future.result(timeout=86400)
         except concurrent.futures.TimeoutError:
-            logger.print(f"⚠️  LLM call timed out after 3600s (attempt {attempt + 1}/{MAX_LINT_RETRIES})")
+            logger.print(f"⚠️  LLM call timed out after 86400s (attempt {attempt + 1}/{MAX_LINT_RETRIES})")
             continue
 
         # Log complete call after success
@@ -1281,7 +1281,7 @@ Examples:
         api_key="",
         base_url=args.model_url,
         temperature=args.temperature,
-        request_timeout=3600
+        request_timeout=86400
     )
 
     # Determine mode based on path type
