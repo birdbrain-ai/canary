@@ -2,44 +2,93 @@
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)
 TSVC_DIR="${SCRIPT_DIR}/../benchmarks/TSVC_2"
-ORCHESTRATOR_DIR="${SCRIPT_DIR}/../src/orchestration/orchestrator.sh"
+ORCHESTRATOR="${SCRIPT_DIR}/../src/orchestration/orchestrator.sh"
 
-"${ORCHESTRATOR_DIR}" \
- "${TSVC_DIR}" \
- --name "TSVC_2_qwen_3_coder_no_remarks" \
- --max-jobs 128 \
- --num-attempts 10 \
- --compiler clang_trunk \
- --vectorizer-compiler clang \
- --compiler-feedback off \
- --model-name "Qwen/Qwen3-Coder-30B-A3B-Instruct" \
- --model-url "http://localhost:8000/v1" \
- --temperature 1.5
+MODEL_NAME="Qwen/Qwen3-Coder-30B-A3B-Instruct"
+MODEL_URL="http://localhost:8000/v1"
+MAX_JOBS=128
+NUM_ATTEMPTS=100
 
-"${ORCHESTRATOR_DIR}" \
- "${TSVC_DIR}" \
- --name "TSVC_2_qwen_3_coder_base_remarks" \
- --max-jobs 128 \
- --num-attempts 10 \
- --compiler clang \
- --vectorizer-compiler clang \
- --compiler-feedback on \
- --model-name "Qwen/Qwen3-Coder-30B-A3B-Instruct" \
- --model-url "http://localhost:8000/v1" \
- --temperature 1.5
+TEMPERATURES=(0.2 0.8 1.2 1.6 2.0)
 
-"${ORCHESTRATOR_DIR}" \
- "${TSVC_DIR}" \
- --name "TSVC_2_qwen_3_coder_new_remarks" \
- --max-jobs 128 \
- --num-attempts 10 \
- --compiler clang_trunk \
- --vectorizer-compiler clang \
- --compiler-feedback on \
- --model-name "Qwen/Qwen3-Coder-30B-A3B-Instruct" \
- --model-url "http://localhost:8000/v1" \
- --temperature 1.5
+for temp in "${TEMPERATURES[@]}"; do
 
+    # 1. Clang+BaseRemarks
+    "${ORCHESTRATOR}" "${TSVC_DIR}" \
+     --name "t${temp}_clang_base_remarks" \
+     --max-jobs "$MAX_JOBS" \
+     --num-attempts "$NUM_ATTEMPTS" \
+     --compiler clang \
+     --vectorizer-compiler clang \
+     --compiler-feedback on \
+     --oracle-remarks off \
+     --model-name "$MODEL_NAME" \
+     --model-url "$MODEL_URL" \
+     --temperature "$temp"
 
+    # 2. Clang+NoRemarks
+    "${ORCHESTRATOR}" "${TSVC_DIR}" \
+     --name "t${temp}_clang_no_remarks" \
+     --max-jobs "$MAX_JOBS" \
+     --num-attempts "$NUM_ATTEMPTS" \
+     --compiler clang \
+     --vectorizer-compiler clang \
+     --compiler-feedback off \
+     --oracle-remarks off \
+     --model-name "$MODEL_NAME" \
+     --model-url "$MODEL_URL" \
+     --temperature "$temp"
 
+    # 3. Clang+OracleRemarks
+    "${ORCHESTRATOR}" "${TSVC_DIR}" \
+     --name "t${temp}_clang_oracle_remarks" \
+     --max-jobs "$MAX_JOBS" \
+     --num-attempts "$NUM_ATTEMPTS" \
+     --compiler clang \
+     --vectorizer-compiler clang \
+     --compiler-feedback on \
+     --oracle-remarks on \
+     --model-name "$MODEL_NAME" \
+     --model-url "$MODEL_URL" \
+     --temperature "$temp"
 
+    # 4. Clang+NewRemarks
+    "${ORCHESTRATOR}" "${TSVC_DIR}" \
+     --name "t${temp}_clang_new_remarks" \
+     --max-jobs "$MAX_JOBS" \
+     --num-attempts "$NUM_ATTEMPTS" \
+     --compiler clang_trunk \
+     --vectorizer-compiler clang \
+     --compiler-feedback on \
+     --oracle-remarks off \
+     --model-name "$MODEL_NAME" \
+     --model-url "$MODEL_URL" \
+     --temperature "$temp"
+
+    # 5. Intel+NoRemarks
+    "${ORCHESTRATOR}" "${TSVC_DIR}" \
+     --name "t${temp}_intel_no_remarks" \
+     --max-jobs "$MAX_JOBS" \
+     --num-attempts "$NUM_ATTEMPTS" \
+     --compiler intel \
+     --vectorizer-compiler intel \
+     --compiler-feedback off \
+     --oracle-remarks off \
+     --model-name "$MODEL_NAME" \
+     --model-url "$MODEL_URL" \
+     --temperature "$temp"
+
+    # 6. Intel+Remarks
+    "${ORCHESTRATOR}" "${TSVC_DIR}" \
+     --name "t${temp}_intel_remarks" \
+     --max-jobs "$MAX_JOBS" \
+     --num-attempts "$NUM_ATTEMPTS" \
+     --compiler intel \
+     --vectorizer-compiler intel \
+     --compiler-feedback on \
+     --oracle-remarks off \
+     --model-name "$MODEL_NAME" \
+     --model-url "$MODEL_URL" \
+     --temperature "$temp"
+
+done

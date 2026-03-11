@@ -12,6 +12,7 @@ name="TSVC_$(date +%Y-%m-%d_%H-%M-%S)"
 compiler="clang"
 vectorizer_compiler="clang"
 compiler_feedback="on"
+oracle_remarks="off"
 model_name="Qwen/Qwen2.5-Coder-7B-Instruct"
 model_url="http://localhost:8001/v1"
 temperature="1.0"
@@ -41,6 +42,7 @@ Vectorizer options (forwarded to vectorizer.py):
   --compiler NAME                Compiler for make COMPILER= (clang, clang_trunk, intel, etc.) (default: $compiler)
   --vectorizer-compiler NAME     Remark format for vectorizer (clang, intel) (default: $vectorizer_compiler)
   --compiler-feedback {on,off}   Compiler feedback in LLM prompts (default: $compiler_feedback)
+  --oracle-remarks {on,off}      Oracle remark supplements in prompts (default: $oracle_remarks)
   --model-name NAME              LLM model name (default: $model_name)
   --model-url URL                LLM API base URL (default: $model_url)
   --temperature T                LLM temperature (default: $temperature)
@@ -67,6 +69,7 @@ while [[ $# -gt 0 ]]; do
 		--compiler)          compiler=$2;              shift 2 ;;
 		--vectorizer-compiler) vectorizer_compiler=$2; shift 2 ;;
 		--compiler-feedback) compiler_feedback=$2;     shift 2 ;;
+		--oracle-remarks)    oracle_remarks=$2;        shift 2 ;;
 		--model-name)        model_name=$2;         shift 2 ;;
 		--model-url)         model_url=$2;          shift 2 ;;
 		--temperature)       temperature=$2;        shift 2 ;;
@@ -103,6 +106,7 @@ cat > "$experiment_dir/metadata.json" <<EOF
   "compiler": "$compiler",
   "vectorizer_compiler": "$vectorizer_compiler",
   "compiler_feedback": "$compiler_feedback",
+  "oracle_remarks": "$oracle_remarks",
   "model_name": "$model_name",
   "model_url": "$model_url",
   "temperature": $temperature,
@@ -144,7 +148,7 @@ done
 
 echo "Found ${#subdirs[@]} per-function benchmarks"
 echo "Running $num_attempts attempts each, max $max_jobs parallel jobs"
-echo "Compiler: $compiler | Feedback: $compiler_feedback | Model: $model_name | Temp: $temperature | Iters: $iterations"
+echo "Compiler: $compiler | Feedback: $compiler_feedback | Oracle: $oracle_remarks | Model: $model_name | Temp: $temperature | Iters: $iterations"
 
 # --- Set make command and source compiler environment ---
 
@@ -177,6 +181,7 @@ for dir in "${subdirs[@]}"; do
 			--run-command "python3 $AI_PRAGMAS_DIR/src/tsvc/validate_function_behavior.py" \
 			--compiler "$vectorizer_compiler" \
 			--compiler-feedback "$compiler_feedback" \
+			--oracle-remarks "$oracle_remarks" \
 			--model-name "$model_name" \
 			--model-url "$model_url" \
 			--temperature "$temperature" \
