@@ -199,4 +199,8 @@ for dir in "${subdirs[@]}"; do
 done
 
 wait
+
+# Clean up opt dirs now that all jobs are finished
+"${SCRIPT_DIR}"/cleanup_opt_dirs.sh "$results_dir"
+
 echo "Done. All vectorization runs complete."
