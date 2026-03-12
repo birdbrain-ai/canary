@@ -7,11 +7,11 @@ ORCHESTRATOR="${SCRIPT_DIR}/../src/orchestration/orchestrator.sh"
 MODEL_NAME="Qwen/Qwen3-Coder-30B-A3B-Instruct"
 MODEL_URL="http://localhost:8000/v1"
 MAX_JOBS=128
-NUM_ATTEMPTS=100
+NUM_ATTEMPTS=5
 
 # Remaining temperatures: all 6 experiments
-TEMPERATURES=(1.2 1.6 2.0)
-
+# TEMPERATURES=(1.2 1.6 2.0)
+TEMPERATURES=(1.2)
 for temp in "${TEMPERATURES[@]}"; do
 
     # 1. Clang+BaseRemarks

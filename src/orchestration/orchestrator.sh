@@ -166,35 +166,45 @@ if [[ "$compiler" == intel ]]; then
 fi
 
 # --- Run vectorizer on each function ---
+# The vectorizer copies the benchmark dir into its own opt_dir internally,
+# so we pass the original dir directly. Each attempt gets its own --results-dir
+# to keep logs separate. After each run, we delete opt_dir (build artifacts),
+# keeping only the lightweight logs.
 
 for dir in "${subdirs[@]}"; do
+	func_name=$(basename "${dir%/}")
+
 	for attempt in $(seq -w 1 "$num_attempts"); do
 		# Wait for a slot to open up
 		while [[ $(jobs -rp | wc -l) -ge $max_jobs ]]; do
 			sleep 0.5
 		done
 
-		attempt_dir="${dir%/}_attempt_${attempt}"
-		cp -r "$dir" "$attempt_dir"
+		(
+			attempt_name="${func_name}_attempt_${attempt}"
+			attempt_results="$vec_dir/${attempt_name}"
+			mkdir -p "$attempt_results"
 
-		log_file="$attempt_dir/output.log"
+			python3 "$AI_PRAGMAS_DIR/src/workflows/engineer/vectorizer.py" \
+				"$dir" \
+				--make-command "$make_command" \
+				--run-command "python3 $AI_PRAGMAS_DIR/src/tsvc/validate_function_behavior.py" \
+				--compiler "$vectorizer_compiler" \
+				--compiler-feedback "$compiler_feedback" \
+				--oracle-remarks "$oracle_remarks" \
+				--filter-distribute-suggestion "$filter_distribute_suggestion" \
+				--model-name "$model_name" \
+				--model-url "$model_url" \
+				--temperature "$temperature" \
+				--iterations "$iterations" \
+				--results-dir "$attempt_results" \
+				${skip_files:+--skip-files "$skip_files"} \
+				${skip_functions:+--skip-functions "$skip_functions"} \
+				> "$attempt_results/output.log" 2>&1
 
-		python3 "$AI_PRAGMAS_DIR/src/workflows/engineer/vectorizer.py" \
-			"$attempt_dir" \
-			--make-command "$make_command" \
-			--run-command "python3 $AI_PRAGMAS_DIR/src/tsvc/validate_function_behavior.py" \
-			--compiler "$vectorizer_compiler" \
-			--compiler-feedback "$compiler_feedback" \
-			--oracle-remarks "$oracle_remarks" \
-			--filter-distribute-suggestion "$filter_distribute_suggestion" \
-			--model-name "$model_name" \
-			--model-url "$model_url" \
-			--temperature "$temperature" \
-			--iterations "$iterations" \
-			--results-dir "$vec_dir" \
-			${skip_files:+--skip-files "$skip_files"} \
-			${skip_functions:+--skip-functions "$skip_functions"} \
-			> "$log_file" 2>&1 &
+			# Clean up the vectorizer's working copy (opt_dir), keep only logs
+			rm -rf "$attempt_results/${func_name}_opt"
+		) &
 	done
 done
 
