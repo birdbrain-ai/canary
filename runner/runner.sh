@@ -10,8 +10,7 @@ MAX_JOBS=128
 NUM_ATTEMPTS=5
 
 # Remaining temperatures: all 6 experiments
-# TEMPERATURES=(1.2 1.6 2.0)
-TEMPERATURES=(1.2)
+TEMPERATURES=(1.2 1.6 2.0)
 for temp in "${TEMPERATURES[@]}"; do
 
     # 1. Clang+BaseRemarks
