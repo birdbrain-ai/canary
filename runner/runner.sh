@@ -9,7 +9,8 @@ MODEL_URL="http://localhost:8000/v1"
 MAX_JOBS=128
 NUM_ATTEMPTS=100
 
-TEMPERATURES=(0.2 0.8 1.2 1.6 2.0)
+# TEMPERATURES=(0.2 0.8 1.2 1.6 2.0)
+TEMPERATURES=(1.2 1.6 2.0)
 
 for temp in "${TEMPERATURES[@]}"; do
 
@@ -53,19 +54,19 @@ for temp in "${TEMPERATURES[@]}"; do
      --model-url "$MODEL_URL" \
      --temperature "$temp"
 
-    # 4. Clang+NewRemarks
-    "${ORCHESTRATOR}" "${TSVC_DIR}" \
-     --name "t${temp}_clang_new_remarks" \
-     --max-jobs "$MAX_JOBS" \
-     --num-attempts "$NUM_ATTEMPTS" \
-     --compiler clang_canary \
-     --vectorizer-compiler clang \
-     --compiler-feedback on \
-     --oracle-remarks off \
-     --filter-distribute-suggestion on \
-     --model-name "$MODEL_NAME" \
-     --model-url "$MODEL_URL" \
-     --temperature "$temp"
+    # # 4. Clang+NewRemarks
+    # "${ORCHESTRATOR}" "${TSVC_DIR}" \
+    #  --name "t${temp}_clang_new_remarks" \
+    #  --max-jobs "$MAX_JOBS" \
+    #  --num-attempts "$NUM_ATTEMPTS" \
+    #  --compiler clang_canary \
+    #  --vectorizer-compiler clang \
+    #  --compiler-feedback on \
+    #  --oracle-remarks off \
+    #  --filter-distribute-suggestion on \
+    #  --model-name "$MODEL_NAME" \
+    #  --model-url "$MODEL_URL" \
+    #  --temperature "$temp"
 
     # 5. Intel+NoRemarks
     "${ORCHESTRATOR}" "${TSVC_DIR}" \
