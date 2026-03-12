@@ -1,24 +1,29 @@
 #!/bin/bash
 # Delete all *_opt directories inside TSVC_2_vec/ for every experiment in results/
 
-RESULTS_DIR="${1:-/pool/akash/canary/results}"
+RESULTS_DIR="/pool/akash/canary/results"
 
-for experiment in "$RESULTS_DIR"/*/; do
-    vec_dir="$experiment/TSVC_2_vec"
-    [[ -d "$vec_dir" ]] || continue
+if [[ -z "$1" ]]; then
+    echo "Usage: $0 <experiment_name>"
+    echo "  Cleans *_opt directories from results/<experiment_name>/TSVC_2_vec/"
+    exit 1
+fi
 
-    echo "Cleaning $vec_dir ..."
-    # Use ls + grep to avoid slow recursive find
-    dirs_to_delete=$(ls "$vec_dir" | grep '_opt$')
-    count=$(echo "$dirs_to_delete" | wc -l)
-    # echo "  Found $count _opt dirs. Sample:"
-    # echo "$dirs_to_delete" | head -5 | sed 's/^/    /'
-    # echo "    ..."
-    # echo "$dirs_to_delete" | tail -2 | sed 's/^/    /'
+EXPERIMENT_DIR="$RESULTS_DIR/$1"
+if [[ ! -d "$EXPERIMENT_DIR" ]]; then
+    echo "Error: directory '$EXPERIMENT_DIR' does not exist"
+    exit 1
+fi
 
-    # Uncomment to actually delete:
-    echo "$dirs_to_delete" | while read -r d; do
-        rm -rf "$vec_dir/$d"
-    done
-    # echo "  (dry run — uncomment to delete)"
+vec_dir="$EXPERIMENT_DIR/TSVC_2_vec"
+if [[ ! -d "$vec_dir" ]]; then
+    echo "Error: no TSVC_2_vec directory in '$EXPERIMENT_DIR'"
+    exit 1
+fi
+
+echo "Cleaning $vec_dir ..."
+dirs_to_delete=$(ls "$vec_dir" | grep '_opt$')
+
+echo "$dirs_to_delete" | while read -r d; do
+    rm -rf "$vec_dir/$d"
 done

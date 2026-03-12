@@ -201,6 +201,6 @@ done
 wait
 
 # Clean up opt dirs now that all jobs are finished
-"${SCRIPT_DIR}"/cleanup_opt_dirs.sh "$results_dir"
+"${SCRIPT_DIR}"/cleanup_opt_dirs.sh "$(basename "$experiment_dir")"
 
 echo "Done. All vectorization runs complete."
