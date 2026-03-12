@@ -50,9 +50,8 @@ def gather_stats(experiment_dir, vec_dir):
     total = num_functions * num_attempts
 
     # Find finished attempts via completion marker
-    # New format: *_vec/*_attempt_*/*_logs/file_tsvc.c/func_*/iteration_*/09_finalize/state_after.json
     pattern = os.path.join(
-        vec_dir, "*_attempt_*", "*_logs", "file_tsvc.c", "func_*", "iteration_*",
+        vec_dir, "*_logs", "file_tsvc.c", "func_*", "iteration_*",
         "09_finalize", "state_after.json"
     )
     finished_paths = set(glob.glob(pattern))
@@ -82,8 +81,8 @@ def gather_stats(experiment_dir, vec_dir):
 def parse_completion(path):
     """Extract (func_name, attempt_number, finish_time) from a finished-attempt path.
 
-    Path looks like: .../TSVC_2_s000_attempt_001/TSVC_2_s000_logs/file_tsvc.c/func_s000/iteration_1/...
-    The attempt number lives in the *_attempt_* directory component.
+    Path looks like: .../s2101_attempt_3_logs/file_tsvc.c/func_s2101/iteration_1/...
+    The attempt number lives in the *_logs directory component.
     """
     parts = Path(path).parts
     func_name = None
@@ -91,7 +90,7 @@ def parse_completion(path):
     for p in parts:
         if p.startswith("func_"):
             func_name = p[len("func_"):]
-        m = re.search(r'_attempt_(\d+)$', p)
+        m = re.search(r'_attempt_(\d+)_logs$', p)
         if m:
             attempt = m.group(1)
     finish_time = datetime.fromtimestamp(os.path.getmtime(path))
