@@ -28,9 +28,11 @@ COMPILERS = {
 }
 
 
-def compile_tsvc(tsvc_dir: Path, compiler: str) -> str | None:
+def compile_tsvc(tsvc_dir: Path, compiler: str) -> tuple[str | None, str]:
     """
-    Compile TSVC with the given compiler and return the path to the remark file.
+    Compile TSVC with the given compiler.
+    Returns (remark_file_path, compiler_output) where compiler_output
+    is the combined stdout+stderr from compilation.
     """
     info = COMPILERS[compiler]
     cwd = os.getcwd()
@@ -54,17 +56,19 @@ def compile_tsvc(tsvc_dir: Path, compiler: str) -> str | None:
         text=True,
     )
 
+    compiler_output = result.stdout + result.stderr
+
     if result.returncode != 0:
         print(f"ERROR: Compilation failed for {compiler}")
         print(result.stderr)
         os.chdir(cwd)
-        return None
+        return None, compiler_output
 
     # Find the remark file
     remark_files = glob.glob(info["remark_glob"], recursive=True)
     os.chdir(cwd)
 
-    return remark_files[0] if remark_files else None
+    return (remark_files[0] if remark_files else None, compiler_output)
     
 def initialize_parser():
     parser = argparse.ArgumentParser(
@@ -168,14 +172,16 @@ def main():
 
     tsvc_dir = Path(__file__).resolve().parent.parent / "benchmarks" / "TSVC_2"
 
-    # Compile with each selected compiler and collect remark file paths
+    # Compile with each selected compiler and collect remark files + compiler output
     remark_files = {}
+    compiler_outputs = {}
     for compiler in selected:
         print(f"Compiling TSVC with {compiler}...")
-        remark_file = compile_tsvc(tsvc_dir, compiler)
+        remark_file, compiler_output = compile_tsvc(tsvc_dir, compiler)
         if remark_file is None:
             print(f"WARNING: No remark file produced for {compiler}")
         remark_files[compiler] = remark_file
+        compiler_outputs[compiler] = compiler_output
 
     print(f"\nRemark files: {remark_files}")
 
