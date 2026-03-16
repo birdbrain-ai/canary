@@ -155,11 +155,28 @@ def parse_clang_trunk_remarks(remark_file: str, func_name: str) -> str:
 
 def parse_clang_canary_remarks(remark_file: str, compiler_output: str, func_name: str) -> str:
     """
-    Parse Clang canary .opt.yaml file and compiler output (dependency warnings)
-    and return pipe-separated remark categories for a function.
+    Parse Clang canary compiler output for dependence reports for a function.
+    Extracts dependence types (e.g. 'Forward write-after-read dependence') from
+    blocks matching 'Dependence report for loop in <func_name>'.
+    Returns pipe-separated deduplicated dependence types.
     """
-    # TODO: implement
-    return ""
+    # Find all dependence report blocks for this function.
+    # Each block starts with "Dependence report for loop in  <func_name>"
+    # and continues with indented lines until the next warning or end of output.
+    dep_pattern = re.compile(
+        rf'Dependence report for loop in\s+{re.escape(func_name)}\n(.*?)(?=\n\S|\Z)',
+        re.DOTALL,
+    )
+    blocks = dep_pattern.findall(compiler_output)
+
+    # Extract dependence type from lines like:
+    #     Forward write-after-read dependence between source (...) and destination (...)
+    dep_type_pattern = re.compile(r'^\s+(\S+\s+\S+\s+dependence)', re.MULTILINE)
+
+    found = dict.fromkeys(
+        m.replace(" ", "_") for block in blocks for m in dep_type_pattern.findall(block)
+    )
+    return "|".join(found)
 
 
 PARSERS = {
