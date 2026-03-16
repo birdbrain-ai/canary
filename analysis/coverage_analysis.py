@@ -174,6 +174,7 @@ def parse_clang_canary_remarks(remark_file: str, compiler_output: str, func_name
 
     # Extract dependence type from lines like:
     #     Forward write-after-read dependence between source (...) and destination (...)
+    # TODO: Make this more readable
     dep_type_pattern = re.compile(r'^\s+(\S+\s+\S+\s+dependence)', re.MULTILINE)
 
     found = dict.fromkeys(
