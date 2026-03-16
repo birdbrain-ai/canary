@@ -12,67 +12,68 @@ import argparse
 import re
 from pathlib import Path
 
-# Compile TSVC_2
-def compile_tsvc(tsvc_dir, make_command_clang: str, make_command_intel):
-    '''
-    - Compile TSVC
-    - Return optimization remarks for tsvc.c:
-    - Intel: "tsvc.optrpt"
-    '''
+COMPILERS = {
+    "intel": {
+        "make_command": "source ~/tank/intel/oneapi/compiler/latest/env/vars.sh && make COMPILER=intel",
+        "remark_glob": "**/tsvc.optrpt",
+    },
+    "clang_trunk": {
+        "make_command": "make COMPILER=clang_trunk",
+        "remark_glob": "**/tsvc_vec.opt.yaml",
+    },
+    "clang_canary": {
+        "make_command": "make COMPILER=clang_canary",
+        "remark_glob": "**/tsvc_vec.opt.yaml",
+    },
+}
+
+
+def compile_tsvc(tsvc_dir: Path, compiler: str) -> str | None:
+    """
+    Compile TSVC with the given compiler and return the path to the remark file.
+    """
+    info = COMPILERS[compiler]
     cwd = os.getcwd()
     os.chdir(tsvc_dir)
-    
-    # Clean old output
-    rm_result = subprocess.run(
-        "find . -name '*.opt.yaml' -type f -delete",
+
+    # Clean old remark files
+    for pattern in ["*.opt.yaml", "*.optrpt"]:
+        subprocess.run(
+            f"find . -name '{pattern}' -type f -delete",
+            shell=True,
+            capture_output=True,
+            text=True,
+        )
+
+    # Compile
+    result = subprocess.run(
+        info["make_command"],
         shell=True,
+        executable="/bin/bash",
         capture_output=True,
         text=True,
     )
 
-    rm_result = subprocess.run(
-        "find . -name '*.optrpt' -type f -delete",
-        shell=True,
-        capture_output=True,
-        text=True,
-    )
-    
-    result = subprocess.run(
-        make_command_clang,
-        shell=True,
-        executable='/bin/bash',
-        capture_output=True,
-        text=True,
-    )
-
-    result = subprocess.run(
-        make_command_intel,
-        shell=True,
-        executable='/bin/bash',
-        capture_output=True,
-        text=True,
-    )
-    
     if result.returncode != 0:
-        print("ERROR: Compilation failed")
-        exit(1)
+        print(f"ERROR: Compilation failed for {compiler}")
+        print(result.stderr)
+        os.chdir(cwd)
+        return None
 
-    # Extract compilation feedback
-    clang_remark_file = glob.glob('**/tsvc_vec.opt.yaml', recursive=True)
-    intel_remark_file = glob.glob('**/tsvc.optrpt', recursive=True)
-
+    # Find the remark file
+    remark_files = glob.glob(info["remark_glob"], recursive=True)
     os.chdir(cwd)
-    
-    return [clang_remark_file[0] if len(clang_remark_file) > 0 else None, intel_remark_file[0] if len(intel_remark_file) > 0 else None]
+
+    return remark_files[0] if remark_files else None
     
 def initialize_parser():
-    # 1. Initialize the parser
-    parser = argparse.ArgumentParser(description="This is a script that compiles TSVC 2 with a compiler, parses its compilation report, and outputs a mapping between TSVC loop and remark.")
-
-    # 2. Add arguments
-    parser.add_argument("tsvc_dir", help="The directory of TSVC")
-    parser.add_argument("-i", "--intel", action="store_true", help="Use intel instead of Clang (the default)")
-    parser.add_argument("-o", "--output", default="functions_to_remarks.csv", help="Output CSV file path (default: functions_to_remarks.csv)")
+    parser = argparse.ArgumentParser(
+        description="Compile TSVC with specified compilers and generate a CSV of optimization remarks."
+    )
+    parser.add_argument("--intel", action="store_true", help="Include Intel compiler")
+    parser.add_argument("--clang-trunk", action="store_true", help="Include Clang trunk compiler")
+    parser.add_argument("--clang-canary", action="store_true", help="Include Clang canary compiler")
+    parser.add_argument("-o", "--output", default="coverage.csv", help="Output CSV file path (default: coverage.csv)")
     return parser
 
 
@@ -150,39 +151,38 @@ def filter_remarks_by_function(yaml_file_path: str, func_name: str, include_loop
 
     
 def main():
-    # Parse arguments
     parser = initialize_parser()
     args = parser.parse_args()
-    make_command_intel = "source ~/tank/intel/oneapi/compiler/latest/env/vars.sh && make COMPILER=intel"
-    make_command_clang = "make COMPILER=clang"
 
-    # Convert to absolute path before compile_tsvc changes directory
-    tsvc_dir = Path(args.tsvc_dir).resolve()
+    # Map CLI flags to compiler names
+    selected = []
+    if args.intel:
+        selected.append("intel")
+    if args.clang_trunk:
+        selected.append("clang_trunk")
+    if args.clang_canary:
+        selected.append("clang_canary")
 
-    # Compile TSVC_2
-    clang_remark_file, intel_remark_file = compile_tsvc(args.tsvc_dir, make_command_intel, make_command_clang)
+    if not selected:
+        parser.error("At least one compiler must be specified (--intel, --clang-trunk, --clang-canary)")
 
-    remark_file = tsvc_dir / (intel_remark_file if args.intel else clang_remark_file)
-    # print(remark_file)
+    tsvc_dir = Path(__file__).resolve().parent.parent / "benchmarks" / "TSVC_2"
 
-    # Get a list of all functions in TSVC
-    functions = extract_loop_functions(tsvc_dir / "src" / "tsvc.c")
+    # Compile with each selected compiler and collect remark file paths
+    remark_files = {}
+    for compiler in selected:
+        print(f"Compiling TSVC with {compiler}...")
+        remark_file = compile_tsvc(tsvc_dir, compiler)
+        if remark_file is None:
+            print(f"WARNING: No remark file produced for {compiler}")
+        remark_files[compiler] = remark_file
 
-    mapping = []
-    
-    for function in functions:
-        # Extract optimization remarks
-        function_remark_clang, clang_remark_names = filter_remarks_by_function(tsvc_dir / clang_remark_file, function, False, True)
-        # function_remark_intel = ""
-        function_remark_intel, intel_remark_names = filter_remarks_by_function(tsvc_dir / intel_remark_file, function, False, False)
-        # Add to dictionary
-        mapping.append([function, clang_remark_names, function_remark_clang, intel_remark_names, function_remark_intel])
+    print(f"\nRemark files: {remark_files}")
 
-    with open(args.output, 'w', newline='') as csvfile:
-        csvwriter = csv.writer(csvfile)
-        fields = ['function', 'clang_remark_names', 'clang_remark_text', 'intel_remark_names', 'intel_remark_text']
-        csvwriter.writerow(fields)
-        csvwriter.writerows(mapping)
+    # TODO: Parse remark files and generate CSV
+    # function,compiler_1_remarks,compiler_2_remarks,compiler_3_remarks
+
 
 if __name__ == "__main__":
     main()
+
