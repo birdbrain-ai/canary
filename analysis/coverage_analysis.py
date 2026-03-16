@@ -92,20 +92,65 @@ def extract_loop_functions(tsvc_c_path: str) -> list[str]:
 
     return functions
 
+INTEL_REMARK_CATEGORIES = [
+    "output dependence",
+    "anti dependence",
+    "multiple exits",
+    "flow dependence",
+    "outer loop",
+    "loop control var",
+    "function call",
+    "seems inefficient",
+]
+
+
 def parse_intel_remarks(remark_file: str, func_name: str) -> str:
     """
     Parse Intel .optrpt file and return pipe-separated remark categories for a function.
     """
-    # TODO: implement
-    return ""
+    with open(remark_file, 'r') as f:
+        file_content = f.read()
+
+    regex = f"Begin optimization report for: {func_name}[\\S\\s]*?================================================================="
+    match_obj = re.search(regex, file_content)
+    if match_obj is None:
+        return ""
+
+    block = match_obj.group()
+    found = []
+    for category in INTEL_REMARK_CATEGORIES:
+        if category in block:
+            found.append(category.replace(" ", "_"))
+
+    return "|".join(found)
 
 
 def parse_clang_trunk_remarks(remark_file: str, func_name: str) -> str:
     """
-    Parse Clang trunk .opt.yaml file and return pipe-separated remark categories for a function.
+    Parse Clang trunk .opt.yaml file and return pipe-separated remark Names for a function.
     """
-    # TODO: implement
-    return ""
+    yq_filter = f'select(.Function == "{func_name}")'
+    result = subprocess.run(
+        ["yq", yq_filter, remark_file],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return ""
+
+    result_names = subprocess.run(
+        ["yq", ".Name"],
+        input=result.stdout,
+        capture_output=True,
+        text=True,
+    )
+    if result_names.returncode != 0 or not result_names.stdout.strip():
+        return ""
+
+    names = dict.fromkeys(
+        n for n in result_names.stdout.strip().split("\n") if n and n != "---"
+    )
+    return "|".join(names)
 
 
 def parse_clang_canary_remarks(remark_file: str, compiler_output: str, func_name: str) -> str:
