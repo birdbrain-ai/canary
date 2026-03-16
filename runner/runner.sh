@@ -4,7 +4,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)
 TSVC_DIR="${SCRIPT_DIR}/../benchmarks/TSVC_2"
 ORCHESTRATOR="${SCRIPT_DIR}/../src/orchestration/orchestrator.sh"
 
-MODEL_NAME="Qwen/Qwen3.5-27B"
+MODEL_NAME="Qwen/Qwen3.5-27B-FP8"
 MODEL_URL="http://localhost:8000/v1"
 MAX_JOBS=128
 NUM_ATTEMPTS=50
