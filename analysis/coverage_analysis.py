@@ -172,7 +172,8 @@ def parse_clang_canary_remarks(remark_file: str, compiler_output: str, func_name
     )
     blocks = dep_pattern.findall(compiler_output)
 
-    # TODO: Make this more readable
+    # This captures two non-whitespace blocks immediately after the indentation in the
+    # dependence reports. Brittle, but correct for now. 
     dep_type_pattern = re.compile(r'^\s+(\S+\s+\S+\s+dependence)', re.MULTILINE)
 
     found = dict.fromkeys(

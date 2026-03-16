@@ -17,9 +17,10 @@ echo "Starting vLLM server on port $PORT ..."
 echo "Hostname: $(hostname)"
 
 ./run.sh python3 -m vllm.entrypoints.openai.api_server \
-    --model Qwen/Qwen3.5-27B \
+    --model Qwen/Qwen2.5-Coder-7B-Instruct \
     --host 0.0.0.0 \
     --port $PORT \
     --trust-remote-code \
     --dtype auto \
 	--tensor-parallel-size 2
+
