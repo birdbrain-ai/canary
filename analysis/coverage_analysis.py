@@ -38,7 +38,8 @@ def compile_tsvc(tsvc_dir: Path, compiler: str) -> tuple[str | None, str]:
     cwd = os.getcwd()
     os.chdir(tsvc_dir)
 
-    # Clean old remark files
+    # Clean old build artifacts and remark files
+    subprocess.run("make clean", shell=True, capture_output=True, text=True)
     for pattern in ["*.opt.yaml", "*.optrpt"]:
         subprocess.run(
             f"find . -name '{pattern}' -type f -delete",
@@ -64,11 +65,13 @@ def compile_tsvc(tsvc_dir: Path, compiler: str) -> tuple[str | None, str]:
         os.chdir(cwd)
         return None, compiler_output
 
-    # Find the remark file
+    # Find the remark file and convert to absolute path
     remark_files = glob.glob(info["remark_glob"], recursive=True)
     os.chdir(cwd)
 
-    return (remark_files[0] if remark_files else None, compiler_output)
+    if remark_files:
+        return str((tsvc_dir / remark_files[0]).resolve()), compiler_output
+    return None, compiler_output
     
 def initialize_parser():
     parser = argparse.ArgumentParser(
@@ -203,32 +206,33 @@ def main():
         parser.error("At least one compiler must be specified (--intel, --clang-trunk, --clang-canary)")
 
     tsvc_dir = Path(__file__).resolve().parent.parent / "benchmarks" / "TSVC_2"
+    tsvc_c_path = tsvc_dir / "src" / "tsvc.c"
+    functions = extract_loop_functions(str(tsvc_c_path))
 
-    # Compile with each selected compiler and collect remark files + compiler output
-    remark_files = {}
-    compiler_outputs = {}
+    # For each compiler: compile, parse remarks for all functions, then clean.
+    # This avoids remark files from one compiler being deleted by the next.
+    compiler_results = {}  # compiler -> {func_name -> remarks_string}
     for compiler in selected:
         print(f"Compiling TSVC with {compiler}...")
         remark_file, compiler_output = compile_tsvc(tsvc_dir, compiler)
         if remark_file is None:
             print(f"WARNING: No remark file produced for {compiler}")
-        remark_files[compiler] = remark_file
-        compiler_outputs[compiler] = compiler_output
 
-    print(f"\nRemark files: {remark_files}")
+        print(f"  Remark file: {remark_file}")
+        print(f"  Parsing remarks...")
 
-    # Extract function list from TSVC source
-    tsvc_c_path = tsvc_dir / "src" / "tsvc.c"
-    functions = extract_loop_functions(str(tsvc_c_path))
+        compiler_results[compiler] = {}
+        for func_name in functions:
+            compiler_results[compiler][func_name] = PARSERS[compiler](
+                remark_file, compiler_output, func_name
+            )
 
-    # Parse remarks for each function and build CSV rows
+    # Build CSV rows
     rows = []
     for func_name in functions:
         row = {"function": func_name}
         for compiler in selected:
-            row[compiler] = PARSERS[compiler](
-                remark_files[compiler], compiler_outputs[compiler], func_name
-            )
+            row[compiler] = compiler_results[compiler][func_name]
         rows.append(row)
 
     # Write CSV: function,compiler_1_remarks,compiler_2_remarks,...
