@@ -92,68 +92,38 @@ def extract_loop_functions(tsvc_c_path: str) -> list[str]:
 
     return functions
 
-def filter_remarks_by_function(yaml_file_path: str, func_name: str, include_loop_unroll: bool, use_clang_not_intel: bool) -> tuple[str, list[str]]:
+def parse_intel_remarks(remark_file: str, func_name: str) -> str:
     """
-    Filter YAML optimization remarks to only include entries for a specific function.
-    Includes loop-vectorize, slp-vectorizer, and loop-unroll remarks.
-    Uses two yq queries: one for exact matches, one for all docs (which we demangle).
-    Concatenates and deduplicates results.
-
-    Args:
-        yaml_file_path: Path to .opt.yaml file
-        func_name: Function name to filter for (e.g., "vecAdd", "init")
-
-    Returns:
-        Tuple of (filtered YAML content as string, list of remark Names)
+    Parse Intel .optrpt file and return pipe-separated remark categories for a function.
     """
-
-    ### Case: INTEL
-    is_intel_opt_report = not use_clang_not_intel
-    if is_intel_opt_report:
-        with open(yaml_file_path, 'r') as f:
-            file_content = f.read()
-            regex = f"Begin optimization report for: {func_name}[\S\s]*?================================================================="
-            match_obj = re.search(regex, file_content)
-            return (match_obj.group() if match_obj is not None else "", [])
-
-    ### Case: CLANG
-    if include_loop_unroll:
-        query_part = "(.Pass == \"loop-vectorize\" or .Pass == \"loop-unroll\")"
-    else:
-        query_part = "(.Pass == \"loop-vectorize\")"
-
-    # Query: Get docs with exact function name match (handles unmangled names)
-    yq_filter_exact = f'select({query_part} and .Function == "{func_name}")'
-    result_exact = subprocess.run(
-        ["yq", yq_filter_exact, yaml_file_path],
-        capture_output=True,
-        text=True,
-    )
-
-    # print(yq_filter_exact)
-    # print(yaml_file_path)
+    # TODO: implement
+    return ""
 
 
-
-    exact_matches = result_exact.stdout if result_exact.returncode == 0 else ""
-
-    # Extract the Name field from each YAML document using yq
-    remark_names = []
-    if exact_matches:
-        result_names = subprocess.run(
-            ["yq", ".Name"],
-            input=exact_matches,
-            capture_output=True,
-            text=True,
-        )
-        if result_names.returncode == 0 and result_names.stdout.strip():
-            remark_names = [name for name in result_names.stdout.strip().split("\n") if name]
-
-    return (exact_matches, remark_names)
+def parse_clang_trunk_remarks(remark_file: str, func_name: str) -> str:
+    """
+    Parse Clang trunk .opt.yaml file and return pipe-separated remark categories for a function.
+    """
+    # TODO: implement
+    return ""
 
 
+def parse_clang_canary_remarks(remark_file: str, compiler_output: str, func_name: str) -> str:
+    """
+    Parse Clang canary .opt.yaml file and compiler output (dependency warnings)
+    and return pipe-separated remark categories for a function.
+    """
+    # TODO: implement
+    return ""
 
-    
+
+PARSERS = {
+    "intel": lambda remark_file, compiler_output, func_name: parse_intel_remarks(remark_file, func_name),
+    "clang_trunk": lambda remark_file, compiler_output, func_name: parse_clang_trunk_remarks(remark_file, func_name),
+    "clang_canary": lambda remark_file, compiler_output, func_name: parse_clang_canary_remarks(remark_file, compiler_output, func_name),
+}
+
+
 def main():
     parser = initialize_parser()
     args = parser.parse_args()
@@ -185,8 +155,27 @@ def main():
 
     print(f"\nRemark files: {remark_files}")
 
-    # TODO: Parse remark files and generate CSV
-    # function,compiler_1_remarks,compiler_2_remarks,compiler_3_remarks
+    # Extract function list from TSVC source
+    tsvc_c_path = tsvc_dir / "src" / "tsvc.c"
+    functions = extract_loop_functions(str(tsvc_c_path))
+
+    # Parse remarks for each function and build CSV rows
+    rows = []
+    for func_name in functions:
+        row = {"function": func_name}
+        for compiler in selected:
+            row[compiler] = PARSERS[compiler](
+                remark_files[compiler], compiler_outputs[compiler], func_name
+            )
+        rows.append(row)
+
+    # Write CSV: function,compiler_1_remarks,compiler_2_remarks,...
+    with open(args.output, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["function"] + selected)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    print(f"Wrote {len(rows)} rows to {args.output}")
 
 
 if __name__ == "__main__":
