@@ -50,7 +50,7 @@ def extract_compiler(make_command):
         Compiler name (e.g., 'clang', 'GNU') or 'GNU' as default
     """
     import re
-    match = re.search(r'COMPILER=(\w+)', make_command)
+    match = re.search(r'COMPILER=([\w.]+)', make_command)
     if match:
         return match.group(1)
     return 'GNU'  # Default to GNU if not specified
