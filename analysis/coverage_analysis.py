@@ -25,6 +25,10 @@ COMPILERS = {
         "make_command": "make COMPILER=clang_canary",
         "remark_glob": "**/tsvc_vec.opt.yaml",
     },
+    "clang_21.1.8_canary": {
+        "make_command": "make COMPILER=clang_21.1.8_canary",
+        "remark_glob": "**/tsvc_vec.opt.yaml",
+    },
 }
 
 
@@ -80,6 +84,7 @@ def initialize_parser():
     parser.add_argument("--intel", action="store_true", help="Include Intel compiler")
     parser.add_argument("--clang-trunk", action="store_true", help="Include Clang trunk compiler")
     parser.add_argument("--clang-canary", action="store_true", help="Include Clang canary compiler")
+    parser.add_argument("--clang-canary-21", action="store_true", help="Include Clang 21.1.8 canary compiler")
     parser.add_argument("-o", "--output", default="coverage.csv", help="Output CSV file path (default: coverage.csv)")
     return parser
 
@@ -186,6 +191,7 @@ PARSERS = {
     "intel": lambda remark_file, compiler_output, func_name: parse_intel_remarks(remark_file, func_name),
     "clang_trunk": lambda remark_file, compiler_output, func_name: parse_clang_trunk_remarks(remark_file, func_name),
     "clang_canary": lambda remark_file, compiler_output, func_name: parse_clang_canary_remarks(remark_file, compiler_output, func_name),
+    "clang_21.1.8_canary": lambda remark_file, compiler_output, func_name: parse_clang_canary_remarks(remark_file, compiler_output, func_name),
 }
 
 
@@ -201,9 +207,11 @@ def main():
         selected.append("clang_trunk")
     if args.clang_canary:
         selected.append("clang_canary")
+    if args.clang_canary_21:
+        selected.append("clang_21.1.8_canary")
 
     if not selected:
-        parser.error("At least one compiler must be specified (--intel, --clang-trunk, --clang-canary)")
+        parser.error("At least one compiler must be specified (--intel, --clang-trunk, --clang-canary, --clang-canary-21)")
 
     tsvc_dir = Path(__file__).resolve().parent.parent / "benchmarks" / "TSVC_2"
     tsvc_c_path = tsvc_dir / "src" / "tsvc.c"
