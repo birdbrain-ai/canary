@@ -17,6 +17,10 @@ COMPILERS = {
         "make_command": "source ~/tank/intel/oneapi/compiler/latest/env/vars.sh && make COMPILER=intel",
         "remark_glob": "**/tsvc.optrpt",
     },
+    "clang": {
+        "make_command": "make COMPILER=clang",
+        "remark_glob": "**/tsvc_vec.opt.yaml",
+    },
     "clang_trunk": {
         "make_command": "make COMPILER=clang_trunk",
         "remark_glob": "**/tsvc_vec.opt.yaml",
@@ -82,6 +86,7 @@ def initialize_parser():
         description="Compile TSVC with specified compilers and generate a CSV of optimization remarks."
     )
     parser.add_argument("--intel", action="store_true", help="Include Intel compiler")
+    parser.add_argument("--clang", action="store_true", help="Include base Clang 21.1.8 compiler")
     parser.add_argument("--clang-trunk", action="store_true", help="Include Clang trunk compiler")
     parser.add_argument("--clang-canary", action="store_true", help="Include Clang canary compiler")
     parser.add_argument("--clang-canary-21", action="store_true", help="Include Clang 21.1.8 canary compiler")
@@ -161,9 +166,9 @@ def parse_clang_trunk_remarks(remark_file: str, func_name: str) -> str:
     return "|".join(names)
 
 
-def parse_clang_canary_remarks(remark_file: str, compiler_output: str, func_name: str) -> str:
+def parse_canary_dependence_reports(compiler_output: str, func_name: str) -> str:
     """
-    Parse Clang canary compiler output for dependence reports for a function.
+    Parse dependence reports from Clang canary compiler output for a function.
     Extracts dependence types (e.g. 'Forward write-after-read dependence') from
     blocks matching 'Dependence report for loop in <func_name>'.
     Returns pipe-separated deduplicated dependence types.
@@ -178,7 +183,7 @@ def parse_clang_canary_remarks(remark_file: str, compiler_output: str, func_name
     blocks = dep_pattern.findall(compiler_output)
 
     # This captures two non-whitespace blocks immediately after the indentation in the
-    # dependence reports. Brittle, but correct for now. 
+    # dependence reports. Brittle, but correct for now.
     dep_type_pattern = re.compile(r'^\s+(\S+\s+\S+\s+dependence)', re.MULTILINE)
 
     found = dict.fromkeys(
@@ -187,8 +192,22 @@ def parse_clang_canary_remarks(remark_file: str, compiler_output: str, func_name
     return "|".join(found)
 
 
+def parse_clang_canary_remarks(remark_file: str, compiler_output: str, func_name: str) -> str:
+    """
+    Parse both .opt.yaml remarks and dependence reports from Clang canary output.
+    """
+    yaml_remarks = parse_clang_trunk_remarks(remark_file, func_name) if remark_file else ""
+    dep_remarks = parse_canary_dependence_reports(compiler_output, func_name)
+
+    all_remarks = dict.fromkeys(
+        r for r in (yaml_remarks.split('|') + dep_remarks.split('|')) if r
+    )
+    return '|'.join(all_remarks)
+
+
 PARSERS = {
     "intel": lambda remark_file, compiler_output, func_name: parse_intel_remarks(remark_file, func_name),
+    "clang": lambda remark_file, compiler_output, func_name: parse_clang_trunk_remarks(remark_file, func_name),
     "clang_trunk": lambda remark_file, compiler_output, func_name: parse_clang_trunk_remarks(remark_file, func_name),
     "clang_canary": lambda remark_file, compiler_output, func_name: parse_clang_canary_remarks(remark_file, compiler_output, func_name),
     "clang_21.1.8_canary": lambda remark_file, compiler_output, func_name: parse_clang_canary_remarks(remark_file, compiler_output, func_name),
@@ -203,6 +222,8 @@ def main():
     selected = []
     if args.intel:
         selected.append("intel")
+    if args.clang:
+        selected.append("clang")
     if args.clang_trunk:
         selected.append("clang_trunk")
     if args.clang_canary:
