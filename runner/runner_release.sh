@@ -41,33 +41,33 @@ for temp in "${TEMPERATURES[@]}"; do
     #  --model-url "$MODEL_URL" \
     #  --temperature "$temp"
 
-    # # 3. Clang+OracleRemarks
-    # "${ORCHESTRATOR}" "${TSVC_DIR}" \
-    #  --name "t${temp}_clang_oracle_remarks" \
-    #  --max-jobs "$MAX_JOBS" \
-    #  --num-attempts "$NUM_ATTEMPTS" \
-    #  --compiler clang_trunk \
-    #  --vectorizer-compiler clang \
-    #  --compiler-feedback on \
-    #  --oracle-remarks on \
-    #  --filter-distribute-suggestion on \
-    #  --model-name "$MODEL_NAME" \
-    #  --model-url "$MODEL_URL" \
-    #  --temperature "$temp"
-
-    # 4. Clang+NewRemarks
+    # 3. Clang+OracleRemarks
     "${ORCHESTRATOR}" "${TSVC_DIR}" \
-     --name "t${temp}_clang_new_remarks" \
+     --name "t${temp}_clang_oracle_remarks" \
      --max-jobs "$MAX_JOBS" \
      --num-attempts "$NUM_ATTEMPTS" \
-     --compiler clang_21.1.8_canary \
+     --compiler clang \
      --vectorizer-compiler clang \
      --compiler-feedback on \
-     --oracle-remarks off \
+     --oracle-remarks on \
      --filter-distribute-suggestion on \
      --model-name "$MODEL_NAME" \
      --model-url "$MODEL_URL" \
      --temperature "$temp"
+
+    # 4. Clang+NewRemarks
+    # "${ORCHESTRATOR}" "${TSVC_DIR}" \
+    #  --name "t${temp}_clang_new_remarks" \
+    #  --max-jobs "$MAX_JOBS" \
+    #  --num-attempts "$NUM_ATTEMPTS" \
+    #  --compiler clang_21.1.8_canary \
+    #  --vectorizer-compiler clang \
+    #  --compiler-feedback on \
+    #  --oracle-remarks off \
+    #  --filter-distribute-suggestion on \
+    #  --model-name "$MODEL_NAME" \
+    #  --model-url "$MODEL_URL" \
+    #  --temperature "$temp"
 
     # # 5. Intel+NoRemarks
     # "${ORCHESTRATOR}" "${TSVC_DIR}" \
