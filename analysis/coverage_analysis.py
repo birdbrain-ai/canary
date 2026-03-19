@@ -114,6 +114,7 @@ INTEL_REMARK_CATEGORIES = [
     "loop control var",
     "function call",
     "seems inefficient",
+    "multiversioning"
 ]
 
 
@@ -132,7 +133,7 @@ def parse_intel_remarks(remark_file: str, func_name: str) -> str:
     block = match_obj.group()
     found = []
     for category in INTEL_REMARK_CATEGORIES:
-        if category in block:
+        if category.lower() in block.lower():
             found.append(category.replace(" ", "_"))
 
     return "|".join(found)
