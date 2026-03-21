@@ -11,8 +11,7 @@ AI_PRAGMAS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 name="TSVC_$(date +%Y-%m-%d_%H-%M-%S)"
 compiler="clang"
 vectorizer_compiler="clang"
-compiler_feedback="on"
-oracle_remarks="off"
+oracle_ablation_config=""
 filter_distribute_suggestion="off"
 model_name="Qwen/Qwen2.5-Coder-7B-Instruct"
 model_url="http://localhost:8001/v1"
@@ -28,8 +27,8 @@ usage() {
 	cat <<EOF
 Usage: $(basename "$0") <tsvc_dir> [options]
 
-Split a TSVC benchmark into per-function benchmarks and run the vectorizer
-on each one in parallel.
+Split a TSVC benchmark into per-function benchmarks and run the ablation
+vectorizer on each one in parallel.
 
 Arguments:
   tsvc_dir                       Path to the TSVC benchmark directory
@@ -39,12 +38,11 @@ Orchestration options:
   --max-jobs N                   Max parallel vectorizer jobs (default: $max_jobs)
   --num-attempts N               Attempts per function (default: $num_attempts)
 
-Vectorizer options (forwarded to vectorizer.py):
-  --compiler NAME                Compiler for make COMPILER= (clang, clang_trunk, intel, etc.) (default: $compiler)
+Vectorizer options (forwarded to ablation/vectorizer.py):
+  --compiler NAME                Compiler for make COMPILER= (clang, clang_trunk, etc.) (default: $compiler)
   --vectorizer-compiler NAME     Remark format for vectorizer (clang, intel) (default: $vectorizer_compiler)
-  --compiler-feedback {on,off}   Compiler feedback in LLM prompts (default: $compiler_feedback)
-  --oracle-remarks {on,off}      Oracle remark supplements in prompts (default: $oracle_remarks)
-  --filter-distribute-suggestion {on,off}  Filter out distribute(enable) suggestion from remarks (default: $filter_distribute_suggestion)
+  --oracle-ablation-config N     Ablation config 1-6 (required)
+  --filter-distribute-suggestion {on,off}  Filter out distribute(enable) suggestion (default: $filter_distribute_suggestion)
   --model-name NAME              LLM model name (default: $model_name)
   --model-url URL                LLM API base URL (default: $model_url)
   --temperature T                LLM temperature (default: $temperature)
@@ -70,8 +68,7 @@ while [[ $# -gt 0 ]]; do
 	case $1 in
 		--compiler)          compiler=$2;              shift 2 ;;
 		--vectorizer-compiler) vectorizer_compiler=$2; shift 2 ;;
-		--compiler-feedback) compiler_feedback=$2;     shift 2 ;;
-		--oracle-remarks)    oracle_remarks=$2;        shift 2 ;;
+		--oracle-ablation-config) oracle_ablation_config=$2; shift 2 ;;
 		--filter-distribute-suggestion) filter_distribute_suggestion=$2; shift 2 ;;
 		--model-name)        model_name=$2;         shift 2 ;;
 		--model-url)         model_url=$2;          shift 2 ;;
@@ -87,6 +84,11 @@ while [[ $# -gt 0 ]]; do
 		*) echo "Unknown option: $1"; exit 1 ;;
 	esac
 done
+
+if [[ -z "$oracle_ablation_config" ]]; then
+	echo "Error: --oracle-ablation-config is required (1-6)"
+	exit 1
+fi
 
 if [[ ! -d "$tsvc_dir" ]]; then
 	echo "Error: $tsvc_dir is not a directory"
@@ -108,8 +110,7 @@ cat > "$experiment_dir/metadata.json" <<EOF
   "tsvc_dir": "$(realpath "$tsvc_dir")",
   "compiler": "$compiler",
   "vectorizer_compiler": "$vectorizer_compiler",
-  "compiler_feedback": "$compiler_feedback",
-  "oracle_remarks": "$oracle_remarks",
+  "oracle_ablation_config": $oracle_ablation_config,
   "filter_distribute_suggestion": "$filter_distribute_suggestion",
   "model_name": "$model_name",
   "model_url": "$model_url",
@@ -152,7 +153,7 @@ done
 
 echo "Found ${#subdirs[@]} per-function benchmarks"
 echo "Running $num_attempts attempts each, max $max_jobs parallel jobs"
-echo "Compiler: $compiler | Feedback: $compiler_feedback | Oracle: $oracle_remarks | FilterDistribute: $filter_distribute_suggestion | Model: $model_name | Temp: $temperature | Iters: $iterations"
+echo "Compiler: $compiler | AblationConfig: $oracle_ablation_config | FilterDistribute: $filter_distribute_suggestion | Model: $model_name | Temp: $temperature | Iters: $iterations"
 
 # --- Set make command and source compiler environment ---
 
@@ -165,7 +166,7 @@ if [[ "$compiler" == intel ]]; then
 	fi
 fi
 
-# --- Run vectorizer on each function ---
+# --- Run ablation vectorizer on each function ---
 
 for dir in "${subdirs[@]}"; do
 	for attempt in $(seq -w 1 "$num_attempts"); do
@@ -179,13 +180,12 @@ for dir in "${subdirs[@]}"; do
 
 		log_file="$attempt_dir/output.log"
 
-		python3 "$AI_PRAGMAS_DIR/src/workflows/engineer/vectorizer.py" \
+		python3 "$AI_PRAGMAS_DIR/src/workflows/ablation/vectorizer.py" \
 			"$attempt_dir" \
 			--make-command "$make_command" \
 			--run-command "python3 $AI_PRAGMAS_DIR/src/tsvc/validate_function_behavior.py" \
 			--compiler "$vectorizer_compiler" \
-			--compiler-feedback "$compiler_feedback" \
-			--oracle-remarks "$oracle_remarks" \
+			--oracle-ablation-config "$oracle_ablation_config" \
 			--filter-distribute-suggestion "$filter_distribute_suggestion" \
 			--model-name "$model_name" \
 			--model-url "$model_url" \
@@ -203,4 +203,4 @@ wait
 # Clean up opt dirs now that all jobs are finished
 "${SCRIPT_DIR}"/cleanup_opt_dirs.sh "$(basename "$experiment_dir")"
 
-echo "Done. All vectorization runs complete."
+echo "Done. All ablation vectorization runs complete."
