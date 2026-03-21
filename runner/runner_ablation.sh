@@ -19,7 +19,7 @@ for temp in "${TEMPERATURES[@]}"; do
          --name "t${temp}_ablation_config_${config}" \
          --max-jobs "$MAX_JOBS" \
          --num-attempts "$NUM_ATTEMPTS" \
-         --compiler clang_trunk \
+         --compiler clang \
          --vectorizer-compiler clang \
          --oracle-ablation-config "$config" \
          --filter-distribute-suggestion on \

@@ -137,7 +137,7 @@ echo "Copying $tsvc_dir to $tsvc_copy..."
 cp -r "$tsvc_dir" "$tsvc_copy"
 
 echo "Splitting $tsvc_copy into per-function benchmarks..."
-python3 "$AI_PRAGMAS_DIR/src/orchestration/make_tsvc_per_function.py" "$tsvc_copy"
+python3 "$AI_PRAGMAS_DIR/src/orchestration/make_tsvc_per_function.py" "$tsvc_copy" --oracle-exp
 
 vec_dir="${tsvc_copy}_vec"
 if [[ ! -d "$vec_dir" ]]; then
