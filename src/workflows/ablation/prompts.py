@@ -1,46 +1,49 @@
 """
 Prompt templates for the ablation experiment workflow.
 
-Oracle remarks are decomposed into three components:
-  - dependence: the dependence description (e.g., "assumed write-after-read dependence between a and a")
-  - code_lines: the source code snippets with caret markers showing the relevant lines
-  - suggestion: the actionable suggestion (e.g., "consider using a temporary to store a[i + 1]")
+Oracle remarks are decomposed into three fields:
+  - dependence_with_code_line: full dependence block with interleaved code snippets (as originally written)
+  - dependence_alone: just the dependence text, no code snippets
+  - suggestion: the actionable suggestion
 
-Six ablation configurations control which components are included:
-  Config 1: suggestion + dependence + code_lines  (full remark)
-  Config 2: suggestion + dependence               (no code lines)
+Six ablation configurations control which fields are used:
+  Config 1: suggestion + dependence_with_code_line  (full remark)
+  Config 2: suggestion + dependence_alone            (no code lines)
   Config 3: suggestion only
-  Config 4: dependence + code_lines               (no suggestion)
-  Config 5: dependence only
-  Config 6: none                                   (empty)
+  Config 4: dependence_with_code_line only           (no suggestion)
+  Config 5: dependence_alone only
+  Config 6: none                                      (empty)
 """
 
 # Structured oracle remark supplements for ablation.
-# Each entry is either None (no remark for this function) or a dict with
-# 'dependence', 'code_lines', and 'suggestion' keys (any may be absent).
+# Each entry is either None (no remark) or a dict with up to three keys:
+#   'dependence_with_code_line', 'dependence_alone', 'suggestion'
+# Suggestion-only remarks (s1213, s281) have only 'suggestion'.
 
 ORACLE_REMARK_SUPPLEMENTS = {
     's1113': {
-        'dependence': "assumed read-after-write dependence between a [tsvc.c:140:13] and a [tsvc.c:140:20]",
-        'code_lines': """\
+        'dependence_with_code_line': """\
+assumed read-after-write dependence between a [tsvc.c:140:13]
             a[i] = a[LEN_1D/2] + b[i];
             ^
 and a [tsvc.c:140:20]
             a[i] = a[LEN_1D/2] + b[i];
                    ^""",
+        'dependence_alone': "assumed read-after-write dependence between a [tsvc.c:140:13] and a [tsvc.c:140:20]",
         'suggestion': "consider loop splitting. load a into a[LEN_1D/2] temporary before the loop, split the loop at iteration LEN_1D/2, and update the temporary for the second split.",
     },
 
     's114': None,  # NO_REMARK
 
     's116': {
-        'dependence': "assumed write-after-read dependence between a [tsvc.c:225:24] and a [tsvc.c:221:31]",
-        'code_lines': """\
+        'dependence_with_code_line': """\
+assumed write-after-read dependence between a [tsvc.c:225:24]
            a[i + 4] = a[i + 5] * a[i + 4];
                       ^
 and a [tsvc.c:221:31]
            a[i] = a[i + 1] * a[i];
                              ^""",
+        'dependence_alone': "assumed write-after-read dependence between a [tsvc.c:225:24] and a [tsvc.c:221:31]",
         'suggestion': "consider using a temporary to store a[i + 5].",
     },
 
@@ -49,13 +52,14 @@ and a [tsvc.c:221:31]
     's161': None,  # NO_REMARK
 
     's212': {
-        'dependence': "assumed write-after-read dependence between a [tsvc.c:838:21] and a [tsvc.c:837:13]",
-        'code_lines': """\
+        'dependence_with_code_line': """\
+assumed write-after-read dependence between a [tsvc.c:838:21]
             b[i] += a[i + 1] * d[i];
                     ^
 and a [tsvc.c:837:13]
             a[i] *= c[i];
             ^""",
+        'dependence_alone': "assumed write-after-read dependence between a [tsvc.c:838:21] and a [tsvc.c:837:13]",
         'suggestion': "consider using a temporary to store a[i + 1].",
     },
 
@@ -64,45 +68,50 @@ and a [tsvc.c:837:13]
     },
 
     's241': {
-        'dependence': "assumed write-after-read dependence between a [tsvc.c:1065:27] and a [tsvc.c:1064:13]",
-        'code_lines': """\
+        'dependence_with_code_line': """\
+assumed write-after-read dependence between a [tsvc.c:1065:27]
             b[i] = a[i] * a[i+1] * d[i];
                           ^
 and a [tsvc.c:1064:13]
             a[i] = b[i] * c[i  ] * d[i];
             ^""",
+        'dependence_alone': "assumed write-after-read dependence between a [tsvc.c:1065:27] and a [tsvc.c:1064:13]",
         'suggestion': "consider using a temporary to store a[i + 1].",
     },
 
     's244': {
-        'dependence': """\
-assumed write-after-read dependence between a [tsvc.c:1130:29] and a [tsvc.c:1128:12]
-
-assumed write-after-write dependence between a [tsvc.c:1130:29] and a [tsvc.c:1128:13]""",
-        'code_lines': """\
+        'dependence_with_code_line': """\
+assumed write-after-read dependence between a [tsvc.c:1130:29]
            a[i+1] = b[i] + a[i+1] * d[i];
                            ^
 and a [tsvc.c:1128:12]
            a[i] = b[i] + c[i] * d[i];
            ^
 
+assumed write-after-write dependence between a [tsvc.c:1130:29]
            a[i+1] = b[i] + a[i+1] * d[i];
                            ^
 and a [tsvc.c:1128:13]
            a[i] = b[i] + c[i] * d[i];
            ^""",
+        'dependence_alone': """\
+assumed write-after-read dependence between a [tsvc.c:1130:29] and a [tsvc.c:1128:12]
+
+assumed write-after-write dependence between a [tsvc.c:1130:29] and a [tsvc.c:1128:13]""",
         'suggestion': "consider statement reordering to break the data dependency on a.",
     },
 
     's1244': {
-        'dependence': "assumed write-after-read dependence between a [tsvc.c:1148:13] and a [tsvc.c:1149:27]",
-        'code_lines': """\
+        'dependence_with_code_line': """\
+assumed write-after-read dependence between a [tsvc.c:1148:13]
+
            a[i] = b[i] + c[i] * c[i] + b[i]*b[i] + c[i];
            ^
 and a [tsvc.c:1149:27]
 
            d[i] = a[i] + a[i+1];
                          ^""",
+        'dependence_alone': "assumed write-after-read dependence between a [tsvc.c:1148:13] and a [tsvc.c:1149:27]",
         'suggestion': "consider using a temporary to store a[i+1].",
     },
 
@@ -121,34 +130,30 @@ def get_oracle_remark(function_name, ablation_config):
     Args:
         function_name: Name of the function (e.g., 's1113')
         ablation_config: int 1-6 controlling which components to include:
-            1: suggestion + dependence + code_lines
-            2: suggestion + dependence (no code lines)
+            1: suggestion + dependence_with_code_line
+            2: suggestion + dependence_alone
             3: suggestion only
-            4: dependence + code_lines (no suggestion)
-            5: dependence only
+            4: dependence_with_code_line only
+            5: dependence_alone only
             6: none
 
     Returns:
         Assembled remark string, or empty string if no remark.
     """
     entry = ORACLE_REMARK_SUPPLEMENTS.get(function_name)
-    if entry is None:
-        return ""
-
-    if ablation_config == 6:
+    if entry is None or ablation_config == 6:
         return ""
 
     include_suggestion = ablation_config in (1, 2, 3)
-    include_dependence = ablation_config in (1, 2, 4, 5)
-    include_code_lines = ablation_config in (1, 4)
+    use_code_lines = ablation_config in (1, 4)
+    use_dependence = ablation_config in (1, 2, 4, 5)
 
     parts = []
 
-    if include_dependence and 'dependence' in entry:
-        parts.append(entry['dependence'])
-
-    if include_code_lines and 'code_lines' in entry:
-        parts.append(entry['code_lines'])
+    if use_dependence:
+        dep_key = 'dependence_with_code_line' if use_code_lines else 'dependence_alone'
+        if dep_key in entry:
+            parts.append(entry[dep_key])
 
     if include_suggestion and 'suggestion' in entry:
         parts.append("suggestion: " + entry['suggestion'])
