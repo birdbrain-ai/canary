@@ -220,6 +220,9 @@ Key Directives:
 - Use `#pragma clang loop unroll_count(__count__)` to unroll the loop __count__ times.
 - Use `#pragma clang loop distribute(enable)` to give Clang a hint that loop distribution would be beneficial.
 - Use `__restrict`, and source code modifications that preserve semantics like introducing temporaries for source-level fixes.
+- If you see a write-after-write dependence, try to reorder instructions.
+- If you see a read-after-write dependence, try loop distribution.
+- If you see a write-after-read dependence, consider using a loop temporary to break the dependence.
 """
     else:
         prompt_examples="""
