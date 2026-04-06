@@ -1334,7 +1334,7 @@ Examples:
             max_iterations=args.iterations,
             run_command=args.run_command,
             use_compiler_feedback=(args.compiler_feedback == "on"),
-            use_clang_not_intel=(args.compiler == "clang"),
+            use_clang_not_intel=("clang" in args.compiler),
             use_oracle_remarks=(args.oracle_remarks == "on"),
             filter_distribute_suggestion=(args.filter_distribute_suggestion == "on"),
             results_dir=results_dir,

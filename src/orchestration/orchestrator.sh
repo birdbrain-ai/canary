@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Use a tmp directory on /tank to avoid filling up /tmp
-export TMPDIR="$HOME/tank/tmp"
+export TMPDIR="$HOME/pool/tmp"
 mkdir -p "$TMPDIR"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
