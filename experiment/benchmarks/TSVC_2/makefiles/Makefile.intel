@@ -1,0 +1,15 @@
+CC=icx -std=c99
+CXX=icpx
+# FC=ifort -align array64byte
+flags = -O3 -g3 -xHost -qopt-zmm-usage=high -Wno-overriding-option
+vecflags = -vec
+novecflags = -no-vec
+omp_flags+=-fopenmp
+
+ifdef VEC_REPORT
+vecflags+=-qopt-report=max -qopt-report-phase=vec
+endif
+
+ieee_math_flags+=-fp-model precise
+fast_math_flags+=-fp-model fast=2
+

@@ -32,23 +32,15 @@ env/
 *.swo
 *~
 
-# LLM Logs
-*_llm_logs/
-
 # Benchmark artifacts
-*_base/
-*_AI_*/
-*_logs/
 results/
 
 # Optimization remarks
 *.opt.yaml
+*.optrpt
 
 # Compiled files
 *.o
 *.out
 *.exe
 a.out
-
-# Sensitive scripts
-language-models/tunnel.sh
