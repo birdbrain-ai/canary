@@ -15,7 +15,7 @@ class Experiment:
         # i don't know what the relevant fields in config should be
         self.experiment_name = ""
         self.compiler = ""
-        self.compiler_for_makefile = ""
+
         self.compiler_diagnostics = ""
         self.handwritten_diagnostics = ""
         self.topic = "" # ["vectorization", "rust"]. I should put this in an enum or something
@@ -31,9 +31,16 @@ class Experiment:
         self.skip_funcs = []
         
         if self.topic == "vectorization":
+            self.compiler_for_makefile = ""
             self.filter_distribute_suggestion = "off" # whatever
         if self.topic == "rust":
             pass
 
         # Make work queue: Trials go into the Queue
         self.queue = Queue()
+
+    def write_out_results(self):
+        # This function should be responsible for taking results computed from all the Trials in the
+        # Work Queue and then serializing it to a CSV file. 
+        pass
+    
