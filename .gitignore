@@ -44,3 +44,6 @@ results/
 *.out
 *.exe
 a.out
+
+# SPEC2017
+experiment/benchmarks/SPEC2017

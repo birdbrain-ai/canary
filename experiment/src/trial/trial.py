@@ -1,35 +1,38 @@
-# TODO: Pydantic for plumbing
+from enum import Enum
 
-class Trial:
-    def __init__(self,
-                 trial_number,
-                 make_command,
-                 run_command,
-                 compiler,
-                 compiler_diagnostics,
-                 handwritten_diagnostics,
-                 llm_name,
-                 llm_url,
-                 temperature,
-                 iterations,
-                 skip_files,
-                 skip_funcs):
-        self.trial_number = trial_number
-        self.make_command = make_command
-        self.run_command = run_command
-        self.compiler = compiler
-        self.compiler_diagnostics = compiler_diagnostics
-        self.handwritten_diagnostics = handwritten_diagnostics
-        self.llm_name = llm_name
-        self.llm_url = llm_url
-        self.temperature = temperature
-        self.iterations = iterations
-        self.skip_files = skip_files
-        self.skip_funcs = skip_funcs
-        self.result = None
+from pydantic import BaseModel, Field, HttpUrl
 
-    def finished(self):
-        return self.result is not None
 
-    def get_result(self):
-        return self.result
+class Topic(str, Enum):
+    VECTORIZATION = "vectorization"
+    RUST = "rust"
+
+
+class Compiler(str, Enum):
+    CLANG = "clang"
+    CLANG_CANARY = "clang_canary"
+    CLANG_CANARY_21_1_8 = "clang_canary_21.1.8"
+    CLANG_TRUNK = "clang_trunk"
+    ICX_2025_3 = "icx-2025.3"
+
+
+class TrialResult(BaseModel):
+    success: bool
+    compile_ok: bool
+    iterations_used: int = Field(ge=0)
+
+
+class Trial(BaseModel):
+    trial_number: int = Field(ge=0)
+    make_command: str
+    run_command: str
+    compiler: Compiler
+    compiler_diagnostics: str
+    handwritten_diagnostics: str
+    llm_name: str
+    llm_url: HttpUrl
+    temperature: float = Field(ge=0.0, le=2.0)
+    iterations: int = Field(ge=1)
+    skip_files: list[str] = Field(default_factory=list)
+    skip_funcs: list[str] = Field(default_factory=list)
+    result: TrialResult | None = None

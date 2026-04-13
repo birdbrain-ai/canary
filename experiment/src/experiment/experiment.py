@@ -1,63 +1,55 @@
-# TODO: Pydantic for plumbing
-
-import json
+from pathlib import Path
 from queue import Queue
 
+from pydantic import BaseModel, Field, HttpUrl, model_validator
 
-class TrialResultObject:
-    def __init__(self):
-        pass
+from trial.trial import Compiler, Topic, TrialResult
+
+
+class ExperimentConfig(BaseModel):
+    experiment_name: str
+    topic: Topic
+    compiler: Compiler
+
+    compiler_diagnostics: str
+    handwritten_diagnostics: str
+
+    llm_name: str
+    llm_url: HttpUrl
+    temperature: float = Field(ge=0.0, le=2.0)
+
+    iterations: int = Field(ge=1)
+    num_trials: int = Field(ge=1)
+
+    results_dir: Path
+    data_dir: Path
+
+    max_jobs: int = Field(default=8, ge=1)
+    skip_files: list[str] = Field(default_factory=list)
+    skip_funcs: list[str] = Field(default_factory=list)
+
+    compiler_for_makefile: str | None = None
+    filter_distribute_suggestion: bool = False
+
+    @model_validator(mode="after")
+    def _check_topic_fields(self) -> "ExperimentConfig":
+        if self.topic == Topic.VECTORIZATION and self.compiler_for_makefile is None:
+            raise ValueError(
+                "compiler_for_makefile is required when topic='vectorization'"
+            )
+        return self
 
 
 class Experiment:
-    def __init__(self,
-                 config_json):
-        # clang: clang_canary_21.1.8, clang_trunk, clang_canary, clang
-        # icx: icx-2025.3, icx...
-        with open(config_json, 'r') as file:
-            config = json.load(file)
-
-        # get all the relevant things from config, and assign defaults
-        # i don't know what the relevant fields in config should be
-        self.experiment_name = ""
-        self.compiler = ""
-
-        self.compiler_diagnostics = ""
-        self.handwritten_diagnostics = ""
-        self.topic = "" # ["vectorization", "rust"]. I should put this in an enum or something
-        self.llm_name = ""
-        self.llm_url = ""
-        self.temperature = ""
-        self.iterations = ""
-        self.num_trials = ""
-        self.results_dir = ""
-        self.data_dir = ""
-        self.max_jobs: int = 8
-        self.skip_files = []
-        self.skip_funcs = []
-        # Just a list of TrialResultObject. TODO: Expose a callback to update this list.
-        # It needs to be thread-safe though. Lots of threads/workers will be updating it
-        # concurrently. 
-        self.results = []
-        
-        if self.topic == "vectorization":
-            self.compiler_for_makefile = ""
-            self.filter_distribute_suggestion = "off" # whatever
-        if self.topic == "rust":
-            pass
-
-        # Make work queue: Trials go into the Queue
-        self.queue = Queue()
-
+    def __init__(self, config_json: str | Path):
+        self.config = ExperimentConfig.model_validate_json(
+            Path(config_json).read_text()
+        )
+        self.queue: Queue = Queue()
+        self.results: list[TrialResult] = []
 
     def start_experiment(self):
-        # Make a worker pool in here.
-        # Just use either threadpoolexecutor or processpoolexecutor.
-        # It should spawn the Workers on its own. And then run it.
-
+        pass
 
     def write_out_results(self):
-        # This function should be responsible for taking results computed from all the Trials in the
-        # Work Queue and then serializing it to a CSV file. 
         pass
-    
