@@ -11,6 +11,8 @@ from worker.worker import Worker
 
 class VectorizeWorker(Worker):
     def run_trial(self) -> TrialResult:
-        result = TrialResult(success=True, compile_ok=True, iterations_used=0)
+        _baseline = self.trial.benchmark.baseline(self.worker_path)
+        verified = self.trial.benchmark.verify(self.worker_path)
+        result = TrialResult(success=verified, compile_ok=True, iterations_used=0)
         self.trial.result = result
         return result

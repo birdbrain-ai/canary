@@ -1,6 +1,8 @@
 from enum import Enum
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+
+from benchmark.benchmark import Benchmark
 
 
 class Topic(str, Enum):
@@ -23,9 +25,10 @@ class TrialResult(BaseModel):
 
 
 class Trial(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     trial_number: int = Field(ge=0)
-    make_command: str
-    run_command: str
+    benchmark: Benchmark
     compiler: Compiler
     compiler_diagnostics: str
     handwritten_diagnostics: str

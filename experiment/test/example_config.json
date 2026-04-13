@@ -13,6 +13,5 @@
     "max_jobs": 2,
     "results_dir": "../test/results_tmp",
     "data_dir": "../test/my_bench",
-    "make_command": "make",
-    "run_command": "./c_prog"
+    "benchmark": "my_bench"
 }

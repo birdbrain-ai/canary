@@ -2,6 +2,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
+from benchmark.benchmark import BENCHMARKS
 from trial.trial import Compiler, Topic, Trial, TrialResult
 from worker.vectorize_worker import VectorizeWorker
 from worker_pool.worker_pool import WorkerPool
@@ -25,8 +26,7 @@ class ExperimentConfig(BaseModel):
     results_dir: Path
     data_dir: Path
 
-    make_command: str
-    run_command: str
+    benchmark: str
 
     max_jobs: int = Field(default=8, ge=1)
     skip_files: list[str] = Field(default_factory=list)
@@ -43,11 +43,23 @@ class ExperimentConfig(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _check_benchmark(self) -> "ExperimentConfig":
+        if self.benchmark not in BENCHMARKS:
+            known = sorted(BENCHMARKS.keys())
+            raise ValueError(
+                f"unknown benchmark {self.benchmark!r}; known: {known}"
+            )
+        return self
+
 
 class Experiment:
     def __init__(self, config_json: str | Path):
         self.config = ExperimentConfig.model_validate_json(
             Path(config_json).read_text()
+        )
+        self.benchmark = BENCHMARKS[self.config.benchmark](
+            bench_path=self.config.data_dir
         )
         self.results: list[TrialResult] = []
 
@@ -75,8 +87,7 @@ class Experiment:
         c = self.config
         return Trial(
             trial_number=trial_number,
-            make_command=c.make_command,
-            run_command=c.run_command,
+            benchmark=self.benchmark,
             compiler=c.compiler,
             compiler_diagnostics=c.compiler_diagnostics,
             handwritten_diagnostics=c.handwritten_diagnostics,
