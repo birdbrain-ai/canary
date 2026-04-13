@@ -1,9 +1,10 @@
 from pathlib import Path
-from queue import Queue
 
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
-from trial.trial import Compiler, Topic, TrialResult
+from trial.trial import Compiler, Topic, Trial, TrialResult
+from worker.vectorize_worker import VectorizeWorker
+from worker_pool.worker_pool import WorkerPool
 
 
 class ExperimentConfig(BaseModel):
@@ -23,6 +24,9 @@ class ExperimentConfig(BaseModel):
 
     results_dir: Path
     data_dir: Path
+
+    make_command: str
+    run_command: str
 
     max_jobs: int = Field(default=8, ge=1)
     skip_files: list[str] = Field(default_factory=list)
@@ -45,11 +49,45 @@ class Experiment:
         self.config = ExperimentConfig.model_validate_json(
             Path(config_json).read_text()
         )
-        self.queue: Queue = Queue()
         self.results: list[TrialResult] = []
 
-    def start_experiment(self):
-        pass
+    def start_experiment(self) -> None:
+        if self.config.topic == Topic.VECTORIZATION:
+            worker_class = VectorizeWorker
+        elif self.config.topic == Topic.RUST:
+            raise NotImplementedError("rust worker not implemented yet")
+        else:
+            raise NotImplementedError(f"no worker for topic {self.config.topic}")
 
-    def write_out_results(self):
-        pass
+        trials = [self._make_trial(i) for i in range(self.config.num_trials)]
+
+        pool = WorkerPool(
+            max_workers=self.config.max_jobs,
+            worker_class=worker_class,
+            bench_path=self.config.data_dir,
+            results_dir=self.config.results_dir,
+        )
+
+        for result in pool.run(trials):
+            self.results.append(result)
+
+    def _make_trial(self, trial_number: int) -> Trial:
+        c = self.config
+        return Trial(
+            trial_number=trial_number,
+            make_command=c.make_command,
+            run_command=c.run_command,
+            compiler=c.compiler,
+            compiler_diagnostics=c.compiler_diagnostics,
+            handwritten_diagnostics=c.handwritten_diagnostics,
+            llm_name=c.llm_name,
+            llm_url=c.llm_url,
+            temperature=c.temperature,
+            iterations=c.iterations,
+            skip_files=c.skip_files,
+            skip_funcs=c.skip_funcs,
+        )
+
+    def write_out_results(self) -> None:
+        for result in self.results:
+            print(result.model_dump_json())

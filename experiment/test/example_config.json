@@ -1,0 +1,18 @@
+{
+    "experiment_name": "smoke_test",
+    "topic": "vectorization",
+    "compiler": "clang",
+    "compiler_for_makefile": "clang",
+    "compiler_diagnostics": "none",
+    "handwritten_diagnostics": "none",
+    "llm_name": "stub",
+    "llm_url": "http://localhost:8000",
+    "temperature": 0.0,
+    "iterations": 1,
+    "num_trials": 2,
+    "max_jobs": 2,
+    "results_dir": "../test/results_tmp",
+    "data_dir": "../test/my_bench",
+    "make_command": "make",
+    "run_command": "./c_prog"
+}

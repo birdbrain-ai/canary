@@ -15,9 +15,7 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-import docker
-
-from trial.trial import Trial
+from trial.trial import Trial, TrialResult
 
 
 class Worker(ABC):
@@ -32,7 +30,6 @@ class Worker(ABC):
         self.bench_path = bench_path
         self.worker_path = worker_path
         self.results_dir = results_dir
-        self.docker_client = docker.from_env()
 
     def setup_worker(self):
         # Make a docker container
@@ -44,7 +41,7 @@ class Worker(ABC):
         pass
 
     @abstractmethod
-    def run_trial(self):
+    def run_trial(self) -> TrialResult:
         # Compile Code -> Run Code -> Save Output ->
         # For Num Iterations / Max Turns { AI LLM Call + Execute What The AI Says And Save CLI Output + Git Diff } ->
         # Compile Code -> Run -> Verify Output
