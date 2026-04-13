@@ -2,7 +2,7 @@
 
 class Trial:
     def __init__(self,
-                 trial_number,g
+                 trial_number,
                  make_command,
                  run_command,
                  compiler,

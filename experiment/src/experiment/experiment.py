@@ -3,6 +3,12 @@
 import json
 from queue import Queue
 
+
+class TrialResultObject:
+    def __init__(self):
+        pass
+
+
 class Experiment:
     def __init__(self,
                  config_json):
@@ -29,6 +35,10 @@ class Experiment:
         self.max_jobs: int = 8
         self.skip_files = []
         self.skip_funcs = []
+        # Just a list of TrialResultObject. TODO: Expose a callback to update this list.
+        # It needs to be thread-safe though. Lots of threads/workers will be updating it
+        # concurrently. 
+        self.results = []
         
         if self.topic == "vectorization":
             self.compiler_for_makefile = ""
@@ -38,6 +48,13 @@ class Experiment:
 
         # Make work queue: Trials go into the Queue
         self.queue = Queue()
+
+
+    def start_experiment(self):
+        # Make a worker pool in here.
+        # Just use either threadpoolexecutor or processpoolexecutor.
+        # It should spawn the Workers on its own. And then run it.
+
 
     def write_out_results(self):
         # This function should be responsible for taking results computed from all the Trials in the
