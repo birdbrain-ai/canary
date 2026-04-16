@@ -1,5 +1,12 @@
 {
+  "type": "module",
+  "scripts": {
+    "build": "tsc"
+  },
   "dependencies": {
     "@mariozechner/pi-coding-agent": "^0.67.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
   }
 }
