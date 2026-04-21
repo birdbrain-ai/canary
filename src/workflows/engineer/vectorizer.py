@@ -16,7 +16,6 @@ from typing import TypedDict, Dict, List
 from langchain_openai import ChatOpenAI
 
 from utils.logger import LLMLogger
-from prompts import get_engineer_prompt
 import re
 
 
@@ -258,7 +257,6 @@ def parse_runtime_from_output(output: str) -> float | None:
     Returns:
         Runtime in seconds as float, or None if not found/invalid
     """
-    import re
     match = re.search(r'RUNTIME_S:\s*([\d.]+)', output)
     if match:
         try:
@@ -400,61 +398,18 @@ def engineer(state: VectorizationState):
     logger = state["logger"]
     logger.log_state(state, "engineer", "before")
 
-    program_slice = state["program_slice"]
-    make_command = state["make_command"]
-    file_path = state["file_path"]
-    use_clang_not_intel = state["use_clang_not_intel"]
     current_iteration = state["current_iteration"]
-
     function_drafts = state["function_drafts"]
-    current_function_draft = function_drafts[0]
-    perf_info = current_function_draft.reviewer_feedback
-    opt_remarks = state["optimization_remarks"]
-    compiler_feedback = state["compiler_feedback"]
-    use_compiler_feedback = state["use_compiler_feedback"]
-    current_function_info = current_function_draft.modified_function_text
 
-    # Determine what's currently in the file by finding the last written draft
-    # The last written draft is the one from the previous iteration (current_iteration - 1)
-    last_written_index = current_iteration - 1 if current_iteration != 0 else 0
-    last_written_info = function_drafts[last_written_index].modified_function_text
-
-    # Retry loop for syntax errors
-    lint_errors = None
-    previous_search_replace = None
-    # new_func_info = last_written_info  # Default to what's in the file if all attempts fail
-
-    # If the function is vectorized, then we skip
     if function_drafts[0].vectorization_success:
         logger.print("WE ARE SKIPPING THIS ITERATION BECAUSE THE FUNCTION WAS ALREADY VECTORIZED!")
         return {
             "current_iteration": current_iteration + 1
         }
 
-    # This resets compiler_feedback and opt_remarks
-    if not use_compiler_feedback:
-        compiler_feedback = ""
-        opt_remarks = ""
-
     print("Starting trial")
-    prompt = get_engineer_prompt(
-        None,  # numbered_function_body no longer used
-        current_function_info,
-        program_slice,
-        make_command,
-        "",
-        compiler_feedback=compiler_feedback,
-        optimization_remarks=opt_remarks,
-        perf_data=perf_info,
-        previous_search_replace=previous_search_replace,
-        lint_errors=lint_errors,
-        use_oracle_remarks=state.get("use_oracle_remarks", False),
-        use_clang_not_intel=use_clang_not_intel,
-        filter_distribute_suggestion=state.get("filter_distribute_suggestion", False)
-    )
-
     print(os.getcwd())
-    
+
     result = subprocess.run(
         ["pi", "--mode", "json", "-p", "try and transform functions in c_prog.cpp so they are easier to vectorize. after every change, use your bash tool to call clang, and ensure that your changes compile."],
         capture_output=True,
@@ -476,33 +431,11 @@ def engineer(state: VectorizationState):
                 pi_output_file.write(line)
             pi_output_file.write("\n")
     print(result.stderr)
-    # Log prompt before API call (in case of failure)
-    logger.log_llm_prompt(
-        iteration=current_iteration,
-        file_path=file_path,
-        call_type="idk",
-        prompt=prompt,
-        function_name=current_function_info["name"]
-    )
-
-    # Replace the LLM call
-    response = ""
-
-    # Log complete call after success
-    logger.log_llm_call(
-        iteration=current_iteration,
-        file_path=file_path,
-        call_type="idk",
-        prompt=prompt,
-        response=response,
-        function_name=current_function_info["name"]
-        )
 
     result_dict = {
         "function_drafts": function_drafts,
         "current_iteration": current_iteration + 1
     }
-
 
     after_state = state.copy()
     after_state.update(result_dict)
@@ -548,29 +481,6 @@ def finalize(state: VectorizationState):
         final_draft = function_drafts[0]
         the_thing_i_want_to_return = 0
 
-    # Write the final function draft to the file
-    file_path = state["file_path"]
-    final_function_info = final_draft.modified_function_text
-    
-    # Replace the range occupied by the LAST draft that was written to the file
-    last_iteration = max(function_drafts.keys())
-    last_draft_info = function_drafts[last_iteration].modified_function_text
-    
-    # success = write_function_to_file(
-    #     file_path,
-    #     final_function_info,
-    #     replace_start=last_draft_info["start_line"],
-    #     replace_end=last_draft_info["end_line"],
-    #     logger=logger
-    # )
-
-    # if success:
-    #     logger.print(f"✅ Finalized and wrote function '{final_function_info['name']}' to {file_path}")
-    #     if final_draft.vectorization_success:
-    #         logger.print("🎉 Function was successfully vectorized")
-    # else:
-    #     logger.print("⚠️  Failed to write final function to file")
-
     logger.log_state(state, "finalize", "after")
     return {
         "manager_chosen_i": the_thing_i_want_to_return
@@ -578,11 +488,7 @@ def finalize(state: VectorizationState):
 
 # Decision point: should_continue
 def should_continue(state: VectorizationState):
-    max_iterations = 1
-    print
-    current_iteration = state["current_iteration"]
-    # print(current_iteration)
-    if current_iteration < max_iterations:
+    if state["current_iteration"] < state["max_iterations"]:
         return "continue"
     else:
         return "done"
