@@ -797,11 +797,34 @@ def engineer(state: VectorizationState):
         filter_distribute_suggestion=state.get("filter_distribute_suggestion", False)
     )
 
+    print(os.getcwd())
+    
+    result = subprocess.run(
+        ["pi", "--mode", "json", "-p", "try and transform functions in c_prog.cpp so they are easier to vectorize. after every change, use your bash tool to call clang, and ensure that your changes compile."],
+        capture_output=True,
+        text=True
+    )
+
+    # Dump each JSON line from stdout (pretty-printed) to a file in the project root
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+    pi_output_path = os.path.join(project_root, "pi_output.json")
+    with open(pi_output_path, "w", encoding="utf-8") as pi_output_file:
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                pi_output_file.write(json.dumps(obj, indent=2))
+            except json.JSONDecodeError:
+                pi_output_file.write(line)
+            pi_output_file.write("\n")
+    print(result.stderr)
     # Log prompt before API call (in case of failure)
     logger.log_llm_prompt(
         iteration=current_iteration,
         file_path=file_path,
-        call_type=call_type,
+        call_type="idk",
         prompt=prompt,
         function_name=current_function_info["name"]
     )
@@ -813,7 +836,7 @@ def engineer(state: VectorizationState):
     logger.log_llm_call(
         iteration=current_iteration,
         file_path=file_path,
-        call_type=call_type,
+        call_type="idk",
         prompt=prompt,
         response=response,
         function_name=current_function_info["name"]
@@ -877,20 +900,20 @@ def finalize(state: VectorizationState):
     last_iteration = max(function_drafts.keys())
     last_draft_info = function_drafts[last_iteration].modified_function_text
     
-    success = write_function_to_file(
-        file_path,
-        final_function_info,
-        replace_start=last_draft_info["start_line"],
-        replace_end=last_draft_info["end_line"],
-        logger=logger
-    )
+    # success = write_function_to_file(
+    #     file_path,
+    #     final_function_info,
+    #     replace_start=last_draft_info["start_line"],
+    #     replace_end=last_draft_info["end_line"],
+    #     logger=logger
+    # )
 
-    if success:
-        logger.print(f"✅ Finalized and wrote function '{final_function_info['name']}' to {file_path}")
-        if final_draft.vectorization_success:
-            logger.print("🎉 Function was successfully vectorized")
-    else:
-        logger.print("⚠️  Failed to write final function to file")
+    # if success:
+    #     logger.print(f"✅ Finalized and wrote function '{final_function_info['name']}' to {file_path}")
+    #     if final_draft.vectorization_success:
+    #         logger.print("🎉 Function was successfully vectorized")
+    # else:
+    #     logger.print("⚠️  Failed to write final function to file")
 
     logger.log_state(state, "finalize", "after")
     return {
