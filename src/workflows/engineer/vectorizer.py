@@ -1311,7 +1311,8 @@ Examples:
         api_key="",
         base_url=args.model_url,
         temperature=args.temperature,
-        request_timeout=86400
+        request_timeout=86400,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
 
     # Determine mode based on path type
