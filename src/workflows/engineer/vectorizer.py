@@ -410,26 +410,32 @@ def engineer(state: VectorizationState):
     print("Starting trial")
     print(os.getcwd())
 
+    bench_path = os.path.abspath(state["bench_path"])
+    pi_config_dir = os.path.expanduser("~/.pi/agent")
+
+    # This code launches a docker image with pi as the primary executable.
+    # It mounts a pi config dir, it mounts the benchmark directory,
+    # And it passes CLI options to pi (--mode, --no-session, --provider,
+    # --model, -p, etc.)
     result = subprocess.run(
-        ["pi", "--mode", "json", "-p", "try and transform functions in c_prog.cpp so they are easier to vectorize. after every change, use your bash tool to call clang, and ensure that your changes compile."],
+        [
+            "docker", "run", "--rm",
+            "--network", "host",
+            "-v", f"{pi_config_dir}:/root/.pi/agent",
+            "-v", f"{bench_path}:/workspace",
+            "-w", "/workspace",
+            "canary-pi:latest",
+            "--provider", "vllm_slurm",
+            "--model", "google/gemma-4-31B-it",
+            "-p", "try and transform functions in c_prog.cpp so they are easier to vectorize. after every change, use your bash tool to call clang, and ensure that your changes compile.",
+        ],
         capture_output=True,
-        text=True
+        text=True,
     )
 
-    # Dump each JSON line from stdout (pretty-printed) to a file in the project root
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-    pi_output_path = os.path.join(project_root, "pi_output.json")
-    with open(pi_output_path, "w", encoding="utf-8") as pi_output_file:
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-                pi_output_file.write(json.dumps(obj, indent=2))
-            except json.JSONDecodeError:
-                pi_output_file.write(line)
-            pi_output_file.write("\n")
+    with open(os.path.join(project_root, "pi_output.log"), "w", encoding="utf-8") as f:
+        f.write(result.stdout)
     print(result.stderr)
 
     result_dict = {
