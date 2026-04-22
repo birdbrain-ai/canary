@@ -1,8 +1,6 @@
 FROM ubuntu:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential \
-        clang \
         curl \
         ca-certificates \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
