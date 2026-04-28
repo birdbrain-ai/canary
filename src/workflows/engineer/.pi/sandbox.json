@@ -1,0 +1,14 @@
+{
+	"enabled": true,
+	"allowBrowserProcess": false,
+	"network": {
+		"allowLocalBinding": false,
+		"allowAllUnixSockets": false,
+		"allowedDomains": []
+	},
+	"filesystem": {
+		"allowRead": ["**/*"],
+		"allowWrite": ["."],
+		"denyWrite": [".env", ".env.*", "*.pem", "*.key"]
+	}
+}

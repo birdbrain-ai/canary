@@ -1,0 +1,8 @@
+{
+  "lastChangelogVersion": "0.70.6",
+  "defaultProvider": "ollama",
+  "defaultModel": "gemma4-agent:latest",
+  "packages": [
+    "git:github.com/akashdeonu/pi-sandbox"
+  ]
+}

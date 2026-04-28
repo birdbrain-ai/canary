@@ -1,0 +1,38 @@
+{
+	"providers": {
+		"ollama": {
+			"baseUrl": "http://localhost:11434/v1",
+			"api": "openai-completions",
+			"apiKey": "none",
+			"models": [
+				{
+					"id": "gemma4:latest",
+					"name": "Gemma 4",
+					"contextWindow": 128000
+				},
+				{
+					"id": "gemma4-agent:latest",
+					"name": "Gemma 4 Agent",
+					"contextWindow": 128000
+				},
+				{
+					"id": "qwen3.5:9b",
+					"name": "Qwen 3.5 9B",
+					"contextWindow": 262000
+				}
+			]
+		},
+		"vllm_slurm": {
+			"baseUrl": "http://localhost:8000/v1",
+			"api": "openai-completions",
+			"apiKey": "none",
+			"models": [
+				{
+					"id": "google/gemma-4-31B-it",
+					"name": "Gemma 4 31B Instruct",
+					"contextWindow": 128000
+				}
+			]
+		}
+	}
+}

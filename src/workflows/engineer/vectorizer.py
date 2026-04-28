@@ -418,6 +418,10 @@ def engineer(state: VectorizationState):
     # It mounts a pi config dir, it mounts the benchmark directory,
     # And it passes CLI options to pi (--mode, --no-session, --provider,
     # --model, -p, etc.)
+
+    # The command is:
+    # pi --provider vllm_slurm --model google/gemma-4-31B-it -p "Transform functions in kernel.c so they are easier to vectorize. After every change, use the compile tool to ensure your changes compile."
+    
     result = subprocess.run(
         [
             "docker", "run", "--rm",
