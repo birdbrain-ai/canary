@@ -7,6 +7,7 @@ import argparse
 import json
 import tempfile
 import sys
+from pathlib import Path
 
 # Add src/ to path so we can import from utils
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -564,6 +565,14 @@ def vectorize_benchmark(benchmark_dir: str,
     shutil.copytree(abs_benchmark_dir, opt_dir)
     print(f"{'='*60}\n")
 
+    script_dir = Path(__file__).resolve()
+    canary_dir = script_dir / ".." / ".." / ".." / ".."
+    mcp_server_dir = canary_dir / "mcp-server" / "server.py"
+
+    
+    # Launch MCP server here
+    subprocess.Popen(["fastmcp", "run", str(mcp_server_dir.resolve()), "--port", "8005"])
+    
     print("Creating vectorization workflow graph")
     vectorization_graph = create_vectorization_graph()
 
