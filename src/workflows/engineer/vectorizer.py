@@ -411,9 +411,6 @@ def engineer(state: VectorizationState):
     print("Starting trial")
     print(os.getcwd())
 
-    bench_path = os.path.abspath(state["bench_path"])
-    pi_config_dir = os.path.expanduser("~/.pi/agent")
-
     # This code launches a docker image with pi as the primary executable.
     # It mounts a pi config dir, it mounts the benchmark directory,
     # And it passes CLI options to pi (--mode, --no-session, --provider,
@@ -422,26 +419,33 @@ def engineer(state: VectorizationState):
     # The command is:
     # pi --provider vllm_slurm --model google/gemma-4-31B-it -p "Transform functions in kernel.c so they are easier to vectorize. After every change, use the compile tool to ensure your changes compile."
     
-    result = subprocess.run(
-        [
-            "docker", "run", "--rm",
-            "--network", "host",
-            "-v", f"{pi_config_dir}:/root/.pi/agent",
-            "-v", f"{bench_path}:/workspace",
-            "-w", "/workspace",
-            "canary-pi:latest",
-            "--provider", "vllm_slurm",
-            "--model", "google/gemma-4-31B-it",
-            "-p", "try and transform functions in c_prog.cpp so they are easier to vectorize. after every change, use your bash tool to call clang, and ensure that your changes compile.",
-        ],
-        capture_output=True,
-        text=True,
-    )
+    cmd = [
+        "pi",
+        "--provider", "vllm_slurm",
+        "--model", "google/gemma-4-31B-it",
+        "-p", "try and transform functions in c_prog.cpp so they are easier to vectorize. after every change, use your bash tool to call clang, and ensure that your changes compile.",
+    ]
+    env = {**os.environ, "PI_CODING_AGENT_DIR": ".pi"}
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-    with open(os.path.join(project_root, "pi_output.log"), "w", encoding="utf-8") as f:
-        f.write(result.stdout)
-    print(result.stderr)
+    log_path = os.path.join(project_root, "pi_output.log")
+
+    with subprocess.Popen(
+        cmd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    ) as proc, open(log_path, "w", encoding="utf-8") as f:
+        for line in proc.stdout:
+            print(line, end="")
+            f.write(line)
+            f.flush()
+        returncode = proc.wait()
+
+    if returncode != 0:
+        raise RuntimeError(f"pi exited with code {returncode}")
 
     result_dict = {
         "function_drafts": function_drafts,
@@ -569,14 +573,6 @@ def vectorize_benchmark(benchmark_dir: str,
     shutil.copytree(abs_benchmark_dir, opt_dir)
     print(f"{'='*60}\n")
 
-    script_dir = Path(__file__).resolve()
-    canary_dir = script_dir / ".." / ".." / ".." / ".."
-    mcp_server_dir = canary_dir / "mcp-server" / "server.py"
-
-    
-    # Launch MCP server here
-    subprocess.Popen(["fastmcp", "run", str(mcp_server_dir.resolve()), "--port", "8005"])
-    
     print("Creating vectorization workflow graph")
     vectorization_graph = create_vectorization_graph()
 
