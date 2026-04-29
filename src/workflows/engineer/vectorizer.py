@@ -430,8 +430,8 @@ def engineer(state: VectorizationState):
     pi_coding_agent_dir : Path = script_dir / ".pi"
     env = {**os.environ, "PI_CODING_AGENT_DIR": str(pi_coding_agent_dir.resolve())}
 
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
-    log_path = os.path.join(project_root, "pi_output.log")
+    bench_path = state["bench_path"]
+    log_path = os.path.join(bench_path, "pi_output.log")
 
     with subprocess.Popen(
         cmd,
@@ -442,7 +442,7 @@ def engineer(state: VectorizationState):
         bufsize=1,
     ) as proc, open(log_path, "w", encoding="utf-8") as f:
         for line in proc.stdout:
-            print(line, end="")
+            # print(line, end="")
             f.write(line)
             f.flush()
         returncode = proc.wait()
