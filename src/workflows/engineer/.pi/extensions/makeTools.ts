@@ -10,18 +10,20 @@ export default function (pi: ExtensionAPI) {
     run: "runs",
   };
   for (const [target, verb] of Object.entries(targets)) {
+    const cmd = `make -f ../../../../../Makefile.kernel ${target}`;
     pi.registerTool({
       name: `make_${target}`,
-      label: `Runs 'make ${target}' in the current working directory`,
+      label: `Runs '${cmd}' in the current working directory`,
       description: `${verb} the program in the current working directory`,
+      parameters: Type.Object({}),
       async execute(toolCallId, params, signal, onUpdate, ctx) {
         try {
-          const output = execSync(`make ${target}`, {
+          const output = execSync(cmd, {
             cwd: ctx.cwd,
             encoding: "utf-8",
           });
           return {
-            content: [{ type: "text", text: output }],
+            content: [{ type: "text", text: `$ ${cmd}\n${output}` }],
             details: {},
           };
         } catch (err: any) {
@@ -31,7 +33,7 @@ export default function (pi: ExtensionAPI) {
           return {
             content: [{
               type: "text",
-              text: `make ${target} failed (exit ${status})\n\n--- stdout ---\n${stdout}\n--- stderr ---\n${stderr}`,
+              text: `$ ${cmd}\n[failed (exit ${status})]\n\n--- stdout ---\n${stdout}\n--- stderr ---\n${stderr}`,
             }],
             isError: true,
           };
