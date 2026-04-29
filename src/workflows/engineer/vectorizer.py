@@ -68,6 +68,7 @@ class VectorizationState(TypedDict):
     use_clang_not_intel: bool # const
     use_oracle_remarks: bool # const
     filter_distribute_suggestion: bool # const
+    model_name: str # const
 
     program_slice: str # const
     compiler_feedback: str
@@ -104,6 +105,7 @@ def serialize_state_to_json(state: VectorizationState) -> dict:
         "make_command": state["make_command"],
         "run_command": state["run_command"],
         "use_compiler_feedback": state["use_compiler_feedback"],
+        "model_name": state["model_name"],
         "program_slice": state["program_slice"],
         "compiler_feedback": state["compiler_feedback"],
         "optimization_remarks": state["optimization_remarks"],
@@ -422,7 +424,7 @@ def engineer(state: VectorizationState):
     cmd = [
         "pi",
         "--provider", "vllm_slurm",
-        "--model", "google/gemma-4-31B-it",
+        "--model", state["model_name"],
         "-p", "try and transform functions in c_prog.cpp so they are easier to vectorize. after every change, use your bash tool to call clang, and ensure that your changes compile.",
     ]
 
@@ -543,6 +545,7 @@ def vectorize_benchmark(benchmark_dir: str,
                         make_command: str,
                         max_iterations: int,
                         run_command: str,
+                        model_name: str,
                         use_compiler_feedback: bool = True,
                         use_clang_not_intel: bool = True,
                         use_oracle_remarks: bool = False,
@@ -628,6 +631,7 @@ def vectorize_benchmark(benchmark_dir: str,
                 use_clang_not_intel=use_clang_not_intel,
                 use_oracle_remarks=use_oracle_remarks,
                 filter_distribute_suggestion=filter_distribute_suggestion,
+                model_name=model_name,
 
                 program_slice=program_slice,
                 compiler_feedback="",
@@ -741,8 +745,8 @@ Examples:
     parser.add_argument(
         "--model-name",
         type=str,
-        default="Qwen/Qwen2.5-Coder-7B-Instruct",
-        help="Model name for the LLM (default: Qwen/Qwen2.5-Coder-7B-Instruct)"
+        default="google/gemma-4-31B-it",
+        help="Model name for the LLM (default: google/gemma-4-31B-it)"
     )
 
     parser.add_argument(
@@ -797,17 +801,6 @@ Examples:
     assert not (args.oracle_remarks == "on" and args.compiler != "clang"), \
         "Oracle remark supplements are only available for clang. Use --compiler clang or disable --oracle-remarks."
 
-    # Initialize llm with the configured temperature
-    global llm
-    llm = ChatOpenAI(
-        model=args.model_name,
-        api_key="",
-        base_url=args.model_url,
-        temperature=args.temperature,
-        request_timeout=86400,
-        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-    )
-
     # Determine mode based on path type
     if os.path.isdir(args.path):
         # Directory mode (benchmark)
@@ -827,6 +820,7 @@ Examples:
             args.make_command,
             max_iterations=args.iterations,
             run_command=args.run_command,
+            model_name=args.model_name,
             use_compiler_feedback=(args.compiler_feedback == "on"),
             use_clang_not_intel=("clang" in args.compiler),
             use_oracle_remarks=(args.oracle_remarks == "on"),
