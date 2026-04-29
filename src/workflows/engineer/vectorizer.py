@@ -425,7 +425,10 @@ def engineer(state: VectorizationState):
         "--model", "google/gemma-4-31B-it",
         "-p", "try and transform functions in c_prog.cpp so they are easier to vectorize. after every change, use your bash tool to call clang, and ensure that your changes compile.",
     ]
-    env = {**os.environ, "PI_CODING_AGENT_DIR": ".pi"}
+
+    script_dir = Path(__file__).resolve().parent
+    pi_coding_agent_dir : Path = script_dir / ".pi"
+    env = {**os.environ, "PI_CODING_AGENT_DIR": str(pi_coding_agent_dir.resolve())}
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
     log_path = os.path.join(project_root, "pi_output.log")
