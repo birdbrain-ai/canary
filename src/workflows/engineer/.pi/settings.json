@@ -1,7 +1,7 @@
 {
   "lastChangelogVersion": "0.70.6",
-  "defaultProvider": "ollama",
-  "defaultModel": "gemma4-agent:latest",
+  "defaultProvider": "vllm_slurm",
+  "defaultModel": "google/gemma-4-31B-it",
   "packages": [
     "git:github.com/akashdeonu/pi-sandbox"
   ]
