@@ -695,15 +695,15 @@ Examples:
     parser.add_argument(
         "--make-command", "-m",
         type=str,
-        default=None,
-        help="Build command for benchmark (e.g., 'make'). Required for directory mode."
+        default="make build",
+        help="Build command for benchmark (default: 'make build'). Required for directory mode."
     )
 
     parser.add_argument(
         "--run-command", "-r",
         type=str,
-        default="",
-        help="Optional command to validate function behavior. "
+        default="make run",
+        help="Optional command to validate function behavior (default: 'make run'). "
              "The script receives a JSON file path as its first argument containing the full VectorizationState. "
              "Exit code 0 indicates success, non-zero indicates failure."
     )
