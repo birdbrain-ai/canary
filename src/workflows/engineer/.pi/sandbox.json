@@ -1,14 +1,24 @@
 {
-	"enabled": true,
-	"allowBrowserProcess": false,
-	"network": {
-		"allowLocalBinding": false,
-		"allowAllUnixSockets": false,
-		"allowedDomains": []
-	},
-	"filesystem": {
-		"allowRead": ["**/*"],
-		"allowWrite": ["."],
-		"denyWrite": [".env", ".env.*", "*.pem", "*.key"]
-	}
+  "enabled": true,
+  "allowBrowserProcess": false,
+  "network": {
+    "allowLocalBinding": false,
+    "allowAllUnixSockets": false,
+    "allowedDomains": []
+  },
+  "filesystem": {
+    "allowRead": [
+      "kernel.c"
+    ],
+    "allowWrite": [
+      "kernel.c"
+    ],
+    "denyWrite": [
+      ".env",
+      ".env.*",
+      "*.pem",
+      "*.key"
+    ],
+    "denyRead": []
+  }
 }
