@@ -11,46 +11,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 from typing import TypedDict, Dict
 
 from utils.logger import LLMLogger
-import re
-
-
-class FunctionInfo(TypedDict):
-    name: str
-    signature: str
-    body: str
-    full_text: str
-    start_line: int
-    end_line: int
-
-
-class FunctionDraft:
-    compile_success: bool
-    run_success: bool
-    dead_end: bool
-    vectorization_success: bool
-    runtime_s: float | None
-    reviewer_feedback: str
-    modified_function_text: FunctionInfo
-
-    def __init__(self, function_info):
-        self.compile_success = False
-        self.run_success = False
-        self.dead_end = False
-        self.vectorization_success = False
-        self.runtime_s = None
-        self.reviewer_feedback = ""
-        self.modified_function_text = function_info
-
-    def to_dict(self):
-        return {
-            "compile_success": self.compile_success,
-            "run_success": self.run_success,
-            "dead_end": self.dead_end,
-            "vectorization_success": self.vectorization_success,
-            "runtime_s": self.runtime_s,
-            "reviewer_feedback": self.reviewer_feedback,
-            "modified_function_text": self.modified_function_text
-        }
 
 
 class VectorizationState(TypedDict):
@@ -72,7 +32,6 @@ class VectorizationState(TypedDict):
     max_iterations: int # const
     manager_chosen_i: int
 
-    function_drafts: Dict[int, FunctionDraft]
     logger: 'LLMLogger'
 
 
@@ -101,15 +60,8 @@ def compile_code(state: VectorizationState):
     use_clang_not_intel = state["use_clang_not_intel"]
 
     current_iteration = state["current_iteration"]
-    function_drafts = state["function_drafts"]
-    # cur_function_draft = function_drafts[current_iteration]
-    # cur_function_info = cur_function_draft.modified_function_text
-    # cur_function_name = cur_function_info["name"]
 
     os.chdir(bench_path)
-
-    # if current_iteration == 1 and function_drafts[0].vectorization_success:
-    #     return {}
     
     subprocess.run(
         "find . -name '*.opt.yaml' -type f -delete",
@@ -139,7 +91,6 @@ def compile_code(state: VectorizationState):
         result_dict = {
             "compiler_feedback": "Compilation timed out after 600 seconds. The build process was killed. Consider simplifying the code to reduce compilation time.",
             "optimization_remarks": "",
-            "function_drafts": function_drafts
         }
         after_state = state.copy()
         after_state.update(result_dict)
@@ -150,7 +101,6 @@ def compile_code(state: VectorizationState):
     result_dict = {
         "compiler_feedback": "",
         "optimization_remarks": "",
-        "function_drafts": function_drafts
     }
     
     after_state = state.copy()
@@ -189,7 +139,6 @@ def engineer(state: VectorizationState):
     logger.log_state(state, "engineer", "before")
 
     current_iteration = state["current_iteration"]
-    function_drafts = state["function_drafts"]
 
     # if function_drafts[0].vectorization_success:
     #     logger.print("WE ARE SKIPPING THIS ITERATION BECAUSE THE FUNCTION WAS ALREADY VECTORIZED!")
@@ -229,7 +178,6 @@ def engineer(state: VectorizationState):
         raise RuntimeError(f"pi exited with code {result.returncode}")
 
     result_dict = {
-        "function_drafts": function_drafts,
         "current_iteration": current_iteration + 1
     }
 
@@ -310,7 +258,6 @@ def vectorize_benchmark(benchmark_dir: str,
         current_iteration=0,
         max_iterations=max_iterations,
         manager_chosen_i=0,
-        function_drafts={},
         logger=logger
     )
 
