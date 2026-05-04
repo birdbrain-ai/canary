@@ -1,19 +1,14 @@
 from langgraph.graph import StateGraph, END
-from langchain_community.document_loaders import TextLoader
 import os
 import subprocess
-import shutil
 import argparse
-import json
-import tempfile
 import sys
 from pathlib import Path
 
 # Add src/ to path so we can import from utils
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from utils.more_helpers import extract_functions, find_files_with_ext, find_target_files, extract_file_context, match_remark_files, filter_remarks_by_function, extract_compilation_errors
-from typing import TypedDict, Dict, List
+from typing import TypedDict, Dict
 
 from utils.logger import LLMLogger
 import re
@@ -360,37 +355,33 @@ def engineer(state: VectorizationState):
     print("Starting trial")
     print(os.getcwd())
 
+    bench_path = state["bench_path"]
+    parent_dir = os.path.join(bench_path, "..")
+    log_path = os.path.join(parent_dir, f"{Path(bench_path).stem}_logs")
+
     cmd = [
         "pi",
         "--provider", "vllm_slurm",
         "--model", state["model_name"],
         "-p", "try and transform functions in c_prog.cpp so they are easier to vectorize. after every change, use your bash tool to call clang, and ensure that your changes compile.",
+        "--session-dir", log_path
     ]
 
     script_dir = Path(__file__).resolve().parent
     pi_coding_agent_dir : Path = script_dir / ".pi"
     env = {**os.environ, "PI_CODING_AGENT_DIR": str(pi_coding_agent_dir.resolve())}
 
-    bench_path = state["bench_path"]
-    parent_dir = os.path.join(bench_path, "..")
-    log_path = os.path.join(parent_dir, "pi_output.log")
 
-    with subprocess.Popen(
+    result = subprocess.run(
         cmd,
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        bufsize=1,
-    ) as proc, open(log_path, "w", encoding="utf-8") as f:
-        for line in proc.stdout:
-            print(line, end="")
-            f.write(line)
-            f.flush()
-        returncode = proc.wait()
+    )
 
-    if returncode != 0:
-        raise RuntimeError(f"pi exited with code {returncode}")
+    if result.returncode != 0:
+        raise RuntimeError(f"pi exited with code {result.returncode}")
 
     result_dict = {
         "function_drafts": function_drafts,
