@@ -76,42 +76,6 @@ class VectorizationState(TypedDict):
     logger: 'LLMLogger'
 
 
-# Helper: Serialize VectorizationState to JSON
-def serialize_state_to_json(state: VectorizationState) -> dict:
-    """
-    Convert VectorizationState to a JSON-serializable dictionary.
-
-    Args:
-        state: The VectorizationState to serialize
-
-    Returns:
-        A dictionary that can be JSON-serialized
-    """
-    # Convert function_drafts to serializable format
-    serialized_drafts = {}
-    for iteration, draft in state["function_drafts"].items():
-        serialized_drafts[str(iteration)] = draft.to_dict()
-
-    # Create serialized state, excluding non-serializable fields
-    serialized_state = {
-        "bench_path": state["bench_path"],
-        "file_path": state["file_path"],
-        "make_command": state["make_command"],
-        "run_command": state["run_command"],
-        "use_compiler_feedback": state["use_compiler_feedback"],
-        "model_name": state["model_name"],
-        "program_slice": state["program_slice"],
-        "compiler_feedback": state["compiler_feedback"],
-        "optimization_remarks": state["optimization_remarks"],
-        "current_iteration": state["current_iteration"],
-        "max_iterations": state["max_iterations"],
-        "manager_chosen_i": state["manager_chosen_i"],
-        "function_drafts": serialized_drafts,
-    }
-
-    return serialized_state
-
-
 # Node: compile_code
 def compile_code(state: VectorizationState):
     '''
