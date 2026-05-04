@@ -160,26 +160,6 @@ def compile_code(state: VectorizationState):
     return result_dict
 
 
-# Helper: Parse runtime from validation script output
-def parse_runtime_from_output(output: str) -> float | None:
-    """
-    Parse RUNTIME_S: <value> from validation script stdout.
-
-    Args:
-        output: stdout from the validation script
-
-    Returns:
-        Runtime in seconds as float, or None if not found/invalid
-    """
-    match = re.search(r'RUNTIME_S:\s*([\d.]+)', output)
-    if match:
-        try:
-            return float(match.group(1))
-        except ValueError:
-            return None
-    return None
-
-
 # Node: run_code
 def run_code(state: VectorizationState):
     '''
