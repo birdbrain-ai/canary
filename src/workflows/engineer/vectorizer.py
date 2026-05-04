@@ -211,7 +211,7 @@ def create_vectorization_graph():
     workflow.set_entry_point("compile_code")
     workflow.add_edge("compile_code", "run_code")
     workflow.add_edge("run_code","engineer")
-    workflow.add_edge("engineer", "compile_code")
+    workflow.add_edge("engineer", "finalize")
     workflow.add_edge("finalize", END)
     
     return workflow.compile()
