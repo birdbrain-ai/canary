@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.70.6",
+  "lastChangelogVersion": "0.71.1",
   "defaultProvider": "vllm_slurm",
   "defaultModel": "google/gemma-4-31B-it",
   "packages": [

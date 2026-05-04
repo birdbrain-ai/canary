@@ -31,6 +31,11 @@
 					"id": "google/gemma-4-31B-it",
 					"name": "Gemma 4 31B Instruct",
 					"contextWindow": 128000
+				},
+				{
+					"id": "google/gemma-3-1b-it",
+					"name": "Gemma 3 1B Instruct",
+					"contextWindow": 32000
 				}
 			]
 		}
