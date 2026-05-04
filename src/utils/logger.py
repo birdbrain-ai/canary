@@ -21,8 +21,8 @@ class LLMLogger:
         self.output_log_file = self.log_base_dir / "vectorizer_output.log"
         self.log_file_handle = open(self.output_log_file, 'w', encoding='utf-8')
 
-        print(f"📝 LLM logging enabled: {self.log_base_dir}")
-        print(f"📝 Output log file: {self.output_log_file}")
+        # print(f"📝 LLM logging enabled: {self.log_base_dir}")
+        # print(f"📝 Output log file: {self.output_log_file}")
 
     def print(self, *args, **kwargs):
         """
