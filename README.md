@@ -1,7 +1,7 @@
 # canary
 Evaluating compiler diagnostics in the context of AI coding agents.
 
-![An Inquisitive Canary](https://myrightbird.com/assets/uploads/mybird_canary_close_up.jpg?width=300)
+![An Inquisitive Canary](https://www.zooplus.co.uk/magazine/wp-content/uploads/2017/12/AdobeStock_127952455-1024x683.webp)
 
 ## Dependencies
 Requires [uv](https://docs.astral.sh/uv/).
