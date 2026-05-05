@@ -41,11 +41,6 @@ def main():
         required=True,
         help="Original kernel C file",
     )
-    parser.add_argument(
-        "--bitcode",
-        required=True,
-        help="Original kernel bitcode file",
-    )
 
     args = parser.parse_args()
 
@@ -59,7 +54,7 @@ def main():
     )
 
     # Initialize the agent.
-    agent = Agent(llm, args.bitcode)
+    agent = Agent(llm)
 
     # Read the kernel source into a string.
     with open(args.kernel, "r") as file:

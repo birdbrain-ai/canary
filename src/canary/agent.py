@@ -33,6 +33,7 @@ class State(TypedDict):
 
     # Kernel state
     kernel: str
+    orig_kernel: str
 
     # Bookkeeping
     attempts: int
@@ -49,7 +50,6 @@ class State(TypedDict):
 
     # Configuration
     temperature: float
-    original_bitcode: float
 
     # Output
     log: dict
@@ -63,6 +63,7 @@ def initial_state(config: RunConfig) -> State:
         run_id=config.run_id,
         # Kernel
         kernel=config.kernel,
+        orig_kernel=config.kernel,
         # Attempts
         attempts=0,
         syntax_attempts=0,
@@ -108,7 +109,6 @@ class Agent:
     """
 
     # ====---- State ----==== #
-    _orig_ir: str
     _llm: BaseLanguageModel
     _app: CompiledStateGraph
     _checkpointer: MemorySaver
@@ -120,9 +120,7 @@ class Agent:
     def __init__(
         self,
         llm: BaseLanguageModel,
-        orig_ir: str,
     ):
-        self._orig_ir = orig_ir
         self._llm = llm
         self._checkpointer = MemorySaver()
         self._app = self._build_graph().compile(
@@ -263,10 +261,11 @@ class Agent:
         Check semantics preservation using alive2.
         """
         # Set up a pipe for command substitution
-        read_fd, write_fd = os.pipe()
+        tgt_read_fd, tgt_write_fd = os.pipe()
+        src_read_fd, src_write_fd = os.pipe()
 
         try:
-            clang = subprocess.Popen(
+            compile_src = subprocess.Popen(
                 [
                     CC,
                     INCLUDES,
@@ -277,26 +276,55 @@ class Agent:
                     "c",
                     "-",
                     "-o",
-                    f"/dev/fd/{write_fd}",
+                    f"/dev/fd/{src_write_fd}",
                 ],
                 stdin=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                pass_fds=(write_fd,),
+                pass_fds=(src_write_fd,),
+            )
+            compile_tgt = subprocess.Popen(
+                [
+                    CC,
+                    INCLUDES,
+                    "-O1",
+                    "-emit-llvm",
+                    "-c",
+                    "-x",
+                    "c",
+                    "-",
+                    "-o",
+                    f"/dev/fd/{tgt_write_fd}",
+                ],
+                stdin=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                pass_fds=(tgt_write_fd,),
             )
             alive = subprocess.Popen(
-                [TV, self._orig_ir, f"/dev/fd/{read_fd}"],
+                [
+                    TV,
+                    "--src-unroll=3",
+                    "--tgt-unroll=3",
+                    f"/dev/fd/{src_read_fd}",
+                    f"/dev/fd/{tgt_read_fd}",
+                ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                pass_fds=(read_fd,),
+                pass_fds=(src_read_fd, tgt_read_fd),
             )
 
             # Close the pipe so the commands can use it.
-            os.close(read_fd)
-            os.close(write_fd)
-            # Run clang
-            clang.stdin.write(state["kernel"].encode())
-            clang.stdin.close()
-            clang.wait()
+            os.close(src_read_fd)
+            os.close(src_write_fd)
+            os.close(tgt_read_fd)
+            os.close(tgt_write_fd)
+            # Compile source
+            compile_src.stdin.write(state["orig_kernel"].encode())
+            compile_src.stdin.close()
+            compile_src.wait()
+            # Compile target
+            compile_tgt.stdin.write(state["kernel"].encode())
+            compile_tgt.stdin.close()
+            compile_tgt.wait()
             # Run alive
             stdout, stderr = alive.communicate()
             exitcode = alive.returncode == 0
@@ -327,7 +355,7 @@ class Agent:
         # TODO: Check that semantics check passed.
         if state["semantics_valid"]:
             return "valid_semantics"
-        if state["semantics_attempts"] >= MAX_SEMANTICS_REPAIR:
+        if state["semantics_attempts"] >= MAX_SEMANTICS_ATTEMPTS:
             state["reason"] = "semantics_timeout"
             return END
         return "repair_semantics"
