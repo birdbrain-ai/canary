@@ -1,32 +1,6 @@
 import subprocess
 from typing import TypedDict, Optional
 
-
-# ====---- State ----====#
-class ExperimentState(TypedDict):
-    # Kernel state
-    kernel: str  # current kernel string
-    prev_kernels: list[str]  # checkpoint for rollback
-
-    # Bookeeping
-    attempt: int
-    repair_syntax_attempt: int
-    repair_semantics_attempt: int
-
-    # Tool state
-    remarks_output: str
-    linter_output: str
-    alive2_output: str
-    remarks_filter: str
-
-    # Configuration
-    temperature: float
-    original_bitcode: float
-
-    run_id: str
-    log: dict
-
-
 # ====---- Main ----====#
 import argparse
 from langchain_openai import ChatOpenAI
