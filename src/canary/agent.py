@@ -96,6 +96,7 @@ from langchain_core.prompts import PromptTemplate
 import subprocess
 import os
 import asyncio
+import re
 
 MAX_ATTEMPTS: int = os.getenv("MAX_ATTEMPTS", 1)
 MAX_SYNTAX_ATTEMPTS: int = os.getenv("MAX_SYNTAX_ATTEMPTS", 3)
@@ -196,11 +197,26 @@ class Agent:
             print("The LLM invocation timed out and was canceled.")
             raise  # TODO: Add retry logic.
 
+        import re
+
+    def _apply_diff(self, response: str, kernel: str) -> str | None:
+        match = re.search(
+            r"<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>> REPLACE",
+            response,
+            re.DOTALL,
+        )
+        if not match:
+            return None
+        search, replace = match.group(1), match.group(2)
+        if search not in kernel:
+            return None  # trigger retry
+        return kernel.replace(search, replace, 1)
+
     def _repair_remarks(self, state: State):
         """
         Repair remarks using an LLM invocation.
         """
-        # TODO: Format the prompt.
+        # Format the prompt.
         template = PromptTemplate.from_template(
             open("prompts/optimize.j2").read(),
             template_format="jinja2",
@@ -218,15 +234,13 @@ class Agent:
             },
         )
 
-        print(f"Asking the LLM:\n{prompt}")
-
         # Invoke the LLM with the remarks output
         response: str = asyncio.run(self._prompt_llm(prompt, 86400.0))
 
-        # TODO: Parse the SEARCH/REPLACE text edit
+        # Apply the model changes to the existing kernel.
+        kernel: str = self._apply_diff(response, state["kernel"])
+
         # TODO: Should we loop on correct SEARCH/REPLACE text edit?
-        # TODO: Construct the new kernel
-        kernel: str = state["kernel"]
 
         return {
             "response": response,
@@ -255,15 +269,17 @@ class Agent:
         Check syntax of the kernel using the linter.
         """
 
+        kernel = state["kernel"]
+
+        print(f"Check syntax:\n{kernel}\n")
+
         # Run the linter.
         result = subprocess.run(
             [CC, INCLUDES, "-fsyntax-only", "-x", "c", "-"],
-            input=state["kernel"],
+            input=kernel,
             capture_output=True,
             text=True,
         )
-
-        print(f"linter exit {result.returncode}")
 
         return {
             "syntax_valid": result.returncode == 0,
@@ -339,8 +355,8 @@ class Agent:
             alive = subprocess.Popen(
                 [
                     TV,
-                    "--src-unroll=3",
-                    "--tgt-unroll=3",
+                    "--src-unroll=10",
+                    "--tgt-unroll=10",
                     f"/dev/fd/{src_read_fd}",
                     f"/dev/fd/{tgt_read_fd}",
                 ],
