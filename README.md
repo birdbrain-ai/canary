@@ -19,7 +19,6 @@ uv sync
 ```bash
 uv run canary \
    --kernel /path/to/kernel.c \    # C file to optimize
-   --bitcode /path/to/kernel.bc \  # LLVM IR of kernel
    --model YOUR_FAVORITE_MODEL \   # LLM model
    --api-url http://llm-server.url # LLM API URL
 ```
