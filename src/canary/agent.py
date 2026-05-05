@@ -346,7 +346,7 @@ class Agent:
                 [
                     CC,
                     INCLUDES,
-                    "-O1",
+                    CFLAGS,
                     "-emit-llvm",
                     "-c",
                     "-x",
@@ -363,7 +363,7 @@ class Agent:
                 [
                     CC,
                     INCLUDES,
-                    "-O1",
+                    CFLAGS,
                     "-emit-llvm",
                     "-c",
                     "-x",
