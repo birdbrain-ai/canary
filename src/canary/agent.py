@@ -95,6 +95,12 @@ MAX_ATTEMPTS: int = os.getenv("MAX_ATTEMPTS", 1)
 MAX_SYNTAX_ATTEMPTS: int = os.getenv("MAX_SYNTAX_ATTEMPTS", 3)
 MAX_SEMANTICS_ATTEMPTS: int = os.getenv("MAX_SEMANTICS_ATTEMPTS", 1)
 
+CFLAGS: str = os.getenv("CFLAGS", "")
+INCLUDES: str = os.getenv("INCLUDES", "")
+CC: str = os.getenv("CC", "clang")
+REMARKS: str = os.getenv("REMARKS", "clang-remarks")
+TV: str = os.getenv("TV", "alive-tv")
+
 
 class Agent:
     """
@@ -150,7 +156,9 @@ class Agent:
         # Run the remarks
         result = subprocess.run(
             [
-                "clang",
+                CC,
+                CFLAGS,
+                INCLUDES,
                 "-x",
                 "c",
                 "-",
@@ -214,11 +222,13 @@ class Agent:
 
         # Run the linter.
         result = subprocess.run(
-            ["clang", "-fsyntax-only", "-x", "c", "-"],
+            [CC, INCLUDES, "-fsyntax-only", "-x", "c", "-"],
             input=state["kernel"],
             capture_output=True,
             text=True,
         )
+
+        print(f"linter exit {result.returncode}")
 
         return {
             "syntax_valid": result.returncode == 0,
@@ -258,7 +268,8 @@ class Agent:
         try:
             clang = subprocess.Popen(
                 [
-                    "clang",
+                    CC,
+                    INCLUDES,
                     "-O1",
                     "-emit-llvm",
                     "-c",
@@ -273,7 +284,7 @@ class Agent:
                 pass_fds=(write_fd,),
             )
             alive = subprocess.Popen(
-                ["alive-tv", self._orig_ir, f"/dev/fd/{read_fd}"],
+                [TV, self._orig_ir, f"/dev/fd/{read_fd}"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 pass_fds=(read_fd,),
