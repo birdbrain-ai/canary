@@ -35,9 +35,9 @@ class State(TypedDict):
     kernel: str
 
     # Bookkeeping
-    remarks_attempt: int
-    syntax_attempt: int
-    semantics_attempt: int
+    attempts: int
+    syntax_attempts: int
+    semantics_attempts: int
 
     # Tool state
     remarks_valid: bool
@@ -87,6 +87,7 @@ def initial_state(config: RunConfig) -> State:
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
 
+import subprocess
 import os
 
 MAX_ATTEMPTS: int = os.getenv("MAX_ATTEMPTS", 1)
@@ -103,6 +104,9 @@ class Agent:
     _orig_ir: str
     _llm: BaseLanguageModel
     _app: CompiledStateGraph
+    _compiler: str
+    _remarks: str
+    _validator: str
 
     # ====---- Initialization ----==== #
     def __init__(
@@ -131,18 +135,67 @@ class Agent:
 
     # ====---- Nodes ----==== #
     def _check_remarks(self, state: State):  # run remarks on temp file
-        pass
+        # Run the remarks
+        result = subprocess.run(
+            [
+                "clang",
+                "-x",
+                "c",
+                "-",
+                "-O3",
+                "-fsave-optimization-record=yaml",
+                "-foptimization-record-file=/dev/stdout",
+            ],
+            input=state["kernel"],
+            capture_output=True,
+            text=True,
+        )
+
+        # Fetch the output.
+        remarks_valid = result.returncode == 0
+        remarks_output = result.stdout
+
+        # TODO: Determine if the kernel was vectorized
+        vectorized: bool = remarks_valid
+
+        return {
+            "success": vectorized,
+            "remarks_valid": remarks_valid,
+            "remarks_output": remarks_output,
+        }
 
     def _repair_remarks(self, state: State):
-        return {"attempts": state["attempts"] + 1}
+        """
+        Repair remarks using an LLM invocation.
+        """
+        # TODO: Invoke the LLM with the remarks output
+        # TODO: Parse the SEARCH/REPLACE text edit
+        # TODO: Should we loop on correct SEARCH/REPLACE text edit?
+        # TODO: Construct the new kernel
+        kernel: str = state["kernel"]
+
+        return {
+            "attempts": state["attempts"] + 1,
+            "kernel": kernel,
+        }
 
     def _valid_remarks(self, state: State):
+        """
+        Transition state when remarks indicate success.
+        """
+        pass
 
-        return {"success": True}
+    def _remarks_loop(self, state: State):
+        if state["success"]:
+            return "valid_remarks"
+        if state["attempts"] >= MAX_ATTEMPTS:
+            state["reason"] = "remarks_timeout"
+            return END
+        return "repair_remarks"
 
     # ----
 
-    def _check_syntax(self, state: State):  # run linter on temp file
+    def _check_syntax(self, state: State):
         """
         Check syntax of the kernel using the linter.
         """
@@ -164,6 +217,7 @@ class Agent:
         """
         Repair syntax of the kernel using an LLM call.
         """
+        # TODO: call the LLM, providing the linter output
         return {"syntax_attempts": state["syntax_attempts"] + 1}
 
     def _valid_syntax(self, state: State):
@@ -171,6 +225,14 @@ class Agent:
         Transition state for when syntax is valid.
         """
         pass
+
+    def _syntax_loop(self, state: State):
+        if state["syntax_valid"]:
+            return "valid_syntax"
+        if state["syntax_attempts"] >= MAX_SYNTAX_ATTEMPTS:
+            state["reason"] = "syntax_timeout"
+            return END
+        return "repair_syntax"
 
     # ----
 
@@ -238,41 +300,16 @@ class Agent:
         """
         return {}
 
-    # ----
-
-    # ====---- Edges (conditional) ----==== #
-
-    def _vectorized(self, state: State):
-        return True
-
-    def _remarks_loop(self, state: State):
-        # TODO: Check that remarks check passed.
-        state["success"] = self._vectorized(state)
-        if state["success"]:
-            state["reason"] = "success"
-            return "valid_remarks"
-        if state["attempts"] >= MAX_ATTEMPTS:
-            state["reason"] = "remarks_timeout"
-            return END
-        return "repair_remarks"
-
-    def _syntax_loop(self, state: State):
-        # TODO: Check that syntax check passed.
-        if linter_passed(stats):
-            return "valid_syntax"
-        if state["syntax_attempts"] >= MAX_SYNTAX_ATTEMPTS:
-            state["reason"] = "syntax_timeout"
-            return END
-        return "repair_syntax"
-
     def _semantics_loop(self, state: State):
         # TODO: Check that semantics check passed.
-        if alive2_passed(state):
+        if state["semantics_valid"]:
             return "valid_semantics"
         if state["semantics_attempts"] >= MAX_SEMANTICS_REPAIR:
             state["reason"] = "semantics_timeout"
             return END
         return "repair_semantics"
+
+    # ----
 
     # ====---- Graph ----==== #
     def _build_graph(self):

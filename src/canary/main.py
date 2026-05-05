@@ -30,7 +30,7 @@ class ExperimentState(TypedDict):
 # ====---- Main ----====#
 import argparse
 from langchain_openai import ChatOpenAI
-from agent import Agent, RunConfig, RunResult
+from canary.agent import Agent, RunConfig, RunResult
 
 
 def main():
