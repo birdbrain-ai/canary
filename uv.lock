@@ -43,6 +43,7 @@ dependencies = [
     { name = "langgraph" },
     { name = "langgraph-checkpoint" },
     { name = "langgraph-checkpoint-sqlite" },
+    { name = "pyyaml" },
 ]
 
 [package.metadata]
@@ -53,6 +54,7 @@ requires-dist = [
     { name = "langgraph", specifier = ">=1.1.10" },
     { name = "langgraph-checkpoint", specifier = ">=4.0.3" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.0.3" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
 ]
 
 [[package]]

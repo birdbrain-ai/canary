@@ -98,6 +98,8 @@ import os
 import asyncio
 import re
 
+from canary.remark import parse_remarks
+
 MAX_ATTEMPTS: int = os.getenv("MAX_ATTEMPTS", 1)
 MAX_SYNTAX_ATTEMPTS: int = os.getenv("MAX_SYNTAX_ATTEMPTS", 3)
 MAX_SEMANTICS_ATTEMPTS: int = os.getenv("MAX_SEMANTICS_ATTEMPTS", 1)
@@ -154,13 +156,32 @@ class Agent:
         )
 
     # ====---- Nodes ----==== #
-    def _check_remarks(self, state: State):  # run remarks on temp file
+    def _is_optimized(self, raw_remarks: str):
+        # Helper function to ignore unknown tags
+
+        # Load the remarks as yaml
+        remarks = parse_remarks(raw_remarks)
+
+        # Check if the loop was vectorized
+        for remark in remarks:
+            if remark.Pass == "loop-vectorize" and remark.Name == "Vectorized":
+                return True
+
+        return False
+
+    def _check_remarks(self, state: State):
+        """
+        Gather optimization remarks.
+        Determine if function was successfully optimized.
+        """
+
         # Run the remarks
         result = subprocess.run(
             [
                 CC,
                 CFLAGS,
                 INCLUDES,
+                "-c",
                 "-x",
                 "c",
                 "-",
@@ -177,11 +198,14 @@ class Agent:
         remarks_valid = result.returncode == 0
         remarks_output = result.stdout
 
+        if not remarks_valid:
+            return {"success": False, "remarks_valid": False}
+
         # TODO: Determine if the kernel was vectorized
-        vectorized: bool = remarks_valid
+        optimized: bool = self._is_optimized(remarks_output)
 
         return {
-            "success": vectorized,
+            "success": optimized,
             "remarks_valid": remarks_valid,
             "remarks_output": remarks_output,
         }
