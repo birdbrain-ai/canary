@@ -59,7 +59,7 @@ def main():
     )
 
     # Initialize the agent.
-    agent = Agent(args.bitcode, llm)
+    agent = Agent(llm, args.bitcode)
 
     # Read the kernel source into a string.
     with open(args.kernel, "r") as file:
