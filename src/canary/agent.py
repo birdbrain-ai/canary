@@ -48,6 +48,9 @@ class State(TypedDict):
     semantics_valid: bool
     semantics_output: str
 
+    # LLM state
+    response: str
+
     # Configuration
     temperature: float
 
@@ -88,9 +91,11 @@ def initial_state(config: RunConfig) -> State:
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.prompts import PromptTemplate
 
 import subprocess
 import os
+import asyncio
 
 MAX_ATTEMPTS: int = os.getenv("MAX_ATTEMPTS", 1)
 MAX_SYNTAX_ATTEMPTS: int = os.getenv("MAX_SYNTAX_ATTEMPTS", 3)
@@ -112,9 +117,7 @@ class Agent:
     _llm: BaseLanguageModel
     _app: CompiledStateGraph
     _checkpointer: MemorySaver
-    _compiler: str
-    _remarks: str
-    _validator: str
+    _timeout: int
 
     # ====---- Initialization ----==== #
     def __init__(
@@ -182,17 +185,51 @@ class Agent:
             "remarks_output": remarks_output,
         }
 
+    async def _prompt_llm(self, prompt: str, timeout: float = None):
+        try:
+            result = await asyncio.wait_for(
+                self._llm.ainvoke(prompt),
+                timeout=86400.0,
+            )
+            return result.content
+        except asyncio.TimeoutError:
+            print("The LLM invocation timed out and was canceled.")
+            raise  # TODO: Add retry logic.
+
     def _repair_remarks(self, state: State):
         """
         Repair remarks using an LLM invocation.
         """
-        # TODO: Invoke the LLM with the remarks output
+        # TODO: Format the prompt.
+        template = PromptTemplate.from_template(
+            open("prompts/optimize.j2").read(),
+            template_format="jinja2",
+        )
+
+        prompt = template.format(
+            kernel=state["kernel"],
+            remarks=state["remarks_output"],
+            compiler={
+                "family": "clang",
+            },
+            explain={
+                "transformations": True,
+                "diagnostics": True,
+            },
+        )
+
+        print(f"Asking the LLM:\n{prompt}")
+
+        # Invoke the LLM with the remarks output
+        response: str = asyncio.run(self._prompt_llm(prompt, 86400.0))
+
         # TODO: Parse the SEARCH/REPLACE text edit
         # TODO: Should we loop on correct SEARCH/REPLACE text edit?
         # TODO: Construct the new kernel
         kernel: str = state["kernel"]
 
         return {
+            "response": response,
             "attempts": state["attempts"] + 1,
             "kernel": kernel,
         }
