@@ -86,6 +86,7 @@ def initial_state(config: RunConfig) -> State:
 # ====---- Agent ----==== #
 from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.checkpoint.memory import MemorySaver
 
 import subprocess
 import os
@@ -104,6 +105,7 @@ class Agent:
     _orig_ir: str
     _llm: BaseLanguageModel
     _app: CompiledStateGraph
+    _checkpointer: MemorySaver
     _compiler: str
     _remarks: str
     _validator: str
@@ -116,14 +118,24 @@ class Agent:
     ):
         self._orig_ir = orig_ir
         self._llm = llm
-        self._app = self._build_graph()
+        self._checkpointer = MemorySaver()
+        self._app = self._build_graph().compile(
+            checkpointer=self._checkpointer,
+        )
 
     # ====---- Public API ----==== #
     def run(self, config: RunConfig) -> RunResult:
-        final: State = self._app.invoke(
+
+        thread = {"configurable": {"thread_id": config.run_id}}
+        for step in self._app.stream(
             initial_state(config),
-            config={"configurable": {"thread_id": config.run_id}},
-        )
+            config=thread,
+            stream_mode="updates",
+        ):
+            print(step)
+
+        final: State = self._app.get_state(thread).values
+
         return RunResult(
             run_id=final["run_id"],
             success=final["success"],
@@ -352,4 +364,4 @@ class Agent:
         graph.add_edge("valid_remarks", END)
 
         # ---- Compile ---- #
-        return graph.compile()
+        return graph
