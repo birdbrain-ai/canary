@@ -4,7 +4,7 @@ import yaml
 
 @dataclass
 class Remark:
-    kind: str  # "Passed", "Missed", "Analysis"
+    kind: str  # "Passed", "Missed", "Analysis", "Failure"
     Pass: str
     Name: str
     Function: str
@@ -29,7 +29,7 @@ def _remark_constructor(kind):
 
 
 # Add tagged constructors for LLVM YAML
-for tag in ("Passed", "Missed", "Analysis"):
+for tag in ("Passed", "Missed", "Analysis", "Failure"):
     yaml.add_constructor(f"!{tag}", _remark_constructor(tag), Loader=yaml.SafeLoader)
 
 
