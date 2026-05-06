@@ -178,16 +178,13 @@ class Agent:
         # Run the remarks
         result = subprocess.run(
             [
-                CC,
+                REMARKS,
                 CFLAGS,
                 INCLUDES,
                 "-c",
                 "-x",
                 "c",
                 "-",
-                "-O3",
-                "-fsave-optimization-record=yaml",
-                "-foptimization-record-file=/dev/stdout",
             ],
             input=state["kernel"],
             capture_output=True,
