@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import yaml
+import subprocess
 
 
 @dataclass
@@ -33,5 +34,24 @@ for tag in ("Passed", "Missed", "Analysis", "Failure"):
     yaml.add_constructor(f"!{tag}", _remark_constructor(tag), Loader=yaml.SafeLoader)
 
 
+def get_remarks(source: str, exe: str, flags: list[str] = None) -> tuple[int, str, str]:
+    args = [exe, "-c", "-x", "c", "-"]
+    if flags is not None:
+        args.extend(flags)
+
+    # Run the remarks
+    result = subprocess.run(
+        args,
+        input=source,
+        capture_output=True,
+        text=True,
+    )
+
+    return result.returncode, result.stdout, result.stderr
+
+
 def parse_remarks(raw: str) -> list[Passed | Missed | Analysis]:
+    """
+    Parse the raw LLVM optimization remarks into a list of structured remarks.
+    """
     return list(yaml.safe_load_all(raw))
