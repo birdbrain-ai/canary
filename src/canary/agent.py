@@ -157,7 +157,9 @@ class Agent:
 
     # ====---- Nodes ----==== #
     def _is_optimized(self, raw_remarks: str):
-        # Helper function to ignore unknown tags
+        """
+        Inspect the remarks to see if loop vectorization fired.
+        """
 
         # Load the remarks as yaml
         remarks = parse_remarks(raw_remarks)
