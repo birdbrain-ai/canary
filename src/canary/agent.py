@@ -92,6 +92,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.prompts import PromptTemplate
+from langchain_core.messages import HumanMessage, AIMessage
 
 import subprocess
 import os
@@ -209,10 +210,19 @@ class Agent:
             "remarks_output": remarks_output,
         }
 
-    async def _prompt_llm(self, prompt: str, timeout: float = None):
+    async def _prompt_llm(
+        self,
+        prompt: str,
+        prefill: str = None,
+        timeout: float = None,
+    ):
+        messages = [HumanMessage(prompt)]
+        if prefill is not None:
+            messages.append(AIMessage(content=prefill))
+
         try:
             result = await asyncio.wait_for(
-                self._llm.ainvoke(prompt),
+                self._llm.ainvoke(messages),
                 timeout=86400.0,
             )
             return result.content
@@ -257,8 +267,17 @@ class Agent:
             },
         )
 
+        # Prefill
+        prefill: str = "<<<<<<< SEARCH\n"
+
         # Invoke the LLM with the remarks output
-        response: str = asyncio.run(self._prompt_llm(prompt, 86400.0))
+        response: str = asyncio.run(
+            self._prompt_llm(
+                prompt,
+                prefill,
+                86400.0,
+            )
+        )
 
         # Apply the model changes to the existing kernel.
         kernel: str = self._apply_diff(response, state["kernel"])
