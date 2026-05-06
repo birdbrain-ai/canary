@@ -99,7 +99,7 @@ import os
 import asyncio
 import re
 
-from canary.remark import parse_remarks
+from canary.remark import get_remarks, parse_remarks
 
 MAX_ATTEMPTS: int = os.getenv("MAX_ATTEMPTS", 1)
 MAX_SYNTAX_ATTEMPTS: int = os.getenv("MAX_SYNTAX_ATTEMPTS", 3)
@@ -178,36 +178,26 @@ class Agent:
         Determine if function was successfully optimized.
         """
 
-        # Run the remarks
-        result = subprocess.run(
-            [
-                REMARKS,
-                CFLAGS,
-                INCLUDES,
-                "-c",
-                "-x",
-                "c",
-                "-",
-            ],
-            input=state["kernel"],
-            capture_output=True,
-            text=True,
+        # Run the remarks.
+        retval, stdout, stderr = get_remarks(
+            state["kernel"],
+            REMARKS,
+            flags=[CFLAGS, INCLUDES],
         )
 
         # Fetch the output.
-        remarks_valid = result.returncode == 0
-        remarks_output = result.stdout
+        remarks_valid = retval == 0
 
         if not remarks_valid:
             return {"success": False, "remarks_valid": False}
 
         # TODO: Determine if the kernel was vectorized
-        optimized: bool = self._is_optimized(remarks_output)
+        optimized: bool = self._is_optimized(stdout)
 
         return {
             "success": optimized,
             "remarks_valid": remarks_valid,
-            "remarks_output": remarks_output,
+            "remarks_output": stdout,
         }
 
     async def _prompt_llm(
