@@ -102,7 +102,6 @@ class Agent:
     _llm: BaseLanguageModel
     _app: CompiledStateGraph
     _checkpointer: MemorySaver
-    _timeout: int
 
     # ====---- Initialization ----==== #
     def __init__(
