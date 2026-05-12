@@ -6,3 +6,5 @@ format:
 
 lint:
     uv run ruff check src/canary
+
+check: lint
