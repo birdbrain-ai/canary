@@ -1,30 +1,23 @@
-# ====---- Run Configuration ----==== #
-from dataclasses import dataclass
+# Builtin
+import subprocess
+import os
+import asyncio
+import re
+from typing import TypedDict
 
+# LangChain
+from langgraph.graph import StateGraph, END
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.checkpoint.memory import MemorySaver
+from langchain_core.prompts import PromptTemplate
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.language_models.base import BaseLanguageModel
 
-@dataclass
-class RunConfig:
-    run_id: str
-    kernel: str
-    temperature: int
-
-
-# ====---- Run Results ----==== #
-from dataclasses import dataclass
-
-
-@dataclass
-class RunResult:
-    run_id: str
-    success: bool
-    reason: str
-    attempts: int
-    final_kernel: str
-    log: dict
-
+# Canary
+from canary.remark import get_remarks, parse_remarks
+from canary.run import RunConfig, RunResult
 
 # ====---- State ----==== #
-from typing import TypedDict
 
 
 class State(TypedDict):
@@ -88,18 +81,6 @@ def initial_state(config: RunConfig) -> State:
 
 
 # ====---- Agent ----==== #
-from langgraph.graph import StateGraph, END
-from langgraph.graph.state import CompiledStateGraph
-from langgraph.checkpoint.memory import MemorySaver
-from langchain_core.prompts import PromptTemplate
-from langchain_core.messages import HumanMessage, AIMessage
-
-import subprocess
-import os
-import asyncio
-import re
-
-from canary.remark import get_remarks, parse_remarks
 
 MAX_ATTEMPTS: int = os.getenv("MAX_ATTEMPTS", 1)
 MAX_SYNTAX_ATTEMPTS: int = os.getenv("MAX_SYNTAX_ATTEMPTS", 3)
@@ -191,7 +172,7 @@ class Agent:
         if not remarks_valid:
             return {"success": False, "remarks_valid": False}
 
-        # TODO: Determine if the kernel was vectorized
+        # Determine if the kernel was vectorized
         optimized: bool = self._is_optimized(stdout)
 
         return {
@@ -219,8 +200,6 @@ class Agent:
         except asyncio.TimeoutError:
             print("The LLM invocation timed out and was canceled.")
             raise  # TODO: Add retry logic.
-
-        import re
 
     def _apply_diff(self, response: str, kernel: str) -> str | None:
         match = re.search(
