@@ -24,5 +24,10 @@ packages = ["src/canary"]
 [tool.uv]
 package = true
 
+[dependency-groups]
+dev = [
+    "ruff>=0.15.12",
+]
+
 [project.scripts]
 canary = "canary.main:main"
