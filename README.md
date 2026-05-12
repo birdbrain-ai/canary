@@ -10,6 +10,8 @@ Requires [uv](https://docs.astral.sh/uv/).
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
+_Optional:_ Run developer recipes with [`just`](https://just.systems/man/en/installation.html)
+
 ## Setup
 ```bash
 uv sync
