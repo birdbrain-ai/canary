@@ -50,5 +50,3 @@ results/
 *.exe
 a.out
 
-# Sensitive scripts
-language-models/tunnel.sh
