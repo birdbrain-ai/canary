@@ -14,12 +14,23 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.language_models.base import BaseLanguageModel
 
 # Canary
-from canary.remark import get_remarks, parse_remarks
+from canary.remark import Remark, get_remarks, parse_remarks
+from canary.validate import ValidationResult, check_semantics
 from canary.run import RunConfig, RunResult
 
+# ====---- Global Environment ----==== #
+MAX_ATTEMPTS: int = os.getenv("MAX_ATTEMPTS", 1)
+MAX_SYNTAX_ATTEMPTS: int = os.getenv("MAX_SYNTAX_ATTEMPTS", 3)
+MAX_SEMANTICS_ATTEMPTS: int = os.getenv("MAX_SEMANTICS_ATTEMPTS", 1)
+
+CFLAGS: str = os.getenv("CFLAGS", "")
+INCLUDES: str = os.getenv("INCLUDES", "")
+CC: str = os.getenv("CC", "clang")
+REMARKS: str = os.getenv("REMARKS", "clang-remarks")
+TV: str = os.getenv("TV", "alive-tv")
+
+
 # ====---- State ----==== #
-
-
 class State(TypedDict):
     # Run information
     run_id: str
@@ -81,18 +92,6 @@ def initial_state(config: RunConfig) -> State:
 
 
 # ====---- Agent ----==== #
-
-MAX_ATTEMPTS: int = os.getenv("MAX_ATTEMPTS", 1)
-MAX_SYNTAX_ATTEMPTS: int = os.getenv("MAX_SYNTAX_ATTEMPTS", 3)
-MAX_SEMANTICS_ATTEMPTS: int = os.getenv("MAX_SEMANTICS_ATTEMPTS", 1)
-
-CFLAGS: str = os.getenv("CFLAGS", "")
-INCLUDES: str = os.getenv("INCLUDES", "")
-CC: str = os.getenv("CC", "clang")
-REMARKS: str = os.getenv("REMARKS", "clang-remarks")
-TV: str = os.getenv("TV", "alive-tv")
-
-
 class Agent:
     """
     Canary agent for automatic vectorization.
@@ -138,13 +137,10 @@ class Agent:
         )
 
     # ====---- Nodes ----==== #
-    def _is_optimized(self, raw_remarks: str):
+    def _is_optimized(self, remarks: list[Remark]) -> bool:
         """
         Inspect the remarks to see if loop vectorization fired.
         """
-
-        # Load the remarks as yaml
-        remarks = parse_remarks(raw_remarks)
 
         # Check if the loop was vectorized
         for remark in remarks:
@@ -172,13 +168,21 @@ class Agent:
         if not remarks_valid:
             return {"success": False, "remarks_valid": False}
 
+        # Load the remarks as a list for processing
+        remarks: list[Remark] = parse_remarks(stdout)
+
         # Determine if the kernel was vectorized
-        optimized: bool = self._is_optimized(stdout)
+        optimized: bool = self._is_optimized(remarks)
+
+        # Remove all irrelevant remarks
+        remarks = [r for r in remarks if "loop" in r.Pass]
+
+        # TODO: Filter remarks based on experimental configuration.
 
         return {
             "success": optimized,
             "remarks_valid": remarks_valid,
-            "remarks_output": stdout,
+            "remarks_output": f"{remarks}",
         }
 
     async def _prompt_llm(
@@ -324,86 +328,18 @@ class Agent:
         """
         Check semantics preservation using alive2.
         """
-        # Set up a pipe for command substitution
-        tgt_read_fd, tgt_write_fd = os.pipe()
-        src_read_fd, src_write_fd = os.pipe()
+        result: ValidationResult = check_semantics(
+            TV,
+            state["orig_kernel"],
+            state["kernel"],
+            cc=CC,  # TODO: if CC is not in the llvm family, default to one
+            cflags=[INCLUDES, CFLAGS],
+        )
 
-        try:
-            compile_src = subprocess.Popen(
-                [
-                    CC,
-                    INCLUDES,
-                    CFLAGS,
-                    "-emit-llvm",
-                    "-c",
-                    "-x",
-                    "c",
-                    "-",
-                    "-o",
-                    f"/dev/fd/{src_write_fd}",
-                ],
-                stdin=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                pass_fds=(src_write_fd,),
-            )
-            compile_tgt = subprocess.Popen(
-                [
-                    CC,
-                    INCLUDES,
-                    CFLAGS,
-                    "-emit-llvm",
-                    "-c",
-                    "-x",
-                    "c",
-                    "-",
-                    "-o",
-                    f"/dev/fd/{tgt_write_fd}",
-                ],
-                stdin=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                pass_fds=(tgt_write_fd,),
-            )
-            alive = subprocess.Popen(
-                [
-                    TV,
-                    "--src-unroll=10",
-                    "--tgt-unroll=10",
-                    f"/dev/fd/{src_read_fd}",
-                    f"/dev/fd/{tgt_read_fd}",
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                pass_fds=(src_read_fd, tgt_read_fd),
-            )
-
-            # Close the pipe so the commands can use it.
-            os.close(src_read_fd)
-            os.close(src_write_fd)
-            os.close(tgt_read_fd)
-            os.close(tgt_write_fd)
-            # Compile source
-            compile_src.stdin.write(state["orig_kernel"].encode())
-            compile_src.stdin.close()
-            compile_src.wait()
-            # Compile target
-            compile_tgt.stdin.write(state["kernel"].encode())
-            compile_tgt.stdin.close()
-            compile_tgt.wait()
-            # Run alive
-            stdout, stderr = alive.communicate()
-            exitcode = alive.returncode
-
-            return {
-                "semantics_valid": exitcode == 0,
-                "semantics_output": stdout.decode(),
-            }
-
-        except Exception:
-            os.close(src_read_fd)
-            os.close(src_write_fd)
-            os.close(tgt_read_fd)
-            os.close(tgt_write_fd)
-            raise
+        return {
+            "semantics_valid": result.valid,
+            "semantics_output": result.output,
+        }
 
     def _repair_semantics(self, state: State):
         """
