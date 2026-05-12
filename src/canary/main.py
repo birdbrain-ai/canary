@@ -65,6 +65,13 @@ def main():
         )
     )
 
+    # Print summary
+    if args.verbose:
+        if result.success:
+            print("SUCCESS!")
+        else:
+            print(f"FAILURE: {result.reason}")
+
 
 if __name__ == "__main__":
     main()
