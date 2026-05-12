@@ -21,7 +21,8 @@ from canary.run import RunConfig, RunResult
 # ====---- Global Environment ----==== #
 MAX_ATTEMPTS: int = os.getenv("MAX_ATTEMPTS", 1)
 MAX_SYNTAX_ATTEMPTS: int = os.getenv("MAX_SYNTAX_ATTEMPTS", 3)
-MAX_SEMANTICS_ATTEMPTS: int = os.getenv("MAX_SEMANTICS_ATTEMPTS", 1)
+# NOTE: semantics repair is currently disabled
+MAX_SEMANTICS_ATTEMPTS: int = os.getenv("MAX_SEMANTICS_ATTEMPTS", 0)
 
 CFLAGS: str = os.getenv("CFLAGS", "")
 INCLUDES: str = os.getenv("INCLUDES", "")
