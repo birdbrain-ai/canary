@@ -185,6 +185,14 @@ class Agent:
             "remarks_output": f"{remarks}",
         }
 
+    def _format_template(self, file: str, **kwargs):
+        template = PromptTemplate.from_template(
+            open("prompts/optimize.j2").read(),
+            template_format="jinja2",
+        )
+
+        return template.format(**kwargs)
+
     async def _prompt_llm(
         self,
         prompt: str,
@@ -206,60 +214,75 @@ class Agent:
             raise  # TODO: Add retry logic.
 
     def _apply_diff(self, response: str, kernel: str) -> str | None:
-        match = re.search(
+        m = re.search(
             r"<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n>>>>>>> REPLACE",
             response,
             re.DOTALL,
         )
-        if not match:
+
+        if not m:
             return None
-        search, replace = match.group(1), match.group(2)
+
+        search, replace = m.group(1), m.group(2)
         if search not in kernel:
             return None  # trigger retry
+
         return kernel.replace(search, replace, 1)
 
     def _repair_remarks(self, state: State):
         """
         Repair remarks using an LLM invocation.
         """
-        # Format the prompt.
-        template = PromptTemplate.from_template(
-            open("prompts/optimize.j2").read(),
-            template_format="jinja2",
-        )
 
-        prompt = template.format(
-            kernel=state["kernel"],
-            remarks=state["remarks_output"],
-            compiler={
-                "family": "clang",
-            },
-            explain={
-                "transformations": True,
-                "diagnostics": True,
-            },
-        )
+        # Compute the attempt.
+        attempt = state["attempts"] + 1
 
-        # Prefill
-        prefill: str = "<<<<<<< SEARCH\n"
-
-        # Invoke the LLM with the remarks output
-        response: str = asyncio.run(
-            self._prompt_llm(
-                prompt,
-                prefill,
-                86400.0,
+        # Iterate until the tool call works correctly...
+        kernel: str = None
+        while kernel is None:
+            # Format the prompt.
+            prompt = self._format_template(
+                # Template
+                "prompts/optimize.j2",
+                # Arguments...
+                kernel=state["kernel"],
+                remarks=state["remarks_output"],
+                compiler={
+                    "family": "clang",
+                },
+                explain={
+                    "transformations": True,
+                    "diagnostics": True,
+                },
             )
-        )
 
-        # Apply the model changes to the existing kernel.
-        kernel: str = self._apply_diff(response, state["kernel"])
+            # Prefill
+            prefill: str = "<<<<<<< SEARCH\n"
+
+            # Invoke the LLM with the remarks output
+            response: str = asyncio.run(
+                self._prompt_llm(
+                    prompt,
+                    prefill,
+                    86400.0,
+                )
+            )
+
+            # Apply the model changes to the existing kernel.
+            kernel: str = self._apply_diff(response, state["kernel"])
 
         # TODO: Should we loop on correct SEARCH/REPLACE text edit?
+        if kernel is None:
+            # TODO: If we don't loop until we get a correct edit, then we should
+            # signal the error in some way for counting.
+            return {
+                "response": response,
+                "attempts": attempt,
+            }
 
         return {
             "response": response,
-            "attempts": state["attempts"] + 1,
+            "attempts": attempt,
             "kernel": kernel,
         }
 
@@ -286,11 +309,18 @@ class Agent:
 
         kernel = state["kernel"]
 
-        print(f"Check syntax:\n{kernel}\n")
-
         # Run the linter.
         result = subprocess.run(
-            [CC, INCLUDES, "-fsyntax-only", "-x", "c", "-"],
+            [
+                CC,
+                INCLUDES,
+                "-fsyntax-only",
+                "-x",
+                "c",
+                "-",
+                "-o",
+                "/dev/null",
+            ],
             input=kernel,
             capture_output=True,
             text=True,
