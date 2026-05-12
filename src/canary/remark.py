@@ -50,7 +50,7 @@ def get_remarks(source: str, exe: str, flags: list[str] = None) -> tuple[int, st
     return result.returncode, result.stdout, result.stderr
 
 
-def parse_remarks(raw: str) -> list[Passed | Missed | Analysis]:
+def parse_remarks(raw: str) -> list[Remark]:
     """
     Parse the raw LLVM optimization remarks into a list of structured remarks.
     """
