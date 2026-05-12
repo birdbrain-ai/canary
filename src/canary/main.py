@@ -1,7 +1,3 @@
-import subprocess
-from typing import TypedDict, Optional
-
-# ====---- Main ----====#
 import argparse
 from langchain_openai import ChatOpenAI
 from canary.agent import Agent, RunConfig, RunResult
