@@ -296,8 +296,7 @@ class Agent:
         if state["success"]:
             return "valid_remarks"
         if state["attempts"] >= MAX_ATTEMPTS:
-            state["reason"] = "remarks_timeout"
-            return END
+            return "fail_remarks"
         return "repair_remarks"
 
     # ----
@@ -335,8 +334,33 @@ class Agent:
         """
         Repair syntax of the kernel using an LLM call.
         """
-        # TODO: call the LLM, providing the linter output
-        return {"syntax_attempts": state["syntax_attempts"] + 1}
+        attempt = state["syntax_attempts"] + 1
+
+        # Format the prompt.
+        prompt = self._format_template(
+            # Template
+            "prompts/repair_syntax.j2",
+            # Arguments...
+            kernel=state["kernel"],
+            linter_output=state["syntax_output"],
+        )
+
+        # Prefill
+        prefill: str = "<<<<<<< SEARCH\n"
+
+        # Invoke the LLM with the remarks output
+        response: str = asyncio.run(
+            self._prompt_llm(
+                prompt,
+                prefill,
+                86400.0,
+            )
+        )
+
+        # Apply the model changes to the existing kernel.
+        kernel: str = self._apply_diff(response, state["kernel"])
+
+        return {"syntax_attempts": attempt}
 
     def _valid_syntax(self, state: State):
         """
@@ -348,8 +372,7 @@ class Agent:
         if state["syntax_valid"]:
             return "valid_syntax"
         if state["syntax_attempts"] >= MAX_SYNTAX_ATTEMPTS:
-            state["reason"] = "syntax_timeout"
-            return END
+            return "fail_syntax"
         return "repair_syntax"
 
     # ----
@@ -388,9 +411,19 @@ class Agent:
         if state["semantics_valid"]:
             return "valid_semantics"
         if state["semantics_attempts"] >= MAX_SEMANTICS_ATTEMPTS:
-            state["reason"] = "semantics_timeout"
-            return END
+            return "fail_semantics"
         return "repair_semantics"
+
+    # ----
+
+    def _fail_remarks(self, state: State):
+        return {"reason": "remarks"}
+
+    def _fail_syntax(self, state: State):
+        return {"reason": "syntax"}
+
+    def _fail_semantics(self, state: State):
+        return {"reason": "semantics"}
 
     # ----
 
@@ -413,6 +446,11 @@ class Agent:
         graph.add_node("check_semantics", self._check_semantics)
         graph.add_node("repair_semantics", self._repair_semantics)
         graph.add_node("valid_semantics", self._valid_semantics)
+
+        # Failure exits
+        graph.add_node("fail_remarks", self._fail_remarks)
+        graph.add_node("fail_syntax", self._fail_syntax)
+        graph.add_node("fail_semantics", self._fail_semantics)
 
         # ---- Edges ---- #
         # First, check the remarks.
