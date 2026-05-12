@@ -391,7 +391,7 @@ class Agent:
             compile_tgt.wait()
             # Run alive
             stdout, stderr = alive.communicate()
-            exitcode = alive.returncode == 0
+            exitcode = alive.returncode
 
             return {
                 "semantics_valid": exitcode == 0,
@@ -399,8 +399,10 @@ class Agent:
             }
 
         except Exception:
-            os.close(read_fd)
-            os.close(write_fd)
+            os.close(src_read_fd)
+            os.close(src_write_fd)
+            os.close(tgt_read_fd)
+            os.close(tgt_write_fd)
             raise
 
     def _repair_semantics(self, state: State):
