@@ -336,31 +336,37 @@ class Agent:
         """
         attempt = state["syntax_attempts"] + 1
 
-        # Format the prompt.
-        prompt = self._format_template(
-            # Template
-            "prompts/repair_syntax.j2",
-            # Arguments...
-            kernel=state["kernel"],
-            linter_output=state["syntax_output"],
-        )
+        # Give the LLM multiple tries to get the SEARCH/REPLACE tool call correct
+        retries: int = 0
+        kernel: str = None
+        while kernel is None:
+            retries += 1
 
-        # Prefill
-        prefill: str = "<<<<<<< SEARCH\n"
-
-        # Invoke the LLM with the remarks output
-        response: str = asyncio.run(
-            self._prompt_llm(
-                prompt,
-                prefill,
-                86400.0,
+            # Format the prompt.
+            prompt = self._format_template(
+                # Template
+                "prompts/repair_syntax.j2",
+                # Arguments...
+                kernel=state["kernel"],
+                linter_output=state["syntax_output"],
             )
-        )
 
-        # Apply the model changes to the existing kernel.
-        kernel: str = self._apply_diff(response, state["kernel"])
+            # Prefill
+            prefill: str = "<<<<<<< SEARCH\n"
 
-        return {"syntax_attempts": attempt}
+            # Invoke the LLM with the remarks output
+            response: str = asyncio.run(
+                self._prompt_llm(
+                    prompt,
+                    prefill,
+                    86400.0,
+                )
+            )
+
+            # Apply the model changes to the existing kernel.
+            kernel: str = self._apply_diff(response, state["kernel"])
+
+        return {"syntax_attempts": attempt, "kernel": kernel}
 
     def _valid_syntax(self, state: State):
         """
