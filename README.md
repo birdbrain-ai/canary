@@ -24,3 +24,10 @@ uv run canary \
    --model YOUR_FAVORITE_MODEL \   # LLM model
    --api-url http://llm-server.url # LLM API URL
 ```
+
+Add filter(s) to disable specific remarks:
+```bash
+uv run canary \
+   --filter PASS1:REMARK1 PASS2:REMARK2 \
+   ...
+```
