@@ -53,8 +53,10 @@ def main():
     )
     parser.add_argument(
         "--temperature",
-        default=0.8,
-        help="Model temperature",
+        type=float,
+        nargs="+",
+        default=[0.8],
+        help="Model temperature(s) to sweep over",
     )
     parser.add_argument(
         "--filter",
@@ -91,40 +93,46 @@ def main():
         with open(kernel, "r") as file:
             kernel_content = file.read()
 
-        # Run with each ablation configuration.
-        for ablated in ablation_configs:
-            filters = (args.filter or []) + ([ablated] if ablated else [])
+        # Run with each temperature.
+        for temp in args.temperature:
+            # Run with each ablation configuration.
+            for ablated in ablation_configs:
+                filters = (args.filter or []) + ([ablated] if ablated else [])
 
-            # Setup the LLM server
-            llm = ChatOpenAI(
-                model=args.model,
-                api_key=args.api_key,
-                base_url=args.api_url,
-                temperature=args.temperature,
-                request_timeout=86400,
-            )
+                print(f"\n\n====---- Running {kernel}, temp={temp}, filters={filters}")
 
-            # Initialize the agent.
-            agent = Agent(
-                llm,
-                remark_filter=build_remark_filter(args.filter),
-            )
-
-            # Run the agent.
-            result: RunResult = agent.run(
-                RunConfig(
-                    run_id=f"{kernel}_{ablated or 'base'}",
-                    kernel=kernel_content,
-                    temperature=args.temperature,
+                # Setup the LLM server
+                llm = ChatOpenAI(
+                    model=args.model,
+                    api_key=args.api_key,
+                    base_url=args.api_url,
+                    temperature=temp,
+                    request_timeout=86400,
                 )
-            )
 
-            # Print summary
-            if args.verbose:
-                if result.success:
-                    print(f"{args.kernel},{result.attempts},success,")
-                else:
-                    print(f"{args.kernel},{result.attempts},failure,{result.reason}")
+                # Initialize the agent.
+                agent = Agent(
+                    llm,
+                    remark_filter=build_remark_filter(args.filter),
+                )
+
+                # Run the agent.
+                result: RunResult = agent.run(
+                    RunConfig(
+                        run_id=f"{kernel}_{ablated or 'base'}",
+                        kernel=kernel_content,
+                        temperature=args.temperature,
+                    )
+                )
+
+                # Print summary
+                if args.verbose:
+                    if result.success:
+                        print(f"{args.kernel},{result.attempts},success,")
+                    else:
+                        print(
+                            f"{args.kernel},{result.attempts},failure,{result.reason}"
+                        )
 
 
 if __name__ == "__main__":

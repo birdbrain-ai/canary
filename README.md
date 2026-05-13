@@ -37,3 +37,19 @@ uv run canary \
    --filter PASS1:REMARK1 PASS2:REMARK2 \
    ...
 ```
+
+You can also set up an ablation for specific remark(s):
+```bash
+uv run canary ... \
+   --ablate PASS1:REMARK1 PASS2:REMARK2
+```
+This will run three experiments:
+1. No filters
+2. Filter `PASS1:REMARK1`
+3. Filter `PASS2:REMARK2`
+
+Specify temperature(s) to sweep.
+```bash
+uv run canary ... \
+   --temperature 0.2 0.8 1.2
+```
