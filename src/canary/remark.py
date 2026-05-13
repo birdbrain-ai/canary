@@ -1,11 +1,22 @@
 from dataclasses import dataclass
 import yaml
 import subprocess
+from enum import StrEnum
+
+
+class RemarkKind(StrEnum):
+    PASSED = "Passed"
+    MISSED = "Missed"
+    ANALYSIS = "Analysis"
+    ANALYSIS_FP_COMMUTE = "AnalysisFPCommute"
+    ANALYSIS_ALIASING = "AnalysisAliasing"
+    FAILURE = "Failure"
+    UNKNOWN = "Unknown"
 
 
 @dataclass
 class Remark:
-    kind: str  # "Passed", "Missed", "Analysis", "Failure"
+    kind: RemarkKind
     Pass: str
     Name: str
     Function: str
@@ -30,7 +41,7 @@ def _remark_constructor(kind):
 
 
 # Add tagged constructors for LLVM YAML
-for tag in ("Passed", "Missed", "Analysis", "Failure"):
+for tag in RemarkKind:
     yaml.add_constructor(f"!{tag}", _remark_constructor(tag), Loader=yaml.SafeLoader)
 
 
