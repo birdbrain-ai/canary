@@ -7,4 +7,10 @@ format:
 lint:
     uv run ruff check src/canary
 
+fix:
+    uv run ruff check --fix src/canary
+
+hint:
+    uv run ruff check --unsafe-fixes src/canary
+
 check: lint
