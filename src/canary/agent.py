@@ -123,7 +123,8 @@ class Agent:
             config=thread,
             stream_mode="updates",
         ):
-            print(step)
+            # print(step)
+            continue
 
         final: State = self._app.get_state(thread).values
 
