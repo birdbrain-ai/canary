@@ -7,8 +7,10 @@ from canary.run import RunConfig, RunResult
 from canary.remark import Remark
 
 
-def build_remark_filter(filters: list[str]) -> Callable[[Remark], bool]:
+def build_remark_filter(filters: list[str] | None) -> Callable[[Remark], bool]:
     def remark_filter(remark: Remark) -> bool:
+        if filters is None:
+            return False
         for f in filters:
             try:
                 pass_name, remark_name = f.split(":")
