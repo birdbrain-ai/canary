@@ -4,6 +4,21 @@
 SUITE="$1"
 shift
 
+EXTRA_ARGS=()
+while [[ "$#" -gt 0 ]]
+do
+    case $1 in
+        --) # marks the end of arguments and beginning of kernels
+            shift
+            break
+            ;;
+        *)
+            EXTRA_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
 KERNELS_DIR=${SUITE}/kernels
 
 if [[ "$#" -gt 0 ]]
@@ -42,7 +57,7 @@ for kernel in ${KERNELS}
 do
     echo "[${counter}/${NKERNELS}] $(basename ${kernel})"
     
-    uv run canary -v --kernel ${KERNELS_DIR}/${kernel}/kernel.c --model gemma4:latest --api-url http://localhost:11434/v1 >> ${RES} || { echo "FAILURE!" ; exit 1; }
+    uv run canary ${EXTRA_ARGS[@]} -v --kernel ${KERNELS_DIR}/${kernel}/kernel.c --model gemma4:latest --api-url http://localhost:11434/v1 >> ${RES} || { echo "FAILURE!" ; exit 1; }
 
     ((counter++))
 done
