@@ -18,11 +18,17 @@ uv sync
 ```
 
 ## Running
+Run the canary workflow to optimize your C source file.
 ```bash
 uv run canary \
-   --kernel /path/to/kernel.c \    # C file to optimize
+   /path/to/kernel.c \    # C file to optimize
    --model YOUR_FAVORITE_MODEL \   # LLM model
    --api-url http://llm-server.url # LLM API URL
+```
+
+You can also run over all C source files in a directory.
+```bash
+uv run canary /path/to/kernels/ ...
 ```
 
 Add filter(s) to disable specific remarks:

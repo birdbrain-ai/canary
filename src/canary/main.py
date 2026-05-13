@@ -1,5 +1,8 @@
 import sys
 import argparse
+from pathlib import Path
+from typing import Callable
+
 from langchain_openai import ChatOpenAI
 
 from canary.agent import Agent
@@ -29,13 +32,13 @@ def main():
     parser = argparse.ArgumentParser(description="Canary argument parser")
 
     parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Enable verbose output",
+        "path",
+        help="Path to kernel(s) to run."
+        "If given a directory, runs on all C source files.",
     )
     parser.add_argument(
         "--model",
+        required=True,
         help="Model name",
     )
     parser.add_argument(
@@ -54,52 +57,62 @@ def main():
         help="Model temperature",
     )
     parser.add_argument(
-        "--kernel",
-        required=True,
-        help="Original kernel C file",
-    )
-    parser.add_argument(
         "--filter",
         nargs="+",
         help="One or more remarks to filter. Example: <PASS>:<REMARK>",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output",
+    )
 
     args = parser.parse_args()
 
-    # Setup the LLM server
-    llm = ChatOpenAI(
-        model=args.model,
-        api_key=args.api_key,
-        base_url=args.api_url,
-        temperature=args.temperature,
-        request_timeout=86400,
-    )
+    # Collect the kernels to evaluate.
+    path = Path(args.path)
+    if path.is_dir():
+        kernels = sorted(list(path.rglob("*.c")))
+    else:
+        kernels = [str(path)]
 
-    # Initialize the agent.
-    agent = Agent(
-        llm,
-        remark_filter=build_remark_filter(args.filter),
-    )
-
-    # Read the kernel source into a string.
-    with open(args.kernel, "r") as file:
-        kernel_content = file.read()
-
-    # Run the agent.
-    result: RunResult = agent.run(
-        RunConfig(
-            run_id="test",
-            kernel=kernel_content,
+    # Run on each kernel.
+    for kernel in kernels:
+        # Setup the LLM server
+        llm = ChatOpenAI(
+            model=args.model,
+            api_key=args.api_key,
+            base_url=args.api_url,
             temperature=args.temperature,
+            request_timeout=86400,
         )
-    )
 
-    # Print summary
-    if args.verbose:
-        if result.success:
-            print(f"{args.kernel},{result.attempts},success,")
-        else:
-            print(f"{args.kernel},{result.attempts},failure,{result.reason}")
+        # Initialize the agent.
+        agent = Agent(
+            llm,
+            remark_filter=build_remark_filter(args.filter),
+        )
+
+        # Read the kernel source into a string.
+        with open(kernel, "r") as file:
+            kernel_content = file.read()
+
+        # Run the agent.
+        result: RunResult = agent.run(
+            RunConfig(
+                run_id="test",
+                kernel=kernel_content,
+                temperature=args.temperature,
+            )
+        )
+
+        # Print summary
+        if args.verbose:
+            if result.success:
+                print(f"{args.kernel},{result.attempts},success,")
+            else:
+                print(f"{args.kernel},{result.attempts},failure,{result.reason}")
 
 
 if __name__ == "__main__":
