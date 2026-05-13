@@ -68,9 +68,9 @@ def main():
     # Print summary
     if args.verbose:
         if result.success:
-            print("SUCCESS!")
+            print(f"{args.kernel},{result.attempts},success,")
         else:
-            print(f"FAILURE: {result.reason}")
+            print(f"{args.kernel},{result.attempts},failure,{result.reason}")
 
 
 if __name__ == "__main__":
