@@ -3,7 +3,7 @@ import subprocess
 import os
 import asyncio
 import re
-from typing import TypedDict
+from typing import TypedDict, Callable
 
 # LangChain
 from langgraph.graph import StateGraph, END
@@ -100,6 +100,7 @@ class Agent:
 
     # ====---- State ----==== #
     _llm: BaseLanguageModel
+    _remark_filter: Callable[[Remark], bool]
     _app: CompiledStateGraph
     _checkpointer: MemorySaver
 
@@ -107,8 +108,10 @@ class Agent:
     def __init__(
         self,
         llm: BaseLanguageModel,
+        remark_filter: Callable[[Remark], bool],
     ):
         self._llm = llm
+        self._remark_filter = remark_filter
         self._checkpointer = MemorySaver()
         self._app = self._build_graph().compile(
             checkpointer=self._checkpointer,
@@ -123,7 +126,7 @@ class Agent:
             config=thread,
             stream_mode="updates",
         ):
-            # print(step)
+            print(step)
             continue
 
         final: State = self._app.get_state(thread).values
@@ -178,7 +181,8 @@ class Agent:
         # Remove all irrelevant remarks
         remarks = [r for r in remarks if "loop" in r.Pass]
 
-        # TODO: Filter remarks based on experimental configuration.
+        # Filter remarks based on experimental configuration.
+        remarks = [r for r in remarks if not self._remark_filter(r)]
 
         return {
             "success": optimized,

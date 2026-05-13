@@ -1,6 +1,10 @@
+import sys
 import argparse
 from langchain_openai import ChatOpenAI
-from canary.agent import Agent, RunConfig, RunResult
+
+from canary.agent import Agent
+from canary.run import RunConfig, RunResult
+from canary.remark import Remark
 
 
 def main():
@@ -37,6 +41,11 @@ def main():
         required=True,
         help="Original kernel C file",
     )
+    parser.add_argument(
+        "--filter",
+        nargs="+",
+        help="One or more remarks to filter. Example: <PASS>:<REMARK>",
+    )
 
     args = parser.parse_args()
 
@@ -49,8 +58,27 @@ def main():
         request_timeout=86400,
     )
 
+    # Create the remark filter.
+    def remark_filter(remark: Remark) -> bool:
+        if args.filter is None:
+            return False
+
+        for f in args.filter:
+            try:
+                pass_name, remark_name = f.split(":")
+                if remark.Pass == pass_name and remark.Name == remark_name:
+                    return True
+            except ValueError:
+                print(f"ERROR: Malformed filter {f}, expected PASS:REMARK")
+                sys.exit(1)
+
+        return False
+
     # Initialize the agent.
-    agent = Agent(llm)
+    agent = Agent(
+        llm,
+        remark_filter=remark_filter,
+    )
 
     # Read the kernel source into a string.
     with open(args.kernel, "r") as file:
