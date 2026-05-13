@@ -62,6 +62,11 @@ def main():
         help="One or more remarks to filter. Example: <PASS>:<REMARK>",
     )
     parser.add_argument(
+        "--ablate",
+        nargs="+",
+        help="One or more remarks to ablate. Example: <PASS>:<REMARK>",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -77,42 +82,49 @@ def main():
     else:
         kernels = [str(path)]
 
+    # Determine the set of ablation configurations.
+    ablation_configs: list[str | None] = [None] + (args.ablate or [])
+
     # Run on each kernel.
     for kernel in kernels:
-        # Setup the LLM server
-        llm = ChatOpenAI(
-            model=args.model,
-            api_key=args.api_key,
-            base_url=args.api_url,
-            temperature=args.temperature,
-            request_timeout=86400,
-        )
-
-        # Initialize the agent.
-        agent = Agent(
-            llm,
-            remark_filter=build_remark_filter(args.filter),
-        )
-
         # Read the kernel source into a string.
         with open(kernel, "r") as file:
             kernel_content = file.read()
 
-        # Run the agent.
-        result: RunResult = agent.run(
-            RunConfig(
-                run_id="test",
-                kernel=kernel_content,
-                temperature=args.temperature,
-            )
-        )
+        # Run with each ablation configuration.
+        for ablated in ablation_configs:
+            filters = (args.filter or []) + ([ablated] if ablated else [])
 
-        # Print summary
-        if args.verbose:
-            if result.success:
-                print(f"{args.kernel},{result.attempts},success,")
-            else:
-                print(f"{args.kernel},{result.attempts},failure,{result.reason}")
+            # Setup the LLM server
+            llm = ChatOpenAI(
+                model=args.model,
+                api_key=args.api_key,
+                base_url=args.api_url,
+                temperature=args.temperature,
+                request_timeout=86400,
+            )
+
+            # Initialize the agent.
+            agent = Agent(
+                llm,
+                remark_filter=build_remark_filter(args.filter),
+            )
+
+            # Run the agent.
+            result: RunResult = agent.run(
+                RunConfig(
+                    run_id=f"{kernel}_{ablated or 'base'}",
+                    kernel=kernel_content,
+                    temperature=args.temperature,
+                )
+            )
+
+            # Print summary
+            if args.verbose:
+                if result.success:
+                    print(f"{args.kernel},{result.attempts},success,")
+                else:
+                    print(f"{args.kernel},{result.attempts},failure,{result.reason}")
 
 
 if __name__ == "__main__":
