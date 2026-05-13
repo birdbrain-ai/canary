@@ -7,6 +7,21 @@ from canary.run import RunConfig, RunResult
 from canary.remark import Remark
 
 
+def build_remark_filter(filters: list[str]) -> Callable[[Remark], bool]:
+    def remark_filter(remark: Remark) -> bool:
+        for f in filters:
+            try:
+                pass_name, remark_name = f.split(":")
+                if remark.Pass == pass_name and remark.Name == remark_name:
+                    return True
+            except ValueError:
+                print(f"ERROR: Malformed filter {f}, expected PASS:REMARK")
+                sys.exit(1)
+        return False
+
+    return remark_filter
+
+
 def main():
     # Parse arguments
     parser = argparse.ArgumentParser(description="Canary argument parser")
@@ -58,26 +73,10 @@ def main():
         request_timeout=86400,
     )
 
-    # Create the remark filter.
-    def remark_filter(remark: Remark) -> bool:
-        if args.filter is None:
-            return False
-
-        for f in args.filter:
-            try:
-                pass_name, remark_name = f.split(":")
-                if remark.Pass == pass_name and remark.Name == remark_name:
-                    return True
-            except ValueError:
-                print(f"ERROR: Malformed filter {f}, expected PASS:REMARK")
-                sys.exit(1)
-
-        return False
-
     # Initialize the agent.
     agent = Agent(
         llm,
-        remark_filter=remark_filter,
+        remark_filter=build_remark_filter(args.filter),
     )
 
     # Read the kernel source into a string.
