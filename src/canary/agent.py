@@ -187,7 +187,7 @@ class Agent:
 
     def _format_template(self, file: str, **kwargs):
         template = PromptTemplate.from_template(
-            open("prompts/optimize.j2").read(),
+            open(file).read(),
             template_format="jinja2",
         )
 
