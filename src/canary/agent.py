@@ -70,8 +70,8 @@ def initial_state(config: RunConfig) -> State:
         # Run information
         run_id=config.run_id,
         # Kernel
-        kernel=config.kernel,
-        orig_kernel=config.kernel,
+        kernel=config.source,
+        orig_kernel=config.source,
         # Attempts
         attempts=0,
         syntax_attempts=0,
