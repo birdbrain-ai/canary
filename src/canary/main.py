@@ -24,6 +24,11 @@ def parse_args():
         "path",
         help="Path to kernel(s) to run. If given a directory, runs on all C source files.",
     )
+    parser.add_argument(
+        "--trials",
+        default=1,
+        help="Trials to run of each configuration",
+    )
     parser.add_argument("--model", required=True, help="Model name")
     parser.add_argument(
         "--api-url",
