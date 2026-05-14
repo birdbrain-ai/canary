@@ -161,7 +161,7 @@ def main():
     result_csv = out_dir / "result.csv"
 
     console.print(
-        f"Running {len(configs)} total run(s) ({len(kernels)} kernel(s) x {len(args.temperature)} temperature(s) x {len(ablation_configs)} filter config(s))"
+        f"Running {len(configs)} total run(s) ({len(kernels)} kernels x {len(args.temperature)} temperatures x {len(ablation_configs)} filters x {args.trials} trials)"
     )
     console.print(f"Results -> {result_csv}\n")
 
@@ -181,7 +181,7 @@ def main():
             task = progress.add_task("Running...", total=len(configs))
 
             with ThreadPoolExecutor(max_workers=args.jobs) as executor:
-                futures = {
+                futures = (
                     executor.submit(
                         run_one,
                         c,
@@ -189,9 +189,11 @@ def main():
                         args.api_key,
                         args.api_url,
                         args.verbose,
-                    ): c
+                    )
                     for c in configs
-                }
+                    for n in range(args.trials)
+                )
+
                 for future in as_completed(futures):
                     # Await the future.
                     config, result, steps = future.result()
