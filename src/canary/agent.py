@@ -17,6 +17,7 @@ from langchain_core.language_models.base import BaseLanguageModel
 from canary.remark import Remark, get_remarks, parse_remarks
 from canary.validate import ValidationResult, check_semantics
 from canary.run import RunConfig, RunResult
+from canary.console import console
 
 # ====---- Global Environment ----==== #
 MAX_ATTEMPTS: int = os.getenv("MAX_ATTEMPTS", 1)
@@ -118,7 +119,13 @@ class Agent:
         )
 
     # ====---- Public API ----==== #
-    def run(self, config: RunConfig) -> RunResult:
+    def run(
+        self,
+        config: RunConfig,
+        verbose: bool = False,
+    ) -> tuple[RunResult, list[dict]]:
+
+        steps: list[dict] = []
 
         thread = {"configurable": {"thread_id": config.run_id}}
         for step in self._app.stream(
@@ -126,12 +133,14 @@ class Agent:
             config=thread,
             stream_mode="updates",
         ):
-            print(step)
+            if verbose:
+                console.print(step, style="dim")
+            steps.append(step)
             continue
 
         final: State = self._app.get_state(thread).values
 
-        return RunResult(
+        result = RunResult(
             run_id=final["run_id"],
             success=final["success"],
             reason=final["reason"],
@@ -139,6 +148,8 @@ class Agent:
             final_kernel=final["kernel"],
             log=final["log"],
         )
+
+        return result, steps
 
     # ====---- Nodes ----==== #
     def _is_optimized(self, remarks: list[Remark]) -> bool:

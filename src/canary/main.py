@@ -13,6 +13,7 @@ from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from canary.agent import Agent
 from canary.remark import Remark
 from canary.run import RunConfig, RunResult
+from canary.console import console
 
 
 # ====---- Command-line Arguments ----==== #
@@ -76,7 +77,7 @@ def build_remark_filter(filters: list[str] | None) -> Callable[[Remark], bool]:
                 if remark.Pass == pass_name and remark.Name == remark_name:
                     return True
             except ValueError:
-                print(f"ERROR: Malformed filter {f}, expected PASS:REMARK")
+                console.print(f"ERROR: Malformed filter {f}, expected PASS:REMARK")
                 sys.exit(1)
         return False
 
@@ -88,6 +89,7 @@ def run_one(
     model: str,
     api_key: str,
     api_url: str,
+    verbose: bool = False,
 ) -> tuple[RunConfig, RunResult]:
 
     # Set up the LLM
@@ -105,9 +107,9 @@ def run_one(
         remark_filter=build_remark_filter(config.filters),
     )
 
-    result = agent.run(config)
+    result, steps = agent.run(config, verbose=verbose)
 
-    return config, result
+    return config, result, steps
 
 
 # ====---- Main entry ----==== #
@@ -119,7 +121,7 @@ def main():
     path = Path(args.path)
     kernels = sorted(path.rglob("*.c")) if path.is_dir() else [path]
     if not kernels:
-        print(f"ERROR: No C files found at {path}")
+        console.print(f"ERROR: No C files found at {path}")
         sys.exit(1)
 
     # Construct the set of ablation configurations.
@@ -145,10 +147,10 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     result_csv = out_dir / "result.csv"
 
-    print(
+    console.print(
         f"Running {len(configs)} total run(s) ({len(kernels)} kernel(s) x {len(args.temperature)} temperature(s) x {len(ablation_configs)} filter config(s))"
     )
-    print(f"Results -> {result_csv}\n")
+    console.print(f"Results -> {result_csv}\n")
 
     lock = threading.Lock()
 
@@ -168,12 +170,17 @@ def main():
             with ThreadPoolExecutor(max_workers=args.jobs) as executor:
                 futures = {
                     executor.submit(
-                        run_one, c, args.model, args.api_key, args.api_url
+                        run_one,
+                        c,
+                        args.model,
+                        args.api_key,
+                        args.api_url,
+                        args.verbose,
                     ): c
                     for c in configs
                 }
                 for future in as_completed(futures):
-                    config, result = future.result()
+                    config, result, steps = future.result()
                     row = [
                         config.filepath,
                         config.temperature,
@@ -195,7 +202,7 @@ def main():
                         )
                     progress.advance(task)
 
-    print(f"\nDone! Results in {result_csv}")
+    console.print(f"\nDone! Results in {result_csv}")
 
 
 if __name__ == "__main__":
