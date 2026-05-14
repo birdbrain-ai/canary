@@ -159,7 +159,9 @@ def main():
         )
 
         with Progress(
-            SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()
+            SpinnerColumn(),
+            *Progress.get_default_columns(),
+            TimeElapsedColumn(),
         ) as progress:
             task = progress.add_task("Running...", total=len(configs))
 
