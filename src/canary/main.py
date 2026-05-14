@@ -26,6 +26,7 @@ def parse_args():
     )
     parser.add_argument(
         "--trials",
+        type=int,
         default=1,
         help="Trials to run of each configuration",
     )
