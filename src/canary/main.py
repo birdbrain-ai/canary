@@ -180,7 +180,10 @@ def main():
                     for c in configs
                 }
                 for future in as_completed(futures):
+                    # Await the future.
                     config, result, steps = future.result()
+
+                    # Output the run results.
                     row = [
                         config.filepath,
                         config.temperature,
@@ -191,15 +194,15 @@ def main():
                     ]
                     with lock:
                         writer.writerow(row)
-                    if args.verbose:
-                        status = (
-                            "success"
-                            if result.success
-                            else f"failure ({result.reason})"
-                        )
-                        progress.log(
-                            f"{config.filepath} temp={config.temperature} ablated={config.ablated or 'none'} → {status}"
-                        )
+
+                    # Log the status to the console.
+                    status = (
+                        "success" if result.success else f"failure ({result.reason})"
+                    )
+                    progress.log(
+                        f"{config.filepath} temp={config.temperature} ablated={config.ablated or 'none'} → {status}"
+                    )
+
                     progress.advance(task)
 
     console.print(f"\nDone! Results in {result_csv}")
