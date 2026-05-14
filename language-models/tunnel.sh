@@ -45,7 +45,7 @@ vllm_is_healthy() {
 
 # --- Submit the serve job --------------------------------------------------
 
-echo "Submitting serve job ($MODEL on port $REMOTE_PORT)..."
+echo "Submitting serve job ($MODEL on remote port $REMOTE_PORT)..."
 JOB_ID=$(remote "cd $PROJECT_DIR && sbatch --parsable serve.sh '$MODEL' '$REMOTE_PORT'")
 echo "Job ID: $JOB_ID"
 
