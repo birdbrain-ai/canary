@@ -23,6 +23,7 @@ MAX_ATTEMPTS: int = os.getenv("MAX_ATTEMPTS", 1)
 MAX_SYNTAX_ATTEMPTS: int = os.getenv("MAX_SYNTAX_ATTEMPTS", 3)
 # NOTE: semantics repair is currently disabled
 MAX_SEMANTICS_ATTEMPTS: int = os.getenv("MAX_SEMANTICS_ATTEMPTS", 0)
+MAX_RETRIES: int = os.getenv("MAX_RETRIES", 3)
 
 CFLAGS: str = os.getenv("CFLAGS", "")
 INCLUDES: str = os.getenv("INCLUDES", "")
@@ -250,52 +251,50 @@ class Agent:
         # Compute the attempt.
         attempt = state["attempts"] + 1
 
-        # Iterate until the tool call works correctly...
-        kernel: str = None
-        while kernel is None:
-            # Format the prompt.
-            prompt = self._format_template(
-                # Template
-                "prompts/optimize.j2",
-                # Arguments...
-                kernel=state["kernel"],
-                remarks=state["remarks_output"],
-                compiler={
-                    "family": "clang",
-                },
-                explain={
-                    "transformations": True,
-                    "diagnostics": True,
-                },
-            )
+        async def repair_remarks(state: State) -> tuple[str, str]:
+            # Iterate until the tool call works correctly...
+            retries: int = 0
+            response = None
+            kernel = None
+            while kernel is None and retries < MAX_RETRIES:
+                retries += 1
 
-            # Prefill
-            prefill: str = "<<<<<<< SEARCH\n"
+                # Format the prompt.
+                prompt = self._format_template(
+                    # Template
+                    "prompts/optimize.j2",
+                    # Arguments...
+                    kernel=state["kernel"],
+                    remarks=state["remarks_output"],
+                    compiler={
+                        "family": "clang",
+                    },
+                    explain={
+                        "transformations": True,
+                        "diagnostics": True,
+                    },
+                )
 
-            # Invoke the LLM with the remarks output
-            response: str = asyncio.run(
-                self._prompt_llm(
+                # Prefill
+                prefill: str = "<<<<<<< SEARCH\n"
+
+                # Invoke the LLM with the remarks output
+                response: str = await self._prompt_llm(
                     prompt,
                     prefill,
                     86400.0,
                 )
-            )
 
-            # Apply the model changes to the existing kernel.
-            kernel: str = self._apply_diff(response, state["kernel"])
+                # Apply the model changes to the existing kernel.
+                kernel: str = self._apply_diff(response, state["kernel"])
 
-        # TODO: Should we loop on correct SEARCH/REPLACE text edit?
-        if kernel is None:
-            # TODO: If we don't loop until we get a correct edit, then we should
-            # signal the error in some way for counting.
-            return {
-                "response": response,
-                "attempts": attempt,
-            }
+            return kernel, response
+
+        kernel, response = asyncio.run(repair_remarks(state))
 
         return {
-            "response": response,
             "attempts": attempt,
+            "response": response,
             "kernel": kernel,
         }
 
@@ -353,7 +352,7 @@ class Agent:
             # Give the LLM multiple tries to get the SEARCH/REPLACE tool call correct
             retries: int = 0
             kernel: str = None
-            while kernel is None:
+            while kernel is None and retries < MAX_RETRIES:
                 retries += 1
 
                 # Format the prompt.
@@ -381,7 +380,7 @@ class Agent:
             return kernel
 
         kernel: str = asyncio.run(
-            self.repair_syntax(state["kernel"], state["syntax_output"])
+            repair_syntax(state["kernel"], state["syntax_output"])
         )
 
         return {"syntax_attempts": attempt, "kernel": kernel}
