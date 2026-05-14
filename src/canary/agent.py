@@ -219,7 +219,7 @@ class Agent:
         try:
             result = await asyncio.wait_for(
                 self._llm.ainvoke(messages),
-                timeout=86400.0,
+                timeout=timeout,
             )
             return result.content
         except asyncio.TimeoutError:
