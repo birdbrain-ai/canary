@@ -178,7 +178,10 @@ def main():
             *Progress.get_default_columns(),
             TimeElapsedColumn(),
         ) as progress:
-            task = progress.add_task("Running...", total=len(configs))
+            task = progress.add_task(
+                "Running...",
+                total=len(configs * args.trials),
+            )
 
             with ThreadPoolExecutor(max_workers=args.jobs) as executor:
                 futures = (
