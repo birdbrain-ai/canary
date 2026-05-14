@@ -17,7 +17,6 @@ from langchain_core.language_models.base import BaseLanguageModel
 from canary.remark import Remark, get_remarks, parse_remarks
 from canary.validate import ValidationResult, check_semantics
 from canary.run import RunConfig, RunResult
-from canary.console import console
 
 # ====---- Global Environment ----==== #
 MAX_ATTEMPTS: int = os.getenv("MAX_ATTEMPTS", 1)
@@ -133,8 +132,6 @@ class Agent:
             config=thread,
             stream_mode="updates",
         ):
-            if verbose:
-                console.print(step, style="dim")
             steps.append(step)
             continue
 
