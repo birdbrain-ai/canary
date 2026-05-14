@@ -29,7 +29,11 @@ def parse_args():
         default=1,
         help="Trials to run of each configuration",
     )
-    parser.add_argument("--model", required=True, help="Model name")
+    parser.add_argument(
+        "--model",
+        required=True,
+        help="Model name",
+    )
     parser.add_argument(
         "--api-url",
         default="http://localhost:8001/v1",
@@ -65,7 +69,10 @@ def parse_args():
         help="Number of parallel workers (default: 1)",
     )
     parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Enable verbose output"
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output",
     )
 
     return parser.parse_args()
