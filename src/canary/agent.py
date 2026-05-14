@@ -349,35 +349,40 @@ class Agent:
         """
         attempt = state["syntax_attempts"] + 1
 
-        # Give the LLM multiple tries to get the SEARCH/REPLACE tool call correct
-        retries: int = 0
-        kernel: str = None
-        while kernel is None:
-            retries += 1
+        async def repair_syntax(orig_kernel: str, syntax_output: str) -> str:
+            # Give the LLM multiple tries to get the SEARCH/REPLACE tool call correct
+            retries: int = 0
+            kernel: str = None
+            while kernel is None:
+                retries += 1
 
-            # Format the prompt.
-            prompt = self._format_template(
-                # Template
-                "prompts/repair_syntax.j2",
-                # Arguments...
-                kernel=state["kernel"],
-                linter_output=state["syntax_output"],
-            )
+                # Format the prompt.
+                prompt = self._format_template(
+                    # Template
+                    "prompts/repair_syntax.j2",
+                    # Arguments...
+                    kernel=orig_kernel,
+                    linter_output=syntax_output,
+                )
 
-            # Prefill
-            prefill: str = "<<<<<<< SEARCH\n"
+                # Prefill
+                prefill: str = "<<<<<<< SEARCH\n"
 
-            # Invoke the LLM with the remarks output
-            response: str = asyncio.run(
-                self._prompt_llm(
+                # Invoke the LLM with the remarks output
+                response: str = await self._prompt_llm(
                     prompt,
                     prefill,
                     86400.0,
                 )
-            )
 
-            # Apply the model changes to the existing kernel.
-            kernel: str = self._apply_diff(response, state["kernel"])
+                # Apply the model changes to the existing kernel.
+                kernel: str = self._apply_diff(response, state["kernel"])
+
+            return kernel
+
+        kernel: str = asyncio.run(
+            self.repair_syntax(state["kernel"], state["syntax_output"])
+        )
 
         return {"syntax_attempts": attempt, "kernel": kernel}
 

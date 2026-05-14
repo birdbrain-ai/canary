@@ -160,14 +160,16 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     result_csv = out_dir / "result.csv"
 
+    nruns = len(configs) * args.trials
     console.print(
-        f"Running {len(configs)} total run(s) ({len(kernels)} kernels x {len(args.temperature)} temperatures x {len(ablation_configs)} filters x {args.trials} trials)"
+        f"Running {nruns} total run(s) ({len(kernels)} kernels x {len(args.temperature)} temperatures x {len(ablation_configs)} filters x {args.trials} trials)"
     )
     console.print(f"Results -> {result_csv}\n")
 
     lock = threading.Lock()
 
     with open(result_csv, "w", newline="") as csvfile:
+        # TODO: Replace this with json
         writer = csv.writer(csvfile)
         writer.writerow(
             ["kernel", "temperature", "ablated", "attempts", "result", "reason"]
