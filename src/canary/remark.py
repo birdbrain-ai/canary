@@ -66,3 +66,19 @@ def parse_remarks(raw: str) -> list[Remark]:
     Parse the raw LLVM optimization remarks into a list of structured remarks.
     """
     return list(yaml.safe_load_all(raw))
+
+
+def is_optimized(remarks: list[Remark]) -> bool:
+    """Return True if loop vectorization fired in the given remarks."""
+    return any(
+        r.Pass == "loop-vectorize" and r.Name == "Vectorized"
+        for r in remarks
+    )
+
+
+def check_optimized(source: str, exe: str, flags: list[str] = None) -> bool:
+    """Compile source and return True if the compiler already vectorized it."""
+    retval, stdout, _ = get_remarks(source, exe, flags)
+    if retval != 0:
+        return False
+    return is_optimized(parse_remarks(stdout))

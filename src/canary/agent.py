@@ -15,7 +15,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.language_models.base import BaseLanguageModel
 
 # Canary
-from canary.remark import Remark, get_remarks, parse_remarks
+from canary.remark import Remark, get_remarks, parse_remarks, is_optimized
 from canary.validate import ValidationResult, check_semantics
 from canary.run import RunConfig, RunResult
 
@@ -168,16 +168,7 @@ class Agent:
 
     # ====---- Nodes ----==== #
     def _is_optimized(self, remarks: list[Remark]) -> bool:
-        """
-        Inspect the remarks to see if loop vectorization fired.
-        """
-
-        # Check if the loop was vectorized
-        for remark in remarks:
-            if remark.Pass == "loop-vectorize" and remark.Name == "Vectorized":
-                return True
-
-        return False
+        return is_optimized(remarks)
 
     def _check_remarks(self, state: State):
         """
