@@ -33,4 +33,3 @@ class RunResult:
     reason: str
     attempts: int
     final_kernel: str
-    log: dict

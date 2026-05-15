@@ -135,26 +135,34 @@ class Agent:
     ) -> tuple[RunResult, list[dict]]:
 
         steps: list[dict] = []
-
         thread = {"configurable": {"thread_id": config.run_id}}
-        for step in self._app.stream(
-            initial_state(config),
-            config=thread,
-            stream_mode="updates",
-        ):
-            steps.append(step)
-            continue
 
-        final: State = self._app.get_state(thread).values
+        try:
+            for step in self._app.stream(
+                initial_state(config),
+                config=thread,
+                stream_mode="updates",
+            ):
+                steps.append(step)
+                continue
 
-        result = RunResult(
-            run_id=final["run_id"],
-            success=final["success"],
-            reason=final["reason"],
-            attempts=final["attempts"],
-            final_kernel=final["kernel"],
-            log=final["log"],
-        )
+            final: State = self._app.get_state(thread).values
+
+            result = RunResult(
+                run_id=final["run_id"],
+                success=final["success"],
+                reason=final["reason"],
+                attempts=final["attempts"],
+                final_kernel=final["kernel"],
+            )
+        except Exception as e:
+            result = RunResult(
+                run_id=final["run_id"],
+                success=False,
+                reason=f"exception ({e})",
+                attempts=final["attempts"],
+                final_kernel=final["kernel"],
+            )
 
         return result, steps
 
