@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import threading
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -100,6 +101,35 @@ def build_remark_filter(filters: list[str] | None) -> Callable[[Remark], bool]:
     return remark_filter
 
 
+_thread_local = threading.local()
+
+
+def _get_agent(
+    filters: list[str],
+    temperature: float,
+    model: str,
+    api_key: str,
+    api_url: str,
+) -> Agent:
+    """Return a cached Agent for this thread, keyed on (filters, temperature)."""
+    key = (tuple(filters), temperature)
+    if not hasattr(_thread_local, "agents"):
+        _thread_local.agents = {}
+    if key not in _thread_local.agents:
+        llm = ChatOpenAI(
+            model=model,
+            api_key=api_key,
+            base_url=api_url,
+            temperature=temperature,
+            request_timeout=86400,
+        )
+        _thread_local.agents[key] = Agent(
+            llm,
+            remark_filter=build_remark_filter(filters),
+        )
+    return _thread_local.agents[key]
+
+
 def run_one(
     config: RunConfig,
     model: str,
@@ -108,23 +138,8 @@ def run_one(
     verbose: bool = False,
 ) -> tuple[RunConfig, RunResult]:
 
-    # Set up the LLM
-    llm = ChatOpenAI(
-        model=model,
-        api_key=api_key,
-        base_url=api_url,
-        temperature=config.temperature,
-        request_timeout=86400,
-    )
-
-    #
-    agent = Agent(
-        llm,
-        remark_filter=build_remark_filter(config.filters),
-    )
-
+    agent = _get_agent(config.filters, config.temperature, model, api_key, api_url)
     result, steps = agent.run(config, verbose=verbose)
-
     return config, result, steps
 
 
