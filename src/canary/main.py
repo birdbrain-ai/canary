@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import sys
 import threading
 from collections import deque
@@ -15,9 +16,13 @@ from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from rich.text import Text
 
 from canary.agent import Agent
-from canary.remark import Remark
+from canary.remark import Remark, check_optimized
 from canary.run import RunConfig, RunResult
 from canary.console import console
+
+REMARKS: str = os.getenv("REMARKS", "clang-remarks")
+CFLAGS: str = os.getenv("CFLAGS", "")
+INCLUDES: str = os.getenv("INCLUDES", "")
 
 
 # ====---- Command-line Arguments ----==== #
@@ -155,6 +160,23 @@ def main():
         console.print(f"ERROR: No C files found at {path}")
         sys.exit(1)
 
+    # Pre-filter kernels that are already optimized.
+    all_kernels = kernels
+    kernels = [
+        k
+        for k in all_kernels
+        if not check_optimized(k.read_text(), REMARKS, [CFLAGS, INCLUDES])
+    ]
+    console.print(
+        f"Skipping {len(all_kernels) - len(kernels)} already-optimized kernel(s), {len(kernels)} remaining."
+    )
+    if args.verbose:
+        console.print(kernels)
+
+    if not kernels:
+        console.print("All kernels are already optimized. Nothing to do.")
+        sys.exit(0)
+
     # Construct the set of ablation configurations.
     base_filters = args.filter or []
     ablation_configs: list[str | None] = [None] + (args.ablate or [])
@@ -185,7 +207,9 @@ def main():
     console.print(f"Results -> {result_json}\n")
 
     recent: deque[tuple[str, str]] = deque(maxlen=5)
-    progress = Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn())
+    progress = Progress(
+        SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn()
+    )
 
     def make_display() -> Group:
         log = Text()
@@ -242,12 +266,16 @@ def main():
                 status = (
                     "nop"
                     if result.attempts == 0
-                    else "success" if result.success else f"failure ({result.reason})"
+                    else "success"
+                    if result.success
+                    else f"failure ({result.reason})"
                 )
-                recent.append((
-                    datetime.now().strftime("%H:%M:%S"),
-                    f"{config.filepath} temp={config.temperature} ablated={config.ablated or 'none'} → {status}",
-                ))
+                recent.append(
+                    (
+                        datetime.now().strftime("%H:%M:%S"),
+                        f"{config.filepath} temp={config.temperature} ablated={config.ablated or 'none'} → {status}",
+                    )
+                )
                 progress.advance(task)
                 live.update(make_display())
 
