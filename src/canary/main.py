@@ -1,7 +1,6 @@
 import argparse
-import csv
+import json
 import sys
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -154,78 +153,78 @@ def main():
         for ablated in ablation_configs
     ]
 
-    # Create
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%s")
     out_dir = Path("out") / timestamp
     out_dir.mkdir(parents=True, exist_ok=True)
-    result_csv = out_dir / "result.csv"
+    result_json = out_dir / "result.json"
+    steps_json = out_dir / "steps.json"
 
     nruns = len(configs) * args.trials
     console.print(
         f"Running {nruns} total run(s) ({len(kernels)} kernels x {len(args.temperature)} temperatures x {len(ablation_configs)} filters x {args.trials} trials)"
     )
-    console.print(f"Results -> {result_csv}\n")
+    console.print(f"Results -> {result_json}\n")
 
-    lock = threading.Lock()
-
-    with open(result_csv, "w", newline="") as csvfile:
-        # TODO: Replace this with json
-        writer = csv.writer(csvfile)
-        writer.writerow(
-            ["kernel", "temperature", "ablated", "attempts", "result", "reason"]
-        )
-
-        with Progress(
+    with (
+        open(result_json, "w") as rf,
+        open(steps_json, "w") as sf,
+        Progress(
             SpinnerColumn(),
             *Progress.get_default_columns(),
             TimeElapsedColumn(),
-        ) as progress:
-            task = progress.add_task(
-                "Running...",
-                total=len(configs * args.trials),
+        ) as progress,
+    ):
+        task = progress.add_task("Running...", total=nruns)
+
+        with ThreadPoolExecutor(max_workers=args.jobs) as executor:
+            futures = (
+                executor.submit(
+                    run_one,
+                    c,
+                    args.model,
+                    args.api_key,
+                    args.api_url,
+                    args.verbose,
+                )
+                for c in configs
+                for _ in range(args.trials)
             )
 
-            with ThreadPoolExecutor(max_workers=args.jobs) as executor:
-                futures = (
-                    executor.submit(
-                        run_one,
-                        c,
-                        args.model,
-                        args.api_key,
-                        args.api_url,
-                        args.verbose,
-                    )
-                    for c in configs
-                    for n in range(args.trials)
+            for future in as_completed(futures):
+                config, result, steps = future.result()
+
+                result_entry = {
+                    "kernel": str(config.filepath),
+                    "temperature": config.temperature,
+                    "ablated": config.ablated,
+                    "filters": config.filters,
+                    "attempts": result.attempts,
+                    "result": "success" if result.success else "failure",
+                    "reason": result.reason,
+                }
+                steps_entry = {
+                    "kernel": str(config.filepath),
+                    "temperature": config.temperature,
+                    "ablated": config.ablated,
+                    "filters": config.filters,
+                    "attempts": result.attempts,
+                    "result": "success" if result.success else "failure",
+                    "steps": steps,
+                }
+                rf.write(json.dumps(result_entry) + "\n")
+                sf.write(json.dumps(steps_entry) + "\n")
+
+                status = (
+                    "nop"
+                    if result.attempts == 0
+                    else "success" if result.success else f"failure ({result.reason})"
                 )
+                progress.log(
+                    f"{config.filepath} temp={config.temperature} ablated={config.ablated or 'none'} → {status}"
+                )
+                progress.advance(task)
 
-                for future in as_completed(futures):
-                    # Await the future.
-                    config, result, steps = future.result()
-
-                    # Output the run results.
-                    row = [
-                        config.filepath,
-                        config.temperature,
-                        config.ablated or "",
-                        result.attempts,
-                        "success" if result.success else "failure",
-                        "" if result.success else result.reason,
-                    ]
-                    with lock:
-                        writer.writerow(row)
-
-                    # Log the status to the console.
-                    status = (
-                        "success" if result.success else f"failure ({result.reason})"
-                    )
-                    progress.log(
-                        f"{config.filepath} temp={config.temperature} ablated={config.ablated or 'none'} → {status}"
-                    )
-
-                    progress.advance(task)
-
-    console.print(f"\nDone! Results in {result_csv}")
+    console.print(f"\nDone! Results in {result_json}, steps in {steps_json}")
 
 
 if __name__ == "__main__":
