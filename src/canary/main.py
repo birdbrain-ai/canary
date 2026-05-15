@@ -165,18 +165,18 @@ def main():
     )
     console.print(f"Results -> {result_json}\n")
 
-    with (
-        open(result_json, "w") as rf,
-        open(steps_json, "w") as sf,
-        Progress(
-            SpinnerColumn(),
-            *Progress.get_default_columns(),
-            TimeElapsedColumn(),
-        ) as progress,
-    ):
-        task = progress.add_task("Running...", total=nruns)
+    with ThreadPoolExecutor(max_workers=args.jobs) as executor:
+        with (
+            open(result_json, "w") as rf,
+            open(steps_json, "w") as sf,
+            Progress(
+                SpinnerColumn(),
+                *Progress.get_default_columns(),
+                TimeElapsedColumn(),
+            ) as progress,
+        ):
+            task = progress.add_task("Running...", total=nruns)
 
-        with ThreadPoolExecutor(max_workers=args.jobs) as executor:
             futures = (
                 executor.submit(
                     run_one,
