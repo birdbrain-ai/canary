@@ -292,6 +292,9 @@ class Agent:
 
         kernel, response = asyncio.run(repair_remarks(state))
 
+        if kernel is None:
+            return {"syntax_attempts": attempt}
+
         return {
             "attempts": attempt,
             "response": response,
@@ -382,6 +385,9 @@ class Agent:
         kernel: str = asyncio.run(
             repair_syntax(state["kernel"], state["syntax_output"])
         )
+
+        if kernel is None:
+            return {"syntax_attempts": attempt}
 
         return {"syntax_attempts": attempt, "kernel": kernel}
 
