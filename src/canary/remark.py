@@ -70,10 +70,7 @@ def parse_remarks(raw: str) -> list[Remark]:
 
 def is_optimized(remarks: list[Remark]) -> bool:
     """Return True if loop vectorization fired in the given remarks."""
-    return any(
-        r.Pass == "loop-vectorize" and r.Name == "Vectorized"
-        for r in remarks
-    )
+    return any(r.Pass == "loop-vectorize" and r.Name == "Vectorized" for r in remarks)
 
 
 def check_optimized(source: str, exe: str, flags: list[str] = None) -> bool:
