@@ -487,19 +487,29 @@ class Agent:
 
         # If vectorized --> valid_remarks; else --> repair_remarks
         graph.add_conditional_edges("check_remarks", self._remarks_loop)
+
         # After we attempt to repair_remarks --> check_syntax.
         graph.add_edge("repair_remarks", "check_syntax")
+
         # Repair any syntax violations.
         graph.add_conditional_edges("check_syntax", self._syntax_loop)
+
         # After syntax check passes, check for semantics.
         graph.add_edge("valid_syntax", "check_semantics")
+
         # Repair any semantics violations.
         graph.add_conditional_edges("check_semantics", self._semantics_loop)
+
         # After semantics check passes, check remarks.
-        graph.add_edge("check_semantics", "check_remarks")
+        graph.add_edge("valid_semantics", "check_remarks")
 
         # Graceful exit.
         graph.add_edge("valid_remarks", END)
+
+        # Failure exits
+        graph.add_edge("fail_remarks", END)
+        graph.add_edge("fail_syntax", END)
+        graph.add_edge("fail_semantics", END)
 
         # ---- Compile ---- #
         return graph
