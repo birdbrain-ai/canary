@@ -3,6 +3,7 @@ import subprocess
 import os
 import asyncio
 import re
+from functools import lru_cache
 from typing import TypedDict, Callable
 
 # LangChain
@@ -90,6 +91,14 @@ def initial_state(config: RunConfig) -> State:
         log={},
         success=False,
         reason="",
+    )
+
+
+@lru_cache(maxsize=None)
+def _load_template(file: str) -> PromptTemplate:
+    return PromptTemplate.from_template(
+        open(file).read(),
+        template_format="jinja2",
     )
 
 
@@ -200,12 +209,7 @@ class Agent:
         }
 
     def _format_template(self, file: str, **kwargs):
-        template = PromptTemplate.from_template(
-            open(file).read(),
-            template_format="jinja2",
-        )
-
-        return template.format(**kwargs)
+        return _load_template(file).format(**kwargs)
 
     async def _prompt_llm(
         self,
