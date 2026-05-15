@@ -1,13 +1,17 @@
 import argparse
 import json
 import sys
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
 from langchain_openai import ChatOpenAI
+from rich.console import Group
+from rich.live import Live
 from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
+from rich.text import Text
 
 from canary.agent import Agent
 from canary.remark import Remark
@@ -165,15 +169,21 @@ def main():
     )
     console.print(f"Results -> {result_json}\n")
 
+    recent: deque[tuple[str, str]] = deque(maxlen=5)
+    progress = Progress(SpinnerColumn(), *Progress.get_default_columns(), TimeElapsedColumn())
+
+    def make_display() -> Group:
+        log = Text()
+        for ts, line in recent:
+            log.append(f"[{ts}] ", style="dim green")
+            log.append(line + "\n", style="dim")
+        return Group(progress, log)
+
     with ThreadPoolExecutor(max_workers=args.jobs) as executor:
         with (
             open(result_json, "w") as rf,
             open(steps_json, "w") as sf,
-            Progress(
-                SpinnerColumn(),
-                *Progress.get_default_columns(),
-                TimeElapsedColumn(),
-            ) as progress,
+            Live(make_display(), refresh_per_second=10) as live,
         ):
             task = progress.add_task("Running...", total=nruns)
 
@@ -219,10 +229,12 @@ def main():
                     if result.attempts == 0
                     else "success" if result.success else f"failure ({result.reason})"
                 )
-                progress.log(
-                    f"{config.filepath} temp={config.temperature} ablated={config.ablated or 'none'} → {status}"
-                )
+                recent.append((
+                    datetime.now().strftime("%H:%M:%S"),
+                    f"{config.filepath} temp={config.temperature} ablated={config.ablated or 'none'} → {status}",
+                ))
                 progress.advance(task)
+                live.update(make_display())
 
     console.print(f"\nDone! Results in {result_json}, steps in {steps_json}")
 
