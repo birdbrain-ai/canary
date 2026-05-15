@@ -46,7 +46,7 @@ for tag in RemarkKind:
 
 
 def get_remarks(source: str, exe: str, flags: list[str] = None) -> tuple[int, str, str]:
-    args = [exe, "-c", "-x", "c", "-"]
+    args = [exe, "-c", "-x", "c", "-", "-o", "/dev/null"]
     if flags is not None:
         args.extend(flags)
 
