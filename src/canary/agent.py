@@ -248,52 +248,28 @@ class Agent:
         Repair remarks using an LLM invocation.
         """
 
-        # Compute the attempt.
         attempt = state["attempts"] + 1
+        prefill = "<<<<<<< SEARCH\n"
 
-        async def repair_remarks(state: State) -> tuple[str, str]:
-            # Iterate until the tool call works correctly...
-            retries: int = 0
-            response = None
-            kernel = None
-            while kernel is None and retries < MAX_RETRIES:
-                retries += 1
+        retries = 0
+        kernel = response = None
+        while kernel is None and retries < MAX_RETRIES:
+            retries += 1
 
-                # Format the prompt.
-                prompt = self._format_template(
-                    # Template
-                    "prompts/optimize.j2",
-                    # Arguments...
-                    kernel=state["kernel"],
-                    remarks=state["remarks_output"],
-                    compiler={
-                        "family": "clang",
-                    },
-                    explain={
-                        "transformations": True,
-                        "diagnostics": True,
-                    },
-                )
+            prompt = self._format_template(
+                "prompts/optimize.j2",
+                kernel=state["kernel"],
+                remarks=state["remarks_output"],
+                compiler={"family": "clang"},
+                explain={"transformations": True, "diagnostics": True},
+            )
 
-                # Prefill
-                prefill: str = "<<<<<<< SEARCH\n"
-
-                # Invoke the LLM with the remarks output
-                response: str = await self._prompt_llm(
-                    prompt,
-                    prefill,
-                    86400.0,
-                )
-
-                # Apply the model changes to the existing kernel.
-                kernel: str = self._apply_diff(response, state["kernel"])
-
-            return kernel, response
-
-        kernel, response = asyncio.run(repair_remarks(state))
+            messages = [HumanMessage(prompt), AIMessage(content=prefill)]
+            response = self._llm.invoke(messages).content
+            kernel = self._apply_diff(response, state["kernel"])
 
         if kernel is None:
-            return {"syntax_attempts": attempt}
+            return {"attempts": attempt}
 
         return {
             "attempts": attempt,
@@ -350,41 +326,22 @@ class Agent:
         Repair syntax of the kernel using an LLM call.
         """
         attempt = state["syntax_attempts"] + 1
+        prefill = "<<<<<<< SEARCH\n"
 
-        async def repair_syntax(orig_kernel: str, syntax_output: str) -> str:
-            # Give the LLM multiple tries to get the SEARCH/REPLACE tool call correct
-            retries: int = 0
-            kernel: str = None
-            while kernel is None and retries < MAX_RETRIES:
-                retries += 1
+        retries = 0
+        kernel = None
+        while kernel is None and retries < MAX_RETRIES:
+            retries += 1
 
-                # Format the prompt.
-                prompt = self._format_template(
-                    # Template
-                    "prompts/repair_syntax.j2",
-                    # Arguments...
-                    kernel=orig_kernel,
-                    linter_output=syntax_output,
-                )
+            prompt = self._format_template(
+                "prompts/repair_syntax.j2",
+                kernel=state["kernel"],
+                linter_output=state["syntax_output"],
+            )
 
-                # Prefill
-                prefill: str = "<<<<<<< SEARCH\n"
-
-                # Invoke the LLM with the remarks output
-                response: str = await self._prompt_llm(
-                    prompt,
-                    prefill,
-                    86400.0,
-                )
-
-                # Apply the model changes to the existing kernel.
-                kernel: str = self._apply_diff(response, state["kernel"])
-
-            return kernel
-
-        kernel: str = asyncio.run(
-            repair_syntax(state["kernel"], state["syntax_output"])
-        )
+            messages = [HumanMessage(prompt), AIMessage(content=prefill)]
+            response = self._llm.invoke(messages).content
+            kernel = self._apply_diff(response, state["kernel"])
 
         if kernel is None:
             return {"syntax_attempts": attempt}
