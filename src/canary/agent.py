@@ -197,7 +197,7 @@ class Agent:
         optimized: bool = self._is_optimized(remarks)
 
         # Remove all irrelevant remarks
-        remarks = [r for r in remarks if "loop" in r.Pass]
+        remarks = [r for r in remarks if "loop-vectorize" in r.Pass]
 
         # Filter remarks based on experimental configuration.
         remarks = [r for r in remarks if not self._remark_filter(r)]
