@@ -195,6 +195,7 @@ def main():
     configs = [
         RunConfig(
             kernel,
+            args.model,
             args.transform,
             temp,
             ablated,

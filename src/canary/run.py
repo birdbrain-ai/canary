@@ -7,6 +7,7 @@ class RunConfig:
     run_id: str
     filepath: Path
     source: str
+    model: str
     transform: str
     temperature: int
     ablated: str | None  # TODO: if we have a multidim ablation, this fails
@@ -15,6 +16,7 @@ class RunConfig:
     def __init__(
         self,
         filepath: Path,
+        model: str,
         transform: str,
         temperature: int,
         ablated: str | None,
@@ -23,6 +25,7 @@ class RunConfig:
         self.run_id = f"{filepath}_{temperature}_{ablated or 'base'}"
         self.filepath = filepath
         self.source = filepath.read_text()
+        self.model = model
         self.transform = transform
         self.temperature = temperature
         self.ablated = ablated
