@@ -242,8 +242,11 @@ class Agent:
             return None
 
         search, replace = m.group(1), m.group(2)
+
+        search = re.sub(r"[ \t]+", " ", search)
+        kernel = re.sub(r"[ \t]+", " ", kernel)
         if search not in kernel:
-            return None  # trigger retry
+            return None
 
         return kernel.replace(search, replace, 1)
 
