@@ -99,24 +99,24 @@ def check_semantics(
         # Compile source
         compile_src.stdin.write(src.encode())
         compile_src.stdin.close()
-        src_exitcode = compile_src.wait()
+        src_exitcode = compile_src.wait(timeout=600)
         if src_exitcode > 0:
-            src_stdout, src_stderr = compile_src.communicate()
+            src_stdout, src_stderr = compile_src.communicate(timeout=600)
             print(
                 f"Failed to compile:\n{compile_src.args}\n\n{src}\n\nstderr:\n{src_stderr}"
             )
         # Compile target
         compile_tgt.stdin.write(tgt.encode())
         compile_tgt.stdin.close()
-        tgt_exitcode = compile_tgt.wait()
+        tgt_exitcode = compile_tgt.wait(timeout=600)
         if tgt_exitcode > 0:
-            tgt_stdout, tgt_stderr = compile_tgt.communicate()
+            tgt_stdout, tgt_stderr = compile_tgt.communicate(timeout=600)
             print(
                 f"Failed to compile:\n{compile_tgt.args}\n\n{tgt}\n\nstderr:\n{tgt_stderr}"
             )
 
         # Run alive
-        stdout, stderr = alive.communicate()
+        stdout, stderr = alive.communicate(timeout=600)
 
         correct, incorrect, failed, errors = _parse_result(stdout.decode())
 

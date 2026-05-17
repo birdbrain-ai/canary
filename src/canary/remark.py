@@ -56,6 +56,7 @@ def get_remarks(source: str, exe: str, flags: list[str] = None) -> tuple[int, st
         input=source,
         capture_output=True,
         text=True,
+        timeout=600,
     )
 
     return result.returncode, result.stdout, result.stderr
