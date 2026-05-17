@@ -60,6 +60,7 @@ class State(TypedDict):
     response: str
 
     # Configuration
+    transform: str
     temperature: float
 
     # Output
@@ -87,6 +88,7 @@ def initial_state(config: RunConfig) -> State:
         semantics_valid=False,
         semantics_output="",
         # Model parameters
+        transform=config.transform,
         temperature=config.temperature,
         # Agent output
         log={},
@@ -168,9 +170,6 @@ class Agent:
         return result, steps
 
     # ====---- Nodes ----==== #
-    def _is_optimized(self, remarks: list[Remark]) -> bool:
-        return is_optimized(remarks)
-
     def _check_remarks(self, state: State):
         """
         Gather optimization remarks.
@@ -194,10 +193,10 @@ class Agent:
         remarks: list[Remark] = parse_remarks(stdout)
 
         # Determine if the kernel was vectorized
-        optimized: bool = self._is_optimized(remarks)
+        optimized: bool = is_optimized(state["transform"], remarks)
 
         # Remove all irrelevant remarks
-        remarks = [r for r in remarks if "loop-vectorize" in r.Pass]
+        remarks = [r for r in remarks if state["transform"] in r.Pass]
 
         # Filter remarks based on experimental configuration.
         remarks = [r for r in remarks if not self._remark_filter(r)]

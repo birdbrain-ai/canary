@@ -68,14 +68,16 @@ def parse_remarks(raw: str) -> list[Remark]:
     return list(yaml.safe_load_all(raw))
 
 
-def is_optimized(remarks: list[Remark]) -> bool:
-    """Return True if loop vectorization fired in the given remarks."""
-    return any(r.Pass == "loop-vectorize" and r.Name == "Vectorized" for r in remarks)
+def is_optimized(transform: str, remarks: list[Remark]) -> bool:
+    """Return True if transformation fired in the given remarks."""
+    return any(r.Pass == transform and r.kind == RemarkKind.PASSED for r in remarks)
 
 
-def check_optimized(source: str, exe: str, flags: list[str] = None) -> bool:
+def check_optimized(
+    source: str, exe: str, transform: str, flags: list[str] = None
+) -> bool:
     """Compile source and return True if the compiler already vectorized it."""
     retval, stdout, _ = get_remarks(source, exe, flags)
     if retval != 0:
         return False
-    return is_optimized(parse_remarks(stdout))
+    return is_optimized(transform, parse_remarks(stdout))

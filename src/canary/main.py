@@ -34,6 +34,11 @@ def parse_args():
         help="Path to kernel(s) to run. If given a directory, runs on all C source files.",
     )
     parser.add_argument(
+        "--transform",
+        default="loop-vectorize",
+        help="Transformation to enable",
+    )
+    parser.add_argument(
         "--trials",
         type=int,
         default=1,
@@ -165,7 +170,12 @@ def main():
     kernels = [
         k
         for k in all_kernels
-        if not check_optimized(k.read_text(), REMARKS, [CFLAGS, INCLUDES])
+        if not check_optimized(
+            k.read_text(),
+            REMARKS,
+            args.transform,
+            [CFLAGS, INCLUDES],
+        )
     ]
     console.print(
         f"Skipping {len(all_kernels) - len(kernels)} already-optimized kernel(s), {len(kernels)} remaining."
@@ -185,6 +195,7 @@ def main():
     configs = [
         RunConfig(
             kernel,
+            args.transform,
             temp,
             ablated,
             base_filters + ([ablated] if ablated else []),
@@ -266,9 +277,7 @@ def main():
                 status = (
                     "nop"
                     if result.attempts == 0
-                    else "success"
-                    if result.success
-                    else f"failure ({result.reason})"
+                    else "success" if result.success else f"failure ({result.reason})"
                 )
                 recent.append(
                     (

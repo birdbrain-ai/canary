@@ -53,3 +53,15 @@ Specify temperature(s) to sweep.
 uv run canary ... \
    --temperature 0.2 0.8 1.2
 ```
+
+To run each configuration multiple times:
+```bash
+uv run canary ... \
+   --trials N
+```
+
+To specify the LLVM transformation pass to evaluate:
+```bash
+uv run canary ... \
+   --transform pass-name
+```
