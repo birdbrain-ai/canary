@@ -3,6 +3,7 @@ import subprocess
 import os
 import asyncio
 import re
+import shlex
 from functools import lru_cache
 from typing import TypedDict, Callable
 
@@ -26,7 +27,7 @@ MAX_SYNTAX_ATTEMPTS: int = os.getenv("MAX_SYNTAX_ATTEMPTS", 3)
 MAX_SEMANTICS_ATTEMPTS: int = os.getenv("MAX_SEMANTICS_ATTEMPTS", 0)
 MAX_RETRIES: int = os.getenv("MAX_RETRIES", 3)
 
-CFLAGS: str = os.getenv("CFLAGS", "")
+CFLAGS: list[str] = shlex.split(os.getenv("CFLAGS", ""))
 INCLUDES: str = os.getenv("INCLUDES", "")
 CC: str = os.getenv("CC", "clang")
 REMARKS: str = os.getenv("REMARKS", "clang-remarks")
@@ -180,7 +181,7 @@ class Agent:
         retval, stdout, stderr = get_remarks(
             state["kernel"],
             REMARKS,
-            flags=[CFLAGS, INCLUDES],
+            flags=[*CFLAGS, INCLUDES],
         )
 
         # Fetch the output.
@@ -375,7 +376,7 @@ class Agent:
             state["orig_kernel"],
             state["kernel"],
             cc=CC,  # TODO: if CC is not in the llvm family, default to one
-            cflags=[INCLUDES, CFLAGS],
+            cflags=[INCLUDES, *CFLAGS],
         )
 
         return {
