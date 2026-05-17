@@ -139,17 +139,18 @@ class Agent:
 
         steps: list[dict] = []
         thread = {"configurable": {"thread_id": config.run_id}}
+        final: State = initial_state(config)
 
         try:
             for step in self._app.stream(
-                initial_state(config),
+                final,
                 config=thread,
                 stream_mode="updates",
             ):
                 steps.append(step)
                 continue
 
-            final: State = self._app.get_state(thread).values
+            final = self._app.get_state(thread).values
 
             result = RunResult(
                 run_id=final["run_id"],
