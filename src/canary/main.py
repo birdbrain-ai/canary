@@ -256,6 +256,7 @@ def main():
 
                 result_entry = {
                     "kernel": str(config.filepath),
+                    "model": config.model,
                     "temperature": config.temperature,
                     "ablated": config.ablated,
                     "filters": config.filters,
@@ -265,6 +266,7 @@ def main():
                 }
                 steps_entry = {
                     "kernel": str(config.filepath),
+                    "model": config.model,
                     "temperature": config.temperature,
                     "ablated": config.ablated,
                     "filters": config.filters,

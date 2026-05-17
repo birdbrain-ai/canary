@@ -60,7 +60,6 @@ class State(TypedDict):
     response: str
 
     # Configuration
-    model: str
     transform: str
     temperature: float
 
@@ -89,7 +88,6 @@ def initial_state(config: RunConfig) -> State:
         semantics_valid=False,
         semantics_output="",
         # Model parameters
-        model=config.model,
         transform=config.transform,
         temperature=config.temperature,
         # Agent output
