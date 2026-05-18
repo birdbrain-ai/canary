@@ -250,8 +250,8 @@ class Agent:
 
         # Collapse runs of horizontal whitespace so SEARCH bodies still match
         # when small models drop or shift indentation. Newlines are preserved.
-        search = re.sub(r"[ \t]+", " ", search)
-        kernel = re.sub(r"[ \t]+", " ", kernel)
+        # search = re.sub(r"[ \t]+", " ", search)
+        # kernel = re.sub(r"[ \t]+", " ", kernel)
 
         if search not in kernel:
             return None
