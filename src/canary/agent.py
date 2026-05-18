@@ -243,6 +243,11 @@ class Agent:
 
         search, replace = m.group(1), m.group(2)
 
+        # Strip a leading ```lang fence and/or a trailing ``` fence -- models
+        # sometimes wrap the SEARCH/REPLACE body in markdown despite the prompt.
+        search = re.sub(r"\A```\w*\n|\n```\Z", "", search)
+        replace = re.sub(r"\A```\w*\n|\n```\Z", "", replace)
+
         search = re.sub(r"[ \t]+", " ", search)
         kernel = re.sub(r"[ \t]+", " ", kernel)
         if search not in kernel:
@@ -256,7 +261,6 @@ class Agent:
         """
 
         attempt = state["attempts"] + 1
-        prefill = "<<<<<<< SEARCH\n"
 
         retries = 0
         kernel = response = None
@@ -271,12 +275,11 @@ class Agent:
                 explain={"transformations": True, "diagnostics": True},
             )
 
-            messages = [HumanMessage(prompt), AIMessage(content=prefill)]
-            response = self._llm.invoke(messages).content
+            response = self._llm.invoke([HumanMessage(prompt)]).content
             kernel = self._apply_diff(response, state["kernel"])
 
         if kernel is None:
-            return {"attempts": attempt}
+            return {"attempts": attempt, "response": response}
 
         return {
             "attempts": attempt,
@@ -333,7 +336,6 @@ class Agent:
         Repair syntax of the kernel using an LLM call.
         """
         attempt = state["syntax_attempts"] + 1
-        prefill = "<<<<<<< SEARCH\n"
 
         retries = 0
         kernel = None
@@ -346,8 +348,7 @@ class Agent:
                 linter_output=state["syntax_output"],
             )
 
-            messages = [HumanMessage(prompt), AIMessage(content=prefill)]
-            response = self._llm.invoke(messages).content
+            response = self._llm.invoke([HumanMessage(prompt)]).content
             kernel = self._apply_diff(response, state["kernel"])
 
         if kernel is None:
