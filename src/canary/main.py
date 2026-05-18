@@ -131,7 +131,7 @@ def _get_agent(
             api_key=api_key,
             base_url=api_url,
             temperature=temperature,
-            request_timeout=300,
+            request_timeout=600,
         )
         _thread_local.agents[key] = Agent(
             llm,
