@@ -195,6 +195,7 @@ def main():
     configs = [
         RunConfig(
             kernel,
+            args.model,
             args.transform,
             temp,
             ablated,
@@ -255,6 +256,7 @@ def main():
 
                 result_entry = {
                     "kernel": str(config.filepath),
+                    "model": config.model,
                     "temperature": config.temperature,
                     "ablated": config.ablated,
                     "filters": config.filters,
@@ -264,6 +266,7 @@ def main():
                 }
                 steps_entry = {
                     "kernel": str(config.filepath),
+                    "model": config.model,
                     "temperature": config.temperature,
                     "ablated": config.ablated,
                     "filters": config.filters,
