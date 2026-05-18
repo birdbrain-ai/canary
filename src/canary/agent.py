@@ -26,6 +26,7 @@ MAX_SYNTAX_ATTEMPTS: int = os.getenv("MAX_SYNTAX_ATTEMPTS", 3)
 # NOTE: semantics repair is currently disabled
 MAX_SEMANTICS_ATTEMPTS: int = os.getenv("MAX_SEMANTICS_ATTEMPTS", 0)
 MAX_RETRIES: int = os.getenv("MAX_RETRIES", 3)
+LLM_TIMEOUT: float = os.getenv("LLM_TIMEOUT", 300.0)
 
 CFLAGS: list[str] = shlex.split(os.getenv("CFLAGS", ""))
 INCLUDES: str = os.getenv("INCLUDES", "")
@@ -278,7 +279,7 @@ class Agent:
                 explain={"transformations": True, "diagnostics": True},
             )
 
-            response = self._llm.invoke([HumanMessage(prompt)]).content
+            response = asyncio.run(self._prompt_llm(prompt, timeout=LLM_TIMEOUT))
             kernel = self._apply_diff(response, state["kernel"])
 
         if kernel is None:
@@ -351,7 +352,7 @@ class Agent:
                 linter_output=state["syntax_output"],
             )
 
-            response = self._llm.invoke([HumanMessage(prompt)]).content
+            response = asyncio.run(self._prompt_llm(prompt, timeout=LLM_TIMEOUT))
             kernel = self._apply_diff(response, state["kernel"])
 
         if kernel is None:
