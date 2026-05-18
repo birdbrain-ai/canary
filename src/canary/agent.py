@@ -248,8 +248,6 @@ class Agent:
         search = re.sub(r"\A```\w*\n|\n```\Z", "", search)
         replace = re.sub(r"\A```\w*\n|\n```\Z", "", replace)
 
-        search = re.sub(r"[ \t]+", " ", search)
-        kernel = re.sub(r"[ \t]+", " ", kernel)
         if search not in kernel:
             return None
 
