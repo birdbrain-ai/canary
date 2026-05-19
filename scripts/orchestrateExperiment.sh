@@ -31,15 +31,18 @@ ABLATE=(
    loop-vectorize:CantIdentifyArrayBounds
    loop-vectorize:CantVectorizeInstruction
    loop-vectorize:CantVectorizeLibcall
-   # loop-vectorize:InterleaveEarlyExitDisabled
-   # loop-vectorize:InterleavingNotBeneficial
-   # loop-vectorize:InterleavingNotBeneficialAndDisabled
    loop-vectorize:MissedDetails
    loop-vectorize:NonReductionValueUsedOutsideLoop
    loop-vectorize:UnsafeDep
    loop-vectorize:UnsupportedUncountableLoop
    loop-vectorize:WritesInEarlyExitLoop
 )
+
+SLP_ABLATE=(
+	slp-vectorizer:NotPossible
+	slp-vectorizer:NotBeneficial
+)
+
 
 TEMPERATURES=(0.2 0.8 1.2)
 
@@ -67,8 +70,8 @@ for MODEL in "${MODELS[@]}"; do
    echo "=== Running experiment for $MODEL ==="
 
    # Spawn a vLLM server.
-   # cd "$SCRIPT_DIR"
-   # "$PROJECT_DIR/language-models/tunnel.sh" "$MODEL"
+   cd "$SCRIPT_DIR"
+   "$PROJECT_DIR/language-models/tunnel.sh" "$MODEL"
    # Run a canary experiment.
    cd "$PROJECT_DIR"
    uv run canary \
@@ -78,6 +81,17 @@ for MODEL in "${MODELS[@]}"; do
       --trials "$TRIALS" \
       --jobs 32 \
       --ablate "${ABLATE[@]}" \
+	  --transform "loop-vectorize" \
+      --temperature "${TEMPERATURES[@]}"
+
+   uv run canary \
+      "$TSVC_DIR/kernels" \
+      --model "$MODEL" \
+      --api-url http://localhost:8000/v1 \
+      --trials "$TRIALS" \
+      --jobs 32 \
+      --ablate "${SLP_ABLATE[@]}" \
+	  --transform "slp-vectorizer" \
       --temperature "${TEMPERATURES[@]}"
    
    # Tear down the vLLM server.
