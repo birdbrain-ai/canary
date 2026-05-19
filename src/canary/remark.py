@@ -2,6 +2,7 @@ from dataclasses import dataclass
 import yaml
 import subprocess
 from enum import StrEnum
+from pathlib import Path
 
 
 class RemarkKind(StrEnum):
@@ -67,6 +68,29 @@ def parse_remarks(raw: str) -> list[Remark]:
     Parse the raw LLVM optimization remarks into a list of structured remarks.
     """
     return list(yaml.safe_load_all(raw))
+
+
+def pretty_debug_loc(loc: dict | None) -> str:
+    if not loc:
+        return "DebugLoc:\t<none>\n"
+    return f"DebugLoc:\t{Path(loc.get('File','?')).name}:{loc.get('Line','?')}:{loc.get('Column','?')}\n"
+
+
+def pretty_args(args: list[dict] | None) -> str:
+    if not args:
+        return "Args:\t<none>\n"
+    msg = "".join(str(next(v for k, v in a.items() if k != "DebugLoc")) for a in args)
+    return f"Args:\t{msg.replace(chr(10), ' ').strip()}\n"
+
+
+def to_string(remark: Remark) -> str:
+    return (
+        f"Pass:\t{remark.Pass}\n"
+        f"Name:\t{remark.Name}\n"
+        f"Function:\t{remark.Function}\n"
+        + pretty_debug_loc(remark.DebugLoc)
+        + pretty_args(remark.Args)
+    )
 
 
 def is_optimized(transform: str, remarks: list[Remark]) -> bool:

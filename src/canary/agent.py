@@ -16,7 +16,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.language_models.base import BaseLanguageModel
 
 # Canary
-from canary.remark import Remark, get_remarks, parse_remarks, is_optimized
+from canary.remark import Remark, get_remarks, parse_remarks, is_optimized, to_string
 from canary.validate import ValidationResult, check_semantics
 from canary.run import RunConfig, RunResult
 
@@ -202,10 +202,13 @@ class Agent:
         # Filter remarks based on experimental configuration.
         remarks = [r for r in remarks if not self._remark_filter(r)]
 
+        # Make remarks readable strings
+        remarks_output = "\n\n".join(to_string(r) for r in remarks)
+
         return {
             "success": optimized,
             "remarks_valid": remarks_valid,
-            "remarks_output": f"{remarks}",
+            "remarks_output": remarks_output,
         }
 
     def _format_template(self, file: str, **kwargs):
