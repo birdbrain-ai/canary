@@ -1,12 +1,11 @@
 import concurrent.futures
+import csv
 import json
-import os
 import subprocess
 import sys
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
-TSVC_DEFAULT = "/pool/akash/canary/benchmarks/canary-test-suite/tsvc"
 CONFIG_REL = "configs/clang-default.json"
 CONFIG_NAME = "clang-default"
 
@@ -19,17 +18,22 @@ def last_kernel(trial):
     return None
 
 
-def group_by_kernel(steps_path):
-    groups = defaultdict(list)
+def parse_trials(steps_path):
+    trials = []
     with open(steps_path) as f:
         for line in f:
-            trial = json.loads(line)
-            src = last_kernel(trial)
+            t = json.loads(line)
+            src = last_kernel(t)
             if src is None:
                 continue
-            name = Path(trial["kernel"]).parent.name
-            groups[name].append(src)
-    return groups
+            trials.append({
+                "model": t["model"],
+                "kernel": Path(t["kernel"]).parent.name,
+                "ablated": t["ablated"] or "",
+                "temperature": t["temperature"],
+                "source": src,
+            })
+    return trials
 
 
 def run_mkexperiment(tsvc_dir, ntrials):
@@ -45,16 +49,14 @@ def latest_experiment(tsvc_dir):
     return max(base.iterdir(), key=lambda p: p.stat().st_mtime)
 
 
-def seed_trials(exp_dir, groups, ntrials):
+def seed_trials(exp_dir, trials, ntrials):
     width = len(str(ntrials))
-    written = []
-    for name, sources in groups.items():
-        for i, src in enumerate(sources, start=1):
-            trial_dir = exp_dir / name / f"{i:0{width}d}"
-            (trial_dir / "kernel.c").write_text(src)
-            written.append(trial_dir)
-    print(f"wrote {len(written)} kernel.c files into {exp_dir}")
-    return written
+    seen = Counter()
+    for t in trials:
+        seen[t["kernel"]] += 1
+        t["trial_dir"] = exp_dir / t["kernel"] / f"{seen[t['kernel']]:0{width}d}"
+        (t["trial_dir"] / "kernel.c").write_text(t["source"])
+    print(f"wrote {len(trials)} kernel.c files into {exp_dir}")
 
 
 def build_suite(tsvc_dir):
@@ -64,56 +66,78 @@ def build_suite(tsvc_dir):
     )
 
 
-def run_trial(trial_dir, makefile):
-    r = subprocess.run(
-        ["make", "-f", str(makefile), "run"],
-        cwd=trial_dir,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    return r.returncode
+def run_trial(trial_dir, makefile, timeout_s=300):
+    try:
+        r = subprocess.run(
+            ["make", "-f", str(makefile), "run"],
+            cwd=trial_dir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout_s,
+        )
+        return r.returncode
+    except subprocess.TimeoutExpired:
+        return -1
 
 
-def run_all_trials(tsvc_dir, trial_dirs, workers=None):
+def run_all_trials(tsvc_dir, trials, workers=None):
     makefile = Path(tsvc_dir) / "Makefile.kernel"
-    workers = workers or os.cpu_count()
-    counts = Counter()
-    total = len(trial_dirs)
+    workers = workers or 64
+    total = len(trials)
+    results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = {ex.submit(run_trial, d, makefile): d for d in trial_dirs}
-        for i, done in enumerate(concurrent.futures.as_completed(futures), 1):
-            counts[done.result()] += 1
+        futures = {ex.submit(run_trial, t["trial_dir"], makefile): t for t in trials}
+        for i, fut in enumerate(concurrent.futures.as_completed(futures), 1):
+            results.append((futures[fut], fut.result()))
             if i % 200 == 0 or i == total:
                 print(f"  {i}/{total}", file=sys.stderr)
-    return counts
+    return results
 
 
 def main():
-    if len(sys.argv) != 2:
-        print(f"usage: {sys.argv[0]} <out/<run>/>", file=sys.stderr)
+    if len(sys.argv) != 4:
+        print(
+            f"usage: {sys.argv[0]} <out/<run>/> <total_trials> <tsvc_dir>",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
-    tsvc_dir = os.environ.get("CANARY_TSVC", TSVC_DEFAULT)
     steps_path = Path(sys.argv[1]) / "steps.json"
+    total_trials = int(sys.argv[2])
+    tsvc_dir = sys.argv[3]
 
-    groups = group_by_kernel(steps_path)
-    if not groups:
+    trials = parse_trials(steps_path)
+    if not trials:
         print("no produced kernels found in steps.json", file=sys.stderr)
         sys.exit(1)
 
-    ntrials = max(len(v) for v in groups.values())
+    ntrials = max(Counter(t["kernel"] for t in trials).values())
     run_mkexperiment(tsvc_dir, ntrials)
     exp_dir = latest_experiment(tsvc_dir)
-    trial_dirs = seed_trials(exp_dir, groups, ntrials)
+    seed_trials(exp_dir, trials, ntrials)
 
     build_suite(tsvc_dir)
-    counts = run_all_trials(tsvc_dir, trial_dirs)
+    results = run_all_trials(tsvc_dir, trials)
 
-    total = sum(counts.values())
-    success = counts.get(0, 0)
+    total = len(results)
+    success = sum(1 for _, code in results if code == 0)
     print(f"\n{success}/{total} succeeded ({100*success/total:.1f}%)")
-    for code, n in sorted(counts.items()):
-        print(f"  exit {code}: {n}")
+
+    bucket_success = Counter()
+    buckets = set()
+    for t, code in results:
+        key = (t["model"], t["kernel"], t["ablated"], t["temperature"])
+        buckets.add(key)
+        if code == 0:
+            bucket_success[key] += 1
+
+    csv_path = Path(sys.argv[1]) / f"results_{total_trials}trials.csv"
+    with csv_path.open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["model", "kernel_id", "diagnostic", "temperature", "success_count"])
+        for key in sorted(buckets):
+            w.writerow([*key, bucket_success[key]])
+    print(f"wrote {csv_path}")
 
 
 if __name__ == "__main__":
