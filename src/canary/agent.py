@@ -462,11 +462,17 @@ class Agent:
         # Repair any syntax violations.
         graph.add_conditional_edges("check_syntax", self._syntax_loop)
 
+        # Check if we fix it this time.
+        graph.add_edge("repair_syntax", "check_syntax")
+
         # After syntax check passes, check for semantics.
         graph.add_edge("valid_syntax", "check_semantics")
 
         # Repair any semantics violations.
         graph.add_conditional_edges("check_semantics", self._semantics_loop)
+
+        # Check if we fixed semantics this time.
+        graph.add_edge("repair_semantics", "check_semantics")
 
         # After semantics check passes, check remarks.
         graph.add_edge("valid_semantics", "check_remarks")
