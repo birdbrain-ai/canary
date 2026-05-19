@@ -73,7 +73,10 @@ def parse_remarks(raw: str) -> list[Remark]:
 def pretty_debug_loc(loc: dict | None) -> str:
     if not loc:
         return "DebugLoc:\t<none>\n"
-    return f"DebugLoc:\t{Path(loc.get('File','?')).name}:{loc.get('Line','?')}:{loc.get('Column','?')}\n"
+    file = Path(loc.get("File", "?")).name
+    if file == "<stdin>":
+        file = "kernel.c"
+    return f"DebugLoc:\t{file}:{loc.get('Line','?')}:{loc.get('Column','?')}\n"
 
 
 def pretty_args(args: list[dict] | None) -> str:
