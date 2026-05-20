@@ -21,11 +21,11 @@ from canary.validate import ValidationResult, check_semantics
 from canary.run import RunConfig, RunResult
 
 # ====---- Global Environment ----==== #
-MAX_ATTEMPTS: int = os.getenv("MAX_ATTEMPTS", 1)
-MAX_SYNTAX_ATTEMPTS: int = os.getenv("MAX_SYNTAX_ATTEMPTS", 3)
+MAX_ATTEMPTS: int = int(os.getenv("MAX_ATTEMPTS", 1))
+MAX_SYNTAX_ATTEMPTS: int = int(os.getenv("MAX_SYNTAX_ATTEMPTS", 3))
 # NOTE: semantics repair is currently disabled
-MAX_SEMANTICS_ATTEMPTS: int = os.getenv("MAX_SEMANTICS_ATTEMPTS", 0)
-MAX_RETRIES: int = os.getenv("MAX_RETRIES", 3)
+MAX_SEMANTICS_ATTEMPTS: int = int(os.getenv("MAX_SEMANTICS_ATTEMPTS", 0))
+MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", 3))
 
 CFLAGS: list[str] = shlex.split(os.getenv("CFLAGS", ""))
 INCLUDES: str = os.getenv("INCLUDES", "")
