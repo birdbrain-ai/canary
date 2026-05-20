@@ -12,7 +12,7 @@
 # ---------------------------------------------------------------------------
 # Experiment parameters (override via the environment)
 # ---------------------------------------------------------------------------
-TRIALS="${TRIALS:-10}"
+TRIALS="${TRIALS:-100}"
 EXPERIMENT_NAME="${EXPERIMENT_NAME:-clang-default}"
 
 MODELS=(
@@ -74,7 +74,7 @@ for MODEL in "${MODELS[@]}"; do
    "$PROJECT_DIR/language-models/tunnel.sh" "$MODEL"
    # Run a canary experiment.
    cd "$PROJECT_DIR"
-   uv run canary \
+   MAX_RETRIES=1 uv run canary \
       "$TSVC_DIR/kernels" \
       --model "$MODEL" \
       --api-url http://localhost:8000/v1 \
@@ -84,7 +84,7 @@ for MODEL in "${MODELS[@]}"; do
 	  --transform "loop-vectorize" \
       --temperature "${TEMPERATURES[@]}"
 
-   uv run canary \
+   MAX_RETRIES=1 uv run canary \
       "$TSVC_DIR/kernels" \
       --model "$MODEL" \
       --api-url http://localhost:8000/v1 \
