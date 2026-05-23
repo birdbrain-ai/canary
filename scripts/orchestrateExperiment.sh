@@ -20,22 +20,25 @@ MODELS=(
    # google/gemma-3-4b-it
    # google/gemma-3-12b-it
    # google/gemma-3-27b-it
-   google/gemma-4-E2B-it
-   google/gemma-4-E4B-it
-   google/gemma-4-26B-A4B-it
-   google/gemma-4-31B-it
+   # google/gemma-4-E2B-it
+   # google/gemma-4-E4B-it
+   # google/gemma-4-26B-A4B-it
+	mistralai/Devstral-Small-2507
+	Qwen/Qwen3-Coder-30B-A3B-Instruct
+	google/gemma-4-31B-it
 )
 
 # loop-vectorize remarks to ablate (canary adds an implicit baseline run).
 ABLATE=(
-   loop-vectorize:CantIdentifyArrayBounds
-   loop-vectorize:CantVectorizeInstruction
-   loop-vectorize:CantVectorizeLibcall
-   loop-vectorize:MissedDetails
-   loop-vectorize:NonReductionValueUsedOutsideLoop
+   # loop-vectorize:CantIdentifyArrayBounds
+   # loop-vectorize:CantVectorizeInstruction
+   # loop-vectorize:CantVectorizeLibcall
+   # loop-vectorize:MissedDetails
+   # loop-vectorize:NonReductionValueUsedOutsideLoop
    loop-vectorize:UnsafeDep
-   loop-vectorize:UnsupportedUncountableLoop
-   loop-vectorize:WritesInEarlyExitLoop
+   loop-vectorize:CantReorderFPOps
+   # loop-vectorize:UnsupportedUncountableLoop
+   # loop-vectorize:WritesInEarlyExitLoop
 )
 
 SLP_ABLATE=(
@@ -84,16 +87,6 @@ for MODEL in "${MODELS[@]}"; do
 	  --transform "loop-vectorize" \
       --temperature "${TEMPERATURES[@]}"
 
-   MAX_RETRIES=1 uv run canary \
-      "$TSVC_DIR/kernels" \
-      --model "$MODEL" \
-      --api-url http://localhost:8000/v1 \
-      --trials "$TRIALS" \
-      --jobs 32 \
-      --ablate "${SLP_ABLATE[@]}" \
-	  --transform "slp-vectorizer" \
-      --temperature "${TEMPERATURES[@]}"
-   
    # Tear down the vLLM server.
    cd "$SCRIPT_DIR"
    "$PROJECT_DIR/language-models/killall.sh"
