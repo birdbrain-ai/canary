@@ -77,6 +77,11 @@ def parse_args():
         help="PASS:REMARK remarks to ablate — one extra run per entry. Example: <PASS>:<REMARK>",
     )
     parser.add_argument(
+        "--no-remarks",
+        action="store_true",
+        help="Drop all optimization remarks before passing to the agent. Mutually exclusive with --filter and --ablate.",
+    )
+    parser.add_argument(
         "--jobs",
         "-j",
         type=int,
@@ -90,7 +95,10 @@ def parse_args():
         help="Enable verbose output",
     )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.no_remarks and (args.filter or args.ablate):
+        parser.error("--no-remarks cannot be combined with --filter or --ablate")
+    return args
 
 
 # ====---- Helpers ----==== #
@@ -111,6 +119,10 @@ def build_remark_filter(filters: list[str] | None) -> Callable[[Remark], bool]:
     return remark_filter
 
 
+def _drop_all_remarks(_: Remark) -> bool:
+    return True
+
+
 _thread_local = threading.local()
 
 
@@ -120,9 +132,10 @@ def _get_agent(
     model: str,
     api_key: str,
     api_url: str,
+    no_remarks: bool,
 ) -> Agent:
-    """Return a cached Agent for this thread, keyed on (filters, temperature)."""
-    key = (tuple(filters), temperature)
+    """Return a cached Agent for this thread, keyed on (filters, temperature, no_remarks)."""
+    key = (tuple(filters), temperature, no_remarks)
     if not hasattr(_thread_local, "agents"):
         _thread_local.agents = {}
     if key not in _thread_local.agents:
@@ -133,9 +146,12 @@ def _get_agent(
             temperature=temperature,
             request_timeout=600,
         )
+        remark_filter = (
+            _drop_all_remarks if no_remarks else build_remark_filter(filters)
+        )
         _thread_local.agents[key] = Agent(
             llm,
-            remark_filter=build_remark_filter(filters),
+            remark_filter=remark_filter,
         )
     return _thread_local.agents[key]
 
@@ -145,10 +161,18 @@ def run_one(
     model: str,
     api_key: str,
     api_url: str,
+    no_remarks: bool,
     verbose: bool = False,
 ) -> tuple[RunConfig, RunResult]:
 
-    agent = _get_agent(config.filters, config.temperature, model, api_key, api_url)
+    agent = _get_agent(
+        config.filters,
+        config.temperature,
+        model,
+        api_key,
+        api_url,
+        no_remarks,
+    )
     result, steps = agent.run(config, verbose=verbose)
     return config, result, steps
 
@@ -245,6 +269,7 @@ def main():
                     args.model,
                     args.api_key,
                     args.api_url,
+                    args.no_remarks,
                     args.verbose,
                 )
                 for c in configs
@@ -280,7 +305,9 @@ def main():
                 status = (
                     "nop"
                     if result.attempts == 0
-                    else "success" if result.success else f"failure ({result.reason})"
+                    else "success"
+                    if result.success
+                    else f"failure ({result.reason})"
                 )
                 recent.append(
                     (
