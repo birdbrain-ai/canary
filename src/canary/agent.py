@@ -278,7 +278,7 @@ class Agent:
                 kernel=state["kernel"],
                 remarks=state["remarks_output"],
                 compiler={"family": "clang"},
-                explain={"transformations": True, "diagnostics": True},
+                explain={"transformations": True, "diagnostics": False},
             )
 
             response = self._llm.invoke([HumanMessage(prompt)]).content
