@@ -76,7 +76,7 @@ def pretty_debug_loc(loc: dict | None) -> str:
     file = Path(loc.get("File", "?")).name
     if file == "<stdin>":
         file = "kernel.c"
-    return f"DebugLoc:\t{file}:{loc.get('Line','?')}:{loc.get('Column','?')}\n"
+    return f"DebugLoc:\t{file}:{loc.get('Line', '?')}:{loc.get('Column', '?')}\n"
 
 
 def pretty_args(args: list[dict] | None) -> str:
@@ -86,13 +86,27 @@ def pretty_args(args: list[dict] | None) -> str:
     return f"Args:\t{msg.replace(chr(10), ' ').strip()}\n"
 
 
+# Extra context emitted by -Rpass-missed but missing from the YAML record.
+_REMARK_HINTS: dict[tuple[str, str], str] = {
+    ("loop-vectorize", "CantReorderFPOps"): (
+        "allow reordering by specifying "
+        "'#pragma clang loop vectorize(enable)' before the loop "
+        "or by providing the compiler option '-ffast-math'"
+    ),
+}
+
+
 def to_string(remark: Remark) -> str:
+    args_line = pretty_args(remark.Args)
+    hint = _REMARK_HINTS.get((remark.Pass, remark.Name))
+    if hint:
+        args_line = args_line.rstrip("\n") + "; " + hint + "\n"
     return (
         f"Pass:\t{remark.Pass}\n"
         f"Name:\t{remark.Name}\n"
         f"Function:\t{remark.Function}\n"
         + pretty_debug_loc(remark.DebugLoc)
-        + pretty_args(remark.Args)
+        + args_line
     )
 
 
