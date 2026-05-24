@@ -6,8 +6,34 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+import yaml
+
+try:
+    _YamlLoader = yaml.CSafeLoader
+except AttributeError:
+    _YamlLoader = yaml.SafeLoader
+
+# clang's optimization records tag each document (e.g. !Passed, !Missed,
+# !Analysis). SafeLoader rejects unknown tags, so map any !-tag to a plain
+# mapping.
+yaml.add_multi_constructor(
+    "!",
+    lambda loader, suffix, node: loader.construct_mapping(node, deep=True),
+    Loader=_YamlLoader,
+)
+
 CONFIG_REL = "configs/clang-default.json"
 CONFIG_NAME = "clang-default"
+
+
+def check_vectorized(remarks_stdout):
+    try:
+        for d in yaml.load_all(remarks_stdout, Loader=_YamlLoader):
+            if isinstance(d, dict) and d.get("Name") == "Vectorized":
+                return True
+    except yaml.YAMLError:
+        return False
+    return False
 
 
 def last_kernel(trial):
@@ -66,29 +92,49 @@ def build_suite(tsvc_dir):
     )
 
 
-def run_trial(trial_dir, makefile, timeout_s=300):
+def run_trial(trial_dir, makefile, config_sh, timeout_s=300):
+    # clang-remarks (tsvc/bin/clang-remarks) is a shell wrapper that reads
+    # $CC and lives on $PATH only after config.sh is sourced.
+    prelude = f"source {config_sh} && "
     try:
         r = subprocess.run(
-            ["make", "-f", str(makefile), "run"],
+            ["bash", "-c", prelude + f"make -f {makefile} remarks"],
+            cwd=trial_dir,
+            capture_output=True,
+            timeout=timeout_s,
+        )
+        vectorized = r.returncode == 0 and check_vectorized(r.stdout)
+    except subprocess.TimeoutExpired:
+        vectorized = False
+
+    try:
+        r = subprocess.run(
+            ["bash", "-c", prelude + f"make -f {makefile} run"],
             cwd=trial_dir,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             timeout=timeout_s,
         )
-        return r.returncode
+        code = r.returncode
     except subprocess.TimeoutExpired:
-        return -1
+        code = -1
+
+    return code, vectorized
 
 
-def run_all_trials(tsvc_dir, trials, workers=None):
+def run_all_trials(tsvc_dir, exp_dir, trials, workers=None):
     makefile = Path(tsvc_dir) / "Makefile.kernel"
+    config_sh = Path(exp_dir) / "config.sh"
     workers = workers or 64
     total = len(trials)
     results = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-        futures = {ex.submit(run_trial, t["trial_dir"], makefile): t for t in trials}
+        futures = {
+            ex.submit(run_trial, t["trial_dir"], makefile, config_sh): t
+            for t in trials
+        }
         for i, fut in enumerate(concurrent.futures.as_completed(futures), 1):
-            results.append((futures[fut], fut.result()))
+            results.append((futures[fut], *fut.result()))
             if i % 200 == 0 or i == total:
                 print(f"  {i}/{total}", file=sys.stderr)
     return results
@@ -117,23 +163,24 @@ def main():
     seed_trials(exp_dir, trials, ntrials)
 
     build_suite(tsvc_dir)
-    results = run_all_trials(tsvc_dir, trials)
+    results = run_all_trials(tsvc_dir, exp_dir, trials)
 
     total = len(results)
-    success = sum(1 for _, code in results if code == 0)
+    success = sum(1 for _, code, vec in results if code == 0 and vec)
     print(f"\n{success}/{total} succeeded ({100*success/total:.1f}%)")
 
     bucket_success = Counter()
     buckets = set()
-    for t, code in results:
+    for t, code, vec in results:
         key = (t["model"], t["kernel"], t["ablated"], t["temperature"])
         buckets.add(key)
-        if code == 0:
+        if code == 0 and vec:
             bucket_success[key] += 1
 
     csv_path = Path(sys.argv[1]) / f"results_{total_trials}trials.csv"
     with csv_path.open("w", newline="") as f:
         w = csv.writer(f)
+        # success_count = trials that ran to exit 0 AND vectorized the kernel.
         w.writerow(["model", "kernel_id", "diagnostic", "temperature", "success_count"])
         for key in sorted(buckets):
             w.writerow([*key, bucket_success[key]])
