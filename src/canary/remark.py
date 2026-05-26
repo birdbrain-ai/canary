@@ -110,6 +110,22 @@ def to_string(remark: Remark) -> str:
     )
 
 
+def baseline_remarks(
+    source: str, exe: str, flags: list[str] = None
+) -> list[Remark] | None:
+    """Run the compiler and return parsed remarks, or None on compile error."""
+    retval, stdout, _ = get_remarks(source, exe, flags)
+    if retval != 0:
+        return None
+    return parse_remarks(stdout)
+
+
+def has_remark(remarks: list[Remark], spec: str) -> bool:
+    """Return True if the PASS:REMARK spec appears anywhere in remarks."""
+    pass_name, remark_name = spec.split(":")
+    return any(r.Pass == pass_name and r.Name == remark_name for r in remarks)
+
+
 def is_optimized(transform: str, remarks: list[Remark]) -> bool:
     """Return True if transformation fired in the given remarks."""
     return any(r.Pass == transform and r.kind == RemarkKind.PASSED for r in remarks)
