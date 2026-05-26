@@ -243,9 +243,7 @@ def main():
     steps_json = out_dir / "steps.json"
 
     nruns = len(configs) * args.trials
-    console.print(
-        f"Running {nruns} total run(s) ({len(kernels)} kernels x {len(args.temperature)} temperatures x {len(ablation_configs)} filters x {args.trials} trials)"
-    )
+    console.print(f"Running {nruns} total run(s)")
     console.print(f"Results -> {result_json}\n")
 
     recent: deque[tuple[str, str]] = deque(maxlen=5)
@@ -311,9 +309,7 @@ def main():
                 status = (
                     "nop"
                     if result.attempts == 0
-                    else "success"
-                    if result.success
-                    else f"failure ({result.reason})"
+                    else "success" if result.success else f"failure ({result.reason})"
                 )
                 recent.append(
                     (
