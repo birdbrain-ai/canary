@@ -16,7 +16,7 @@ from rich.progress import Progress, SpinnerColumn, TimeElapsedColumn
 from rich.text import Text
 
 from canary.agent import Agent
-from canary.remark import Remark, check_optimized
+from canary.remark import Remark, baseline_remarks, has_remark, is_optimized
 from canary.run import RunConfig, RunResult
 from canary.console import console
 
@@ -189,17 +189,17 @@ def main():
         console.print(f"ERROR: No C files found at {path}")
         sys.exit(1)
 
-    # Pre-filter kernels that are already optimized.
+    # Compute baseline remarks once per kernel.
     all_kernels = kernels
+    kernel_remarks: dict[Path, list[Remark]] = {}
+    for k in all_kernels:
+        remarks = baseline_remarks(k.read_text(), REMARKS, [CFLAGS, INCLUDES])
+        if remarks is not None:
+            kernel_remarks[k] = remarks
+
+    # Filter out already-optimized (and failed-to-compile) kernels.
     kernels = [
-        k
-        for k in all_kernels
-        if not check_optimized(
-            k.read_text(),
-            REMARKS,
-            args.transform,
-            [CFLAGS, INCLUDES],
-        )
+        k for k, r in kernel_remarks.items() if not is_optimized(args.transform, r)
     ]
     console.print(
         f"Skipping {len(all_kernels) - len(kernels)} already-optimized kernel(s), {len(kernels)} remaining."
@@ -211,11 +211,16 @@ def main():
         console.print("All kernels are already optimized. Nothing to do.")
         sys.exit(0)
 
-    # Construct the set of ablation configurations.
     base_filters = args.filter or []
-    ablation_configs: list[str | None] = [None] + (args.ablate or [])
+
+    # Per-kernel active ablation specs (only those whose diagnostic is present).
+    kernel_ablations: dict[Path, list[str]] = {
+        k: [a for a in (args.ablate or []) if has_remark(kernel_remarks[k], a)]
+        for k in kernels
+    }
 
     # Construct the set of run configurations.
+    # When ablations are requested, skip kernels with none active (no base run either).
     configs = [
         RunConfig(
             kernel,
@@ -226,8 +231,9 @@ def main():
             base_filters + ([ablated] if ablated else []),
         )
         for kernel in kernels
+        if not args.ablate or kernel_ablations[kernel]
         for temp in args.temperature
-        for ablated in ablation_configs
+        for ablated in [None] + kernel_ablations[kernel]
     ]
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%s")
