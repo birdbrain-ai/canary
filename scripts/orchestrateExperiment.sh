@@ -23,22 +23,22 @@ MODELS=(
    # google/gemma-4-E2B-it
    # google/gemma-4-E4B-it
    # google/gemma-4-26B-A4B-it
-	mistralai/Devstral-Small-2507
+	# mistralai/Devstral-Small-2507
 	Qwen/Qwen3-Coder-30B-A3B-Instruct
-	google/gemma-4-31B-it
+	# google/gemma-4-31B-it
 )
 
 # loop-vectorize remarks to ablate (canary adds an implicit baseline run).
 ABLATE=(
-   # loop-vectorize:CantIdentifyArrayBounds
-   # loop-vectorize:CantVectorizeInstruction
-   # loop-vectorize:CantVectorizeLibcall
-   # loop-vectorize:MissedDetails
-   # loop-vectorize:NonReductionValueUsedOutsideLoop
+   loop-vectorize:CantIdentifyArrayBounds
+   loop-vectorize:CantVectorizeInstruction
+   loop-vectorize:CantVectorizeLibcall
+   loop-vectorize:MissedDetails
+   loop-vectorize:NonReductionValueUsedOutsideLoop
    loop-vectorize:UnsafeDep
-   loop-vectorize:CantReorderFPOps
-   # loop-vectorize:UnsupportedUncountableLoop
-   # loop-vectorize:WritesInEarlyExitLoop
+   # loop-vectorize:CantReorderFPOps
+   loop-vectorize:UnsupportedUncountableLoop
+   loop-vectorize:WritesInEarlyExitLoop
 )
 
 SLP_ABLATE=(
@@ -47,7 +47,7 @@ SLP_ABLATE=(
 )
 
 
-TEMPERATURES=(0.2 0.8 1.2)
+TEMPERATURES=(0.0 0.2 0.8 1.2)
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -82,8 +82,19 @@ for MODEL in "${MODELS[@]}"; do
       --model "$MODEL" \
       --api-url http://localhost:8000/v1 \
       --trials "$TRIALS" \
-      --jobs 32 \
-      --ablate "${ABLATE[@]}" \
+	  --ablate "${ABLATE[@]}" \
+      --jobs 64 \
+	  --transform "loop-vectorize" \
+      --temperature "${TEMPERATURES[@]}"
+
+   # Baseline with all remarks suppressed.
+   MAX_RETRIES=1 uv run canary \
+      "$TSVC_DIR/kernels" \
+      --model "$MODEL" \
+      --api-url http://localhost:8000/v1 \
+      --trials "$TRIALS" \
+      --jobs 64 \
+      --no-remarks \
 	  --transform "loop-vectorize" \
       --temperature "${TEMPERATURES[@]}"
 
