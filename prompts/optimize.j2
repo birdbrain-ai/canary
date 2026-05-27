@@ -9,12 +9,11 @@ You are a performance engineer. Your task is to modify a C/C++ function so that 
 {{ remarks }}
 
 ## Your Task
-Identify why vectorization failed from the remarks above and apply the minimal source-level change that fixes it. Prefer the simplest fix — add a pragma before adding attributes, add attributes before restructuring loops.
+Identify why vectorization failed from the remarks above and apply the minimal source-level change that fixes it.
 
 ## Allowed Changes
 - `#pragma` loop directives placed on the line immediately above the loop header
-- `__restrict` and `__attribute__((aligned(64)))` on pointer parameters
-- Loop restructuring (distribution, peeling, scalar expansion) only if pragmas and attributes are insufficient
+- Loop restructuring (distribution, peeling, scalar expansion)
 
 ## Prohibited Changes
 - Do not change loop bounds or iteration count
