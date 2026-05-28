@@ -1,3 +1,4 @@
+import argparse
 import concurrent.futures
 import csv
 import json
@@ -22,8 +23,7 @@ yaml.add_multi_constructor(
     Loader=_YamlLoader,
 )
 
-CONFIG_REL = "configs/clang-default.json"
-CONFIG_NAME = "clang-default"
+DEFAULT_CONFIG_REL = "configs/clang-default.json"
 
 
 def check_vectorized(remarks_stdout):
@@ -62,16 +62,16 @@ def parse_trials(steps_path):
     return trials
 
 
-def run_mkexperiment(tsvc_dir, ntrials):
+def run_mkexperiment(tsvc_dir, ntrials, config_rel):
     subprocess.run(
-        ["scripts/mkexperiment.sh", "-c", CONFIG_REL, "-n", str(ntrials), "-y"],
+        ["scripts/mkexperiment.sh", "-c", config_rel, "-n", str(ntrials), "-y"],
         cwd=tsvc_dir,
         check=True,
     )
 
 
-def latest_experiment(tsvc_dir):
-    base = Path(tsvc_dir) / "experiments" / CONFIG_NAME
+def latest_experiment(tsvc_dir, config_name):
+    base = Path(tsvc_dir) / "experiments" / config_name
     return max(base.iterdir(), key=lambda p: p.stat().st_mtime)
 
 
@@ -141,16 +141,22 @@ def run_all_trials(tsvc_dir, exp_dir, trials, workers=None):
 
 
 def main():
-    if len(sys.argv) != 4:
-        print(
-            f"usage: {sys.argv[0]} <out/<run>/> <total_trials> <tsvc_dir>",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    p = argparse.ArgumentParser()
+    p.add_argument("run_dir", help="out/<run>/ directory containing steps.json")
+    p.add_argument("total_trials", type=int)
+    p.add_argument("tsvc_dir")
+    p.add_argument(
+        "--config",
+        default=DEFAULT_CONFIG_REL,
+        help="path to config json, relative to tsvc_dir "
+        f"(default: {DEFAULT_CONFIG_REL})",
+    )
+    args = p.parse_args()
 
-    steps_path = Path(sys.argv[1]) / "steps.json"
-    total_trials = int(sys.argv[2])
-    tsvc_dir = sys.argv[3]
+    steps_path = Path(args.run_dir) / "steps.json"
+    total_trials = args.total_trials
+    tsvc_dir = args.tsvc_dir
+    config_name = json.loads((Path(tsvc_dir) / args.config).read_text())["name"]
 
     trials = parse_trials(steps_path)
     if not trials:
@@ -158,8 +164,8 @@ def main():
         sys.exit(1)
 
     ntrials = max(Counter(t["kernel"] for t in trials).values())
-    run_mkexperiment(tsvc_dir, ntrials)
-    exp_dir = latest_experiment(tsvc_dir)
+    run_mkexperiment(tsvc_dir, ntrials, args.config)
+    exp_dir = latest_experiment(tsvc_dir, config_name)
     seed_trials(exp_dir, trials, ntrials)
 
     build_suite(tsvc_dir)
@@ -177,7 +183,7 @@ def main():
         if code == 0 and vec:
             bucket_success[key] += 1
 
-    csv_path = Path(sys.argv[1]) / f"results_{total_trials}trials.csv"
+    csv_path = Path(args.run_dir) / f"results_{total_trials}trials.csv"
     with csv_path.open("w", newline="") as f:
         w = csv.writer(f)
         # success_count = trials that ran to exit 0 AND vectorized the kernel.

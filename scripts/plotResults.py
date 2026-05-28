@@ -4,15 +4,11 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
-import statsmodels.api as sm
-from patsy import dmatrix
 from scipy import stats
 
 TEMPERATURES = [0.0, 0.2, 0.8, 1.2]
 COVERAGE_PATH = Path(__file__).resolve().parent.parent / "benchmarks" / "coverage.csv"
 COVERAGE_COLUMN = "clang"
-STATS_DIAGNOSTIC = "loop-vectorize:MissedDetails"
 
 
 def load(csv_path):
@@ -66,123 +62,50 @@ def rate_over(rows, kernels, diagnostic, temperature, total_trials):
     return successes / (len(kernels) * total_trials)
 
 
-def per_kernel_deltas(rows, kernels, diagnostic, temperature, total_trials):
-    baseline = {}
-    ablated = {}
+def lookup_count(rows, kernel, diagnostic, temperature):
     for r in rows:
-        if r["kernel_id"] not in kernels or r["temperature"] != temperature:
-            continue
-        if r["diagnostic"] == "":
-            baseline[r["kernel_id"]] = r["success_count"]
-        elif r["diagnostic"] == diagnostic:
-            ablated[r["kernel_id"]] = r["success_count"]
-
-    common = baseline.keys() & ablated.keys()
-    return {k: (baseline[k] - ablated[k]) / total_trials for k in common}
+        if (r["kernel_id"] == kernel
+                and r["diagnostic"] == diagnostic
+                and r["temperature"] == temperature):
+            return r["success_count"]
+    return None
 
 
-def paired_stats(deltas_a, deltas_b):
-    kernels = sorted(deltas_a.keys() & deltas_b.keys())
-    a = np.array([deltas_a[k] for k in kernels])
-    b = np.array([deltas_b[k] for k in kernels])
-    diff = a - b
-
-    pos = int((diff > 0).sum())
-    neg = int((diff < 0).sum())
-    ties = int((diff == 0).sum())
-
-    if len(kernels) >= 2 and np.any(diff != 0):
-        t_pvalue = stats.ttest_rel(a, b).pvalue
-    else:
-        t_pvalue = float("nan")
-
-    if pos + neg > 0:
-        sign_pvalue = stats.binomtest(pos, pos + neg, 0.5).pvalue
-    else:
-        sign_pvalue = float("nan")
-
-    return {
-        "n": len(kernels),
-        "pos": pos,
-        "neg": neg,
-        "ties": ties,
-        "t_pvalue": t_pvalue,
-        "sign_pvalue": sign_pvalue,
-    }
-
-
-def compare_temperatures(rows, model, coverage, diagnostic, total_trials):
+def per_kernel_fisher(rows, model, coverage, diagnostic, total_trials):
     rows = [r for r in rows if r["model"] == model]
     kernels = kernels_for_diagnostic(coverage, rows, diagnostic)
     if not kernels:
-        print(f"\n{model} — {diagnostic}: no usable kernels, skipping")
+        print(f"\n{model} — {diagnostic}: no usable kernels, skipping Fisher's test")
         return
 
-    deltas = {
-        t: per_kernel_deltas(rows, kernels, diagnostic, t, total_trials)
-        for t in TEMPERATURES
-    }
-
     print(
-        f"\n{model} — {diagnostic} — pairwise temperature comparisons "
-        f"(|K|={len(kernels)})"
+        f"\n{model} — {diagnostic} — per-kernel Fisher's exact test "
+        f"(N={total_trials}/arm; with = baseline, without = ablated)"
     )
-    print(f"  {'pair':<16}{'n':<5}{'t-test p':<12}{'sign p':<12}signs (+/-/=)")
-    print("  " + "-" * 60)
+    print(
+        f"  {'kernel':<10}{'t':<6}{'with':<8}{'without':<10}"
+        f"{'Δ':<10}{'OR':<10}{'p':<12}"
+    )
+    print("  " + "-" * 66)
 
-    for i, ta in enumerate(TEMPERATURES):
-        for tb in TEMPERATURES[i + 1:]:
-            s = paired_stats(deltas[ta], deltas[tb])
-            pair = f"t={ta} vs t={tb}"
-            signs = f"+{s['pos']}/-{s['neg']}/={s['ties']}"
-            print(
-                f"  {pair:<16}{s['n']:<5}"
-                f"{s['t_pvalue']:<12.4f}{s['sign_pvalue']:<12.4f}{signs}"
+    for k in sorted(kernels):
+        for t in TEMPERATURES:
+            with_succ = lookup_count(rows, k, "", t)
+            without_succ = lookup_count(rows, k, diagnostic, t)
+            if with_succ is None or without_succ is None:
+                continue
+            with_fail = total_trials - with_succ
+            without_fail = total_trials - without_succ
+            res = stats.fisher_exact(
+                [[with_succ, with_fail], [without_succ, without_fail]]
             )
-
-
-def build_logit_frame(rows, kernels, diagnostic, total_trials):
-    records = []
-    for r in rows:
-        if r["kernel_id"] not in kernels:
-            continue
-        if r["diagnostic"] == "":
-            has_remark = 1
-        elif r["diagnostic"] == diagnostic:
-            has_remark = 0
-        else:
-            continue
-        records.append({
-            "kernel_id": r["kernel_id"],
-            "has_remark": has_remark,
-            "temperature": r["temperature"],
-            "successes": r["success_count"],
-            "failures": total_trials - r["success_count"],
-        })
-    return pd.DataFrame(records)
-
-
-def fit_clustered_logit(rows, model, coverage, diagnostic, total_trials):
-    rows = [r for r in rows if r["model"] == model]
-    kernels = kernels_for_diagnostic(coverage, rows, diagnostic)
-    if not kernels:
-        print(f"\n{model} — {diagnostic}: no usable kernels, skipping logit")
-        return
-
-    df = build_logit_frame(rows, kernels, diagnostic, total_trials)
-    X = dmatrix("has_remark * C(temperature)", df, return_type="dataframe")
-    y = df[["successes", "failures"]].values
-
-    fit = sm.GLM(y, X, family=sm.families.Binomial()).fit(
-        cov_type="cluster",
-        cov_kwds={"groups": df["kernel_id"].values},
-    )
-
-    print(
-        f"\n{model} — {diagnostic} — clustered logit "
-        f"(cluster=kernel_id, |K|={len(kernels)})"
-    )
-    print(fit.summary().tables[1])
+            or_val, p_val = res.statistic, res.pvalue
+            delta = (with_succ - without_succ) / total_trials
+            or_str = "inf" if or_val == float("inf") else f"{or_val:.3f}"
+            print(
+                f"  {k:<10}{t:<6}{with_succ:<8}{without_succ:<10}"
+                f"{delta:<+10.3f}{or_str:<10}{p_val:<12.4g}"
+            )
 
 
 def plot_model(rows, model, coverage, total_trials, out_path):
@@ -259,8 +182,10 @@ def main():
         safe = model.replace("/", "_")
         out = csv_path.parent / f"{csv_path.stem}_{safe}.png"
         plot_model(rows, model, coverage, total_trials, out)
-        compare_temperatures(rows, model, coverage, STATS_DIAGNOSTIC, total_trials)
-        fit_clustered_logit(rows, model, coverage, STATS_DIAGNOSTIC, total_trials)
+        diagnostics = sorted({r["diagnostic"] for r in rows
+                              if r["diagnostic"] and r["model"] == model})
+        for d in diagnostics:
+            per_kernel_fisher(rows, model, coverage, d, total_trials)
 
 
 if __name__ == "__main__":

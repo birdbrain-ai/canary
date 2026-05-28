@@ -12,8 +12,8 @@
 # ---------------------------------------------------------------------------
 # Experiment parameters (override via the environment)
 # ---------------------------------------------------------------------------
-TRIALS="${TRIALS:-100}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-clang-default}"
+TRIALS="${TRIALS:-1}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-clang-canary}"
 
 MODELS=(
    # google/gemma-3-1b-it
@@ -36,7 +36,7 @@ ABLATE=(
    loop-vectorize:MissedDetails
    loop-vectorize:NonReductionValueUsedOutsideLoop
    loop-vectorize:UnsafeDep
-   # loop-vectorize:CantReorderFPOps
+   loop-vectorize:CantReorderFPOps
    loop-vectorize:UnsupportedUncountableLoop
    loop-vectorize:WritesInEarlyExitLoop
 )
@@ -88,15 +88,15 @@ for MODEL in "${MODELS[@]}"; do
       --temperature "${TEMPERATURES[@]}"
 
    # Baseline with all remarks suppressed.
-   MAX_RETRIES=1 uv run canary \
-      "$TSVC_DIR/kernels" \
-      --model "$MODEL" \
-      --api-url http://localhost:8000/v1 \
-      --trials "$TRIALS" \
-      --jobs 64 \
-      --no-remarks \
-	  --transform "loop-vectorize" \
-      --temperature "${TEMPERATURES[@]}"
+   # MAX_RETRIES=1 uv run canary \
+   #    "$TSVC_DIR/kernels" \
+   #    --model "$MODEL" \
+   #    --api-url http://localhost:8000/v1 \
+   #    --trials "$TRIALS" \
+   #    --jobs 64 \
+   #    --no-remarks \
+   # 	  --transform "loop-vectorize" \
+   #    --temperature "${TEMPERATURES[@]}"
 
    # Tear down the vLLM server.
    cd "$SCRIPT_DIR"
