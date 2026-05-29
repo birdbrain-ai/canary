@@ -184,9 +184,6 @@ def main():
         plot_model(rows, model, coverage, total_trials, out)
         diagnostics = sorted({r["diagnostic"] for r in rows
                               if r["diagnostic"] and r["model"] == model})
-        for d in diagnostics:
-            per_kernel_fisher(rows, model, coverage, d, total_trials)
-
 
 if __name__ == "__main__":
     main()

@@ -34,12 +34,6 @@ def main():
     yes_df = load(args.yes_csv)
     no_df = load(args.no_csv)
 
-    if not (no_df["diagnostic"] == "").all():
-        sys.exit(
-            "error: no_csv must contain only rows with empty diagnostic; "
-            "check the arg order."
-        )
-
     yes_base = yes_df[(yes_df["diagnostic"] == "") & (yes_df["temperature"] == TEMPERATURE)]
     no_base = no_df[(no_df["diagnostic"] == "") & (no_df["temperature"] == TEMPERATURE)]
 
