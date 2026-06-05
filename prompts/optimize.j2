@@ -1,0 +1,52 @@
+You are a performance engineer. Your task is to modify a C/C++ function so that the compiler will successfully auto-vectorize it, while preserving exact semantic behavior.
+
+## Source Code
+```c
+{{ kernel }}
+```
+
+## Compiler Remarks
+{{ remarks }}
+
+## Your Task
+Identify why vectorization failed from the remarks above and apply the minimal source-level change that fixes it.
+
+## Allowed Changes
+- `#pragma` loop directives placed on the line immediately above the loop header
+- Loop restructuring (distribution, peeling, scalar expansion)
+
+## Prohibited Changes
+- Do not change loop bounds or iteration count
+- Do not add OpenMP or SIMD intrinsics
+- Do not change the function signature
+
+{% if compiler.family == 'clang' %}
+## Available Pragmas
+- `#pragma clang loop vectorize(enable)` — force vectorization attempt
+- `#pragma clang loop vectorize(assume_safety)` — disable dependency check (only if iterations are provably independent)
+- `#pragma clang loop vectorize_width(N)`
+- `#pragma clang loop interleave(enable)`
+- `#pragma clang loop distribute(enable)`
+{% elif compiler.family == 'intel' %}
+## Available Pragmas
+- `#pragma vector always`
+- `#pragma ivdep` — only if iterations are provably independent
+- `#pragma unroll`
+{% endif %}
+
+{% if explain.diagnostics %}
+## Interpreting Remarks
+- "loop not vectorized: unsafe dependent memory operations" → try `__restrict` on aliased pointers, or `vectorize(assume_safety)` if independent
+- "loop not vectorized: could not determine number of loop iterations" → simplify loop bound to a local variable before the loop
+- "loop not vectorized: value that could not be identified as reduction" → introduce explicit reduction variable
+- "loop not vectorized: mixed data types" → cast to uniform type before the loop
+{% endif %}
+
+## Output
+Return only the change as a SEARCH/REPLACE block. SEARCH must match the existing source exactly, including whitespace and indentation:
+
+<<<<<<< SEARCH
+// exact lines from the source to replace
+=======
+// modified lines
+>>>>>>> REPLACE
