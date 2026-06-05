@@ -10,6 +10,27 @@ TEMPERATURES = [0.0, 0.2, 0.8, 1.2]
 COVERAGE_PATH = Path(__file__).resolve().parent.parent / "benchmarks" / "coverage.csv"
 COVERAGE_COLUMN = "clang"
 
+# --- plot presentation knobs -------------------------------------------------
+# Temperatures to show in the chart (T=0.0 dropped for now).
+PLOT_TEMPERATURES = [0.2, 0.8, 1.2]
+# Per-temperature bar colors, aligned with PLOT_TEMPERATURES (green/yellow/blue).
+TEMP_COLORS = {0.2: "#4CAF50", 0.8: "#FFB300", 1.2: "#1E88E5"}
+# Stripped from diagnostic names when rendering x-axis labels.
+LABEL_PREFIX = "loop-vectorize:"
+# Diagnostics excluded from the chart entirely (substring match): MissedDetails
+# is irrelevant, and the CantVectorize* remarks have no impact.
+EXCLUDE_DIAGNOSTICS = [
+    "MissedDetails",
+    "CantVectorizeInstruction",
+    "CantVectorizeLibcall",
+]
+
+
+def _label(diagnostic):
+    return diagnostic[len(LABEL_PREFIX):] if diagnostic.startswith(
+        LABEL_PREFIX
+    ) else diagnostic
+
 
 def load(csv_path):
     rows = []
@@ -140,28 +161,53 @@ def plot_model(rows, model, coverage, total_trials, out_path):
             cells.append(f"{with_rem:>4}/{without_rem:<4}{delta:+7.3f}".rjust(25))
         print(f"  {d:<48}{len(ks):<5}{trials:<6}{'  '.join(cells)}")
 
-    x = np.arange(len(diagnostics))
-    n = len(TEMPERATURES)
+    # Decide which diagnostics make it into the chart: drop excluded names only.
+    plot_diags = [
+        d for d in diagnostics
+        if not any(s in d for s in EXCLUDE_DIAGNOSTICS)
+    ]
+    if not plot_diags:
+        print("  (no diagnostics left after exclusions; skipping chart)")
+        return
+
+    plt.style.use("seaborn-v0_8-whitegrid")
+    plt.rcParams.update({
+        "font.size": 13,
+        "axes.labelsize": 15,
+        "xtick.labelsize": 12,
+        "ytick.labelsize": 12,
+        "legend.fontsize": 12,
+        "legend.title_fontsize": 13,
+    })
+    x = np.arange(len(plot_diags))
+    n = len(PLOT_TEMPERATURES)
     width = 0.8 / n
 
-    fig, ax = plt.subplots(figsize=(max(10, 1.8 * len(diagnostics)), 6))
-    for i, t in enumerate(TEMPERATURES):
-        deltas = [baseline[d][t] - rates[d][t] for d in diagnostics]
-        ax.bar(x + (i - (n - 1) / 2) * width, deltas, width, label=f"t={t}")
+    fig, ax = plt.subplots(figsize=(max(8, 1.4 * len(plot_diags)), 6))
+    for i, t in enumerate(PLOT_TEMPERATURES):
+        deltas = [baseline[d][t] - rates[d][t] for d in plot_diags]
+        ax.bar(
+            x + (i - (n - 1) / 2) * width,
+            deltas,
+            width,
+            label=f"T = {t}",
+            color=TEMP_COLORS.get(t),
+            edgecolor="white",
+            linewidth=0.6,
+        )
 
-    ax.axhline(0, color="black", linewidth=0.8)
+    ax.axhline(0, color="0.3", linewidth=1.0)
     ax.set_xticks(x)
     ax.set_xticklabels(
-        [f"{d}\n(|K|={len(kernels_for[d])})" for d in diagnostics],
-        rotation=45, ha="right",
+        [_label(d) for d in plot_diags],
+        rotation=30, ha="right",
     )
-    ax.set_xlabel("diagnostic")
-    ax.set_ylabel("success rate delta")
-    ax.set_title(
-        f"{model} — per-diagnostic baseline "
-        f"(coverage={COVERAGE_COLUMN}, n={total_trials}/bucket)"
-    )
-    ax.legend()
+    ax.set_xlabel("")
+    ax.set_ylabel("success-rate Δ")
+    ax.margins(x=0.02)
+    ax.grid(axis="x", visible=False)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.legend(title="temperature", frameon=False)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close(fig)
