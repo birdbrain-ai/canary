@@ -65,3 +65,16 @@ To specify the LLVM transformation pass to evaluate:
 uv run canary ... \
    --transform pass-name
 ```
+
+If you use this work in your research, please cite the [CoDAIM'26 paper](https://arxiv.org/pdf/2604.13927).
+```bibtex
+@misc{deo2026aicodingagentsneed,
+      title={AI Coding Agents Need Better Compiler Remarks}, 
+      author={Akash Deo and Simone Campanoni and Tommy McMichen},
+      year={2026},
+      eprint={2604.13927},
+      archivePrefix={arXiv},
+      primaryClass={cs.PL},
+      url={https://arxiv.org/abs/2604.13927}, 
+}
+```
